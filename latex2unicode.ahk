@@ -12,7 +12,7 @@
 ;    4) \mathbbR[TAB]       ℝ   【空心字符触发】
 ;    5) \mathfrakR[TAB]     ℜ   【Fraktur字符触发】
 ;    6) \mathcalR[TAB]      𝓡   【花体字符触发】
-;    7) \hatR[TAB]          R̂   【戴帽花体字符触发】
+;    7) \hatR[TAB]          R̂   【戴帽字符触发】
 ; ----------------------------------------------
 
 ; 下标和上标 【确保在希腊字母前面】 https://katex.org/docs/supported.html#line-breaks
