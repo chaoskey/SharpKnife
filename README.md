@@ -8,20 +8,28 @@
 
 **假设 或 要求**：
 
--	1) 输入法采用微软拼音并且默认为英文
+-	输入法采用微软拼音并且默认为英文
 
--	2) 本脚开机启动
+-	本脚开机启动
 
--	3) 管住手，禁止鼠标点击切换中英文
+-	管住手，禁止鼠标点击切换中英文
 
--   4) 为每一个活动过的窗口记录中英文状态
+-   为每一个活动过的窗口记录中英文状态
+
+**启动**:  【建议配置成开机启动】
+
+`autohotkey.exe im_switch.ahk` 或 `autohotkey.exe main.ahk`(包括本项目所有脚本)
 
 ## 基于LaTex的Unicode特殊字符触发
 
 > 参考Katex，尽可能使用latex触发出对应的unicode字符
 >
 > https://katex.org/docs/supported.html
- 
+
+**启动**:  【建议配置成开机启动】
+
+`autohotkey.exe latex2unicode.ahk` 或 `autohotkey.exe main.ahk`(包括本项目所有脚本)
+
 **用法**: 只对不方便键盘输入的字符进行latex[TAB]替换， 如果没有替换说明输入错误或不支持
 
 **范例**: 只支持单字符的latex触发（目前支持如下7类）
