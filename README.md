@@ -18,7 +18,7 @@
 
 `autohotkey.exe im_switch.ahk` 或 `autohotkey.exe main.ahk`(包括本项目所有脚本)
 
-## 基于LaTex的Unicode特殊字符触发
+## 基于LaTeX的Unicode特殊字符触发
 
 > 参考Katex，尽可能使用latex触发出对应的unicode字符，适用于任何文本框，只支持字符逐个输入。
 >
