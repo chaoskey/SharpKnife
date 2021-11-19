@@ -5,10 +5,12 @@
 ; 
 ; 只对不方便键盘输入的字符进行latex[TAB]替换， 如果没有替换说明输入错误或不支持
 ;
-; 只支持单字符的latex触发（目前支持如下11类）
+; 只支持单字符的latex触发（目前支持如下12类）
 ;    _n[TAB]             ₙ   【下标触发】
 ;    ^n[TAB]             ⁿ   【上标触发】
+;
 ;    \alpha[TAB]         α   【单字符触发】
+;
 ;    \mathbbR[TAB]       ℝ   【空心字符触发】
 ;    \mathfrakR[TAB]     ℜ   【Fraktur字符触发】
 ;    \mathcalR[TAB]      𝓡   【花体字符触发】
@@ -17,1115 +19,1205 @@
 ;    \ddotR[TAB]         R̈   【上双点字符触发】
 ;    \tildeR[TAB]        R͂   【波浪字符触发】
 ;    \barR[TAB]          R̄   【上横杠字符触发】
+;
+;    \[片断字符串][TAB]       【搜索字符触发】
+;           1) \后如果输入少于2个字符，TAB后不做任何处理，但可能触发前面11类情况之一
+;           2) 如果完全匹配，就是前面11类情况之一
+;           3) 如果不完全匹配，但只有唯一匹配， 这就是我们需要的触发
+;           4) 如果不完全匹配，并且不唯一，弹出菜单，然后选择触发
+;           5) 如果不匹配，不做任何处理     
 ; ----------------------------------------------
 
-; 下标和上标 【确保在希腊字母前面】 https://katex.org/docs/supported.html#line-breaks
+; 热字符串列表
+; 由于关联数组的键不区分大小写，所以只能改用两个数组
+global latexHotstring := []
+global unicodestring := []
+loadHotlatex()
+Return
 
-:c*?:_0`t::₀  ; *表示不需要终止符(即空格, 句点或回车)来触发热字串， 另外指定Tab(`t)作为终止符；
-;               ?表示即使此热字串在另一个单词中也会被触发。
-;               c表示区分大小写: 当您输入缩写时, 它必须准确匹配脚本中定义的大小写形式
-:c*?:^0`t::⁰
-:c*?:_1`t::₁
-:c*?:_1`t::¹
-:c*?:_2`t::₂
-:c*?:^2`t::²
-:c*?:_3`t::₃
-:c*?:^3`t::³
-:c*?:_4`t::₄
-:c*?:^4`t::⁴
-:c*?:_5`t::₅
-:c*?:^5`t::⁵
-:c*?:_6`t::₆
-:c*?:^6`t::⁶
-:c*?:_7`t::₇
-:c*?:^7`t::⁷
-:c*?:_8`t::₈
-:c*?:^8`t::⁸
-:c*?:_9`t::₉
-:c*?:^9`t::⁹
-:c*?:_+`t::₊
-:c*?:^+`t::⁺
-:c*?:_-`t::₋
-:c*?:^-`t::⁻
-:c*?:_=`t::₌
-:c*?:^=`t::⁼
-:c*?:_(`t::₍
-:c*?:^(`t::⁽
-:c*?:_)`t::₎
-:c*?:^)`t::⁾
-:c*?:_0`t::ₐ
-:c*?:^a`t::ᵃ
-:c*?:^b`t::ᵇ
-:c*?:^c`t::ᶜ
-:c*?:^d`t::ᵈ
-:c*?:_e`t::ₑ
-:c*?:^e`t::ᵉ
-:c*?:^f`t::ᶠ
-:c*?:^g`t::ᵍ
-:c*?:_h`t::ₕ
-:c*?:^h`t::ʰ
-:c*?:_i`t::ᵢ
-:c*?:^i`t::ⁱ
-:c*?:_j`t::ⱼ
-:c*?:^j`t::ʲ
-:c*?:_k`t::ₖ
-:c*?:^k`t::ᵏ
-:c*?:_l`t::ₗ
-:c*?:^l`t::ˡ
-:c*?:_m`t::ₘ
-:c*?:^m`t::ᵐ
-:c*?:_n`t::ₙ
-:c*?:^n`t::ⁿ
-:c*?:_o`t::ₒ
-:c*?:^o`t::ᵒ
-:c*?:_p`t::ₚ
-:c*?:^p`t::ᵖ
-:c*?:_r`t::ᵣ
-:c*?:^r`t::ʳ
-:c*?:_s`t::ₛ
-:c*?:^s`t::ˢ
-:c*?:_t`t::ₜ
-:c*?:^t`t::ᵗ
-:c*?:_u`t::ᵤ
-:c*?:^u`t::ᵘ
-:c*?:_v`t::ᵥ
-:c*?:^v`t::ᵛ
-:c*?:^w`t::ʷ
-:c*?:_x`t::ₓ
-:c*?:^x`t::ˣ
-:c*?:^y`t::ʸ
-:c*?:^z`t::ᶻ
-:c*?:_\beta`t::ᵦ
-:c*?:^\beta`t::ᵝ
-:c*?:_\gamma`t::ᵧ
-:c*?:^\gamma`t::ᵞ
-:c*?:_\chi`t::ᵪ
-:c*?:^\chi`t::ᵡ
-:c*?:^\theta`t::ᶿ
-:c*?:_\rho`t::ᵨ
-:c*?:_\psi`t::ᵩ
+; 模仿热字串(Hotstring)，专门用来添加热latex(Hotlatex)
+Hotlatex(key, value)
+{
+    ; 绑定热字串
+    Hotstring(":c*?:" key "`t", value)
 
-; 定界符 https://katex.org/docs/supported.html#delimiters
+    ; 收集热字串，方便动态提示
+    latexHotstring.Push(key)
+    unicodestring.Push(value)
+}
 
-:c*?:\vert`t::∣
-:c*?:\Vert`t::∥
-:c*?:\|`t::∥
-:c*?:\lVert`t::∥
-:c*?:\rVert`t::∥
-:c*?:\langle`t::⟨
-:c*?:\rangle`t::⟩
-:c*?:\lceil`t::⌈
-:c*?:\rceil`t::⌉
-:c*?:\lfloor`t::⌊
-:c*?:\rfloor`t::⌋
-:c*?:\lmoustache`t::⎰
-:c*?:\rmoustache`t::⎱
-:c*?:\lgroup`t::⟮
-:c*?:\rgroup`t::⟯
-:c*?:\ulcorner`t::┌
-:c*?:\urcorner`t::┐
-:c*?:\llcorner`t::└
-:c*?:\lrcorner`t::┘
-:c*?:\llbracket`t::⟦
-:c*?:\rrbracket`t::⟧
-:c*?:\lBrace`t::⦃
-:c*?:\rBrace`t::⦄
+; 装载LaTeX热字符
+loadHotlatex()
+{
+    if (latexHotstring.Count() = 0)
+    {
+        ; 下标和上标 【确保在希腊字母前面】 https://katex.org/docs/supported.html#line-breaks
+        
+        Hotlatex("_0", "₀")
+        Hotlatex("^0", "⁰")
+        Hotlatex("_1", "₁")
+        Hotlatex("_1", "¹")
+        Hotlatex("_2", "₂")
+        Hotlatex("^2", "²")
+        Hotlatex("_3", "₃")
+        Hotlatex("^3", "³")
+        Hotlatex("_4", "₄")
+        Hotlatex("^4", "⁴")
+        Hotlatex("_5", "₅")
+        Hotlatex("^5", "⁵")
+        Hotlatex("_6", "₆")
+        Hotlatex("^6", "⁶")
+        Hotlatex("_7", "₇")
+        Hotlatex("^7", "⁷")
+        Hotlatex("_8", "₈")
+        Hotlatex("^8", "⁸")
+        Hotlatex("_9", "₉")
+        Hotlatex("^9", "⁹")
+        Hotlatex("_+", "₊")
+        Hotlatex("^+", "⁺")
+        Hotlatex("_-", "₋")
+        Hotlatex("^-", "⁻")
+        Hotlatex("_=", "₌")
+        Hotlatex("^=", "⁼")
+        Hotlatex("_(", "₍")
+        Hotlatex("^(", "⁽")
+        Hotlatex("_)", "₎")
+        Hotlatex("^)", "⁾")
+        Hotlatex("_a", "ₐ")
+        Hotlatex("^a", "ᵃ")
+        Hotlatex("^b", "ᵇ")
+        Hotlatex("^c", "ᶜ")
+        Hotlatex("^d", "ᵈ")
+        Hotlatex("_e", "ₑ")
+        Hotlatex("^e", "ᵉ")
+        Hotlatex("^f", "ᶠ")
+        Hotlatex("^g", "ᵍ")
+        Hotlatex("_h", "ₕ")
+        Hotlatex("^h", "ʰ")
+        Hotlatex("_i", "ᵢ")
+        Hotlatex("^i", "ⁱ")
+        Hotlatex("_j", "ⱼ")
+        Hotlatex("^j", "ʲ")
+        Hotlatex("_k", "ₖ")
+        Hotlatex("^k", "ᵏ")
+        Hotlatex("_l", "ₗ")
+        Hotlatex("^l", "ˡ")
+        Hotlatex("_m", "ₘ")
+        Hotlatex("^m", "ᵐ")
+        Hotlatex("_n", "ₙ")
+        Hotlatex("^n", "ⁿ")
+        Hotlatex("_o", "ₒ")
+        Hotlatex("^o", "ᵒ")
+        Hotlatex("_p", "ₚ")
+        Hotlatex("^p", "ᵖ")
+        Hotlatex("_r", "ᵣ")
+        Hotlatex("^r", "ʳ")
+        Hotlatex("_s", "ₛ")
+        Hotlatex("^s", "ˢ")
+        Hotlatex("_t", "ₜ")
+        Hotlatex("^t", "ᵗ")
+        Hotlatex("_u", "ᵤ")
+        Hotlatex("^u", "ᵘ")
+        Hotlatex("_v", "ᵥ")
+        Hotlatex("^v", "ᵛ")
+        Hotlatex("^w", "ʷ")
+        Hotlatex("_x", "ₓ")
+        Hotlatex("^x", "ˣ")
+        Hotlatex("^y", "ʸ")
+        Hotlatex("^z", "ᶻ")
+        Hotlatex("_\beta", "ᵦ")
+        Hotlatex("^\beta", "ᵝ")
+        Hotlatex("_\gamma", "ᵧ")
+        Hotlatex("^\gamma", "ᵞ")
+        Hotlatex("_\chi", "ᵪ")
+        Hotlatex("^\chi", "ᵡ")
+        Hotlatex("^\theta", "ᶿ")
+        Hotlatex("_\rho", "ᵨ")
+        Hotlatex("_\psi", "ᵩ")
 
-:c*?:\lang`t::⟨
-:c*?:\rang`t::⟩
+        ; 定界符 https://katex.org/docs/supported.html#delimiters
 
-; 环境 https://katex.org/docs/supported.html#delimiters
-; 不适合ASCII码呈现，放弃
+        Hotlatex("\vert", "∣")
+        Hotlatex("\Vert", "∥")
+        Hotlatex("\|", "∥")
+        Hotlatex("\lVert", "∥")
+        Hotlatex("\rVert", "∥")
+        Hotlatex("\langle", "⟨")
+        Hotlatex("\rangle", "⟩")
+        Hotlatex("\lceil", "⌈")
+        Hotlatex("\rceil", "⌉")
+        Hotlatex("\lfloor", "⌊")
+        Hotlatex("\rfloor", "⌋")
+        Hotlatex("\lmoustache", "⎰")
+        Hotlatex("\rmoustache", "⎱")
+        Hotlatex("\lgroup", "⟮")
+        Hotlatex("\rgroup", "⟯")
+        Hotlatex("\ulcorner", "┌")
+        Hotlatex("\urcorner", "┐")
+        Hotlatex("\llcorner", "└")
+        Hotlatex("\lrcorner", "┘")
+        Hotlatex("\llbracket", "⟦")
+        Hotlatex("\rrbracket", "⟧")
+        Hotlatex("\lBrace", "⦃")
+        Hotlatex("\rBrace", "⦄")
 
-; 字母和unicode https://katex.org/docs/supported.html#letters-and-unicode
+        Hotlatex("\lang", "⟨")
+        Hotlatex("\rang", "⟩")
 
-; 希腊字母
-:c*?:\alpha`t::α
-:c*?:\Alpha`t::Α
-:c*?:\beta`t::β
-:c*?:\Beta`t::Β
-:c*?:\Gamma`t::Γ
-:c*?:\gamma`t::γ
-:c*?:\Delta`t::Δ
-:c*?:\delta`t::δ
-:c*?:\Epsilon`t::E
-:c*?:\epsilon`t::ϵ
-:c*?:\Zeta`t::Ζ
-:c*?:\zeta`t::ζ
-:c*?:\Eta`t::Η
-:c*?:\eta`t::η
-:c*?:\Theta`t::Θ
-:c*?:\theta`t::θ
-:c*?:\Iota`t::Ι
-:c*?:\iota`t::ι
-:c*?:\Kappa`t::Κ
-:c*?:\kappa`t::κ
-:c*?:\Lambda`t::Λ
-:c*?:\lambda`t::λ
-:c*?:\Mu`t::Μ
-:c*?:\mu`t::μ
-:c*?:\Nu`t::Ν
-:c*?:\nu`t::ν
-:c*?:\Xi`t::Ξ
-:c*?:\xi`t::ξ
-:c*?:\Omicron`t::Ο
-:c*?:\omicron`t::ο
-:c*?:\Pi`t::Π
-:c*?:\pi`t::π
-:c*?:\rho`t::ρ
-:c*?:\Rho`t::Ρ
-:c*?:\Sigma`t::Σ
-:c*?:\sigma`t::σ
-:c*?:\Tau`t::Τ
-:c*?:\tau`t::τ
-:c*?:\Upsilon`t::Υ
-:c*?:\upsilon`t::υ
-:c*?:\Phi`t::Φ
-:c*?:\phi`t::ϕ
-:c*?:\Chi`t::Χ
-:c*?:\chi`t::χ
-:c*?:\Psi`t::Ψ
-:c*?:\psi`t::ψ
-:c*?:\Omega`t::Ω
-:c*?:\omega`t::ω
+        ; 环境 https://katex.org/docs/supported.html#delimiters
+        ; 不适合ASCII码呈现，放弃
 
-:c*?:\varGamma`t::Γ
-:c*?:\varDelta`t::Δ
-:c*?:\varTheta`t::Θ
-:c*?:\varLambda`t::Λ
-:c*?:\varXi`t::Ξ
-:c*?:\varPi`t::Π
-:c*?:\varSigma`t::Σ
-:c*?:\varUpsilon`t::Υ
-:c*?:\varPhi`t::Φ
-:c*?:\varPsi`t::Ψ
-:c*?:\varOmega`t::Ω
+        ; 字母和unicode https://katex.org/docs/supported.html#letters-and-unicode
 
-:c*?:\varepsilon`t::ε
-:c*?:\varkappa`t::ϰ
-:c*?:\vartheta`t::ϑ
-:c*?:\thetasym`t::ϑ
-:c*?:\varpi`t::ϖ
-:c*?:\varrho`t::ϱ
-:c*?:\varsigma`t::ς
-:c*?:\varphi`t::φ
-:c*?:\digamma`t::ϝ
+        ; 希腊字母")
+        Hotlatex("\alpha", "α")
+        Hotlatex("\Alpha", "Α")
+        Hotlatex("\beta", "β")
+        Hotlatex("\Beta", "Β")
+        Hotlatex("\Gamma", "Γ")
+        Hotlatex("\gamma", "γ")
+        Hotlatex("\Delta", "Δ")
+        Hotlatex("\delta", "δ")
+        Hotlatex("\Epsilon", "E")
+        Hotlatex("\epsilon", "ϵ")
+        Hotlatex("\Zeta", "Ζ")
+        Hotlatex("\zeta", "ζ")
+        Hotlatex("\Eta", "Η")
+        Hotlatex("\eta", "η")
+        Hotlatex("\Theta", "Θ")
+        Hotlatex("\theta", "θ")
+        Hotlatex("\Iota", "Ι")
+        Hotlatex("\iota", "ι")
+        Hotlatex("\Kappa", "Κ")
+        Hotlatex("\kappa", "κ")
+        Hotlatex("\Lambda", "Λ")
+        Hotlatex("\lambda", "λ")
+        Hotlatex("\Mu", "Μ")
+        Hotlatex("\mu", "μ")
+        Hotlatex("\Nu", "Ν")
+        Hotlatex("\nu", "ν")
+        Hotlatex("\Xi", "Ξ")
+        Hotlatex("\xi", "ξ")
+        Hotlatex("\Omicron", "Ο")
+        Hotlatex("\omicron", "ο")
+        Hotlatex("\Pi", "Π")
+        Hotlatex("\pi", "π")
+        Hotlatex("\rho", "ρ")
+        Hotlatex("\Rho", "Ρ")
+        Hotlatex("\Sigma", "Σ")
+        Hotlatex("\sigma", "σ")
+        Hotlatex("\Tau", "Τ")
+        Hotlatex("\tau", "τ")
+        Hotlatex("\Upsilon", "Υ")
+        Hotlatex("\upsilon", "υ")
+        Hotlatex("\Phi", "Φ")
+        Hotlatex("\phi", "ϕ")
+        Hotlatex("\Chi", "Χ")
+        Hotlatex("\chi", "χ")
+        Hotlatex("\Psi", "Ψ")
+        Hotlatex("\psi", "ψ")
+        Hotlatex("\Omega", "Ω")
+        Hotlatex("\omega", "ω")
 
-; 其它字母
+        Hotlatex("\varGamma", "Γ")
+        Hotlatex("\varDelta", "Δ")
+        Hotlatex("\varTheta", "Θ")
+        Hotlatex("\varLambda", "Λ")
+        Hotlatex("\varXi", "Ξ")
+        Hotlatex("\varPi", "Π")
+        Hotlatex("\varSigma", "Σ")
+        Hotlatex("\varUpsilon", "Υ")
+        Hotlatex("\varPhi", "Φ")
+        Hotlatex("\varPsi", "Ψ")
+        Hotlatex("\varOmega", "Ω")
 
-:c*?:\Im`t::ℑ
-:c*?:\Reals`t::ℝ
-:c*?:\OE`t::Œ
-:c*?:\partial`t::∂
-:c*?:\image`t::ℑ
-:c*?:\wp`t::℘
-:c*?:\o`t::ø
-:c*?:\aleph`t::ℵ
-:c*?:\Game`t::⅁
-:c*?:\Bbbkk`t::𝕜
-:c*?:\weierp`t::℘
-:c*?:\O`t::Ø
-:c*?:\alef`t::ℵ
-:c*?:\Finv`t::Ⅎ
-:c*?:\NN`t::ℕ
-:c*?:\ZZ`t::ℤ
-:c*?:\ss`t::ß
-:c*?:\alefsym`t::ℵ
-:c*?:\cnums`t::ℂ
-:c*?:\natnums`t::ℕ
-:c*?:\aa`t::˚ 
-:c*?:\i`t::ı
-:c*?:\beth`t::ℶ
-:c*?:\Complex`t::ℂ
-:c*?:\RR`t::ℝ
-:c*?:\A`t::A˚
-:c*?:\j`t::ȷ
-:c*?:\gimel`t::ℷ
-:c*?:\ell`t::ℓ
-:c*?:\Re`t::ℜ
-:c*?:\ae`t::æ
-:c*?:\daleth`t::ℸ
-:c*?:\hbar`t::ℏ
-:c*?:\real`t::ℜ
-:c*?:\AE`t::Æ
-:c*?:\eth`t::ð
-:c*?:\hslash`t::ℏ
-:c*?:\reals`t::ℝ
-:c*?:\oe`t::œ
+        Hotlatex("\varepsilon", "ε")
+        Hotlatex("\varkappa", "ϰ")
+        Hotlatex("\vartheta", "ϑ")
+        Hotlatex("\thetasym", "ϑ")
+        Hotlatex("\varpi", "ϖ")
+        Hotlatex("\varrho", "ϱ")
+        Hotlatex("\varsigma", "ς")
+        Hotlatex("\varphi", "φ")
+        Hotlatex("\digamma", "ϝ")
 
-; 布局 https://katex.org/docs/supported.html#layout
-; 不适合Unicode呈现，放弃
+        ; 其它字母
 
-; 换行符 https://katex.org/docs/supported.html#line-breaks
-; 对Unicode没必要实现
+        Hotlatex("\Im", "ℑ")
+        Hotlatex("\Reals", "ℝ")
+        Hotlatex("\OE", "Œ")
+        Hotlatex("\partial", "∂")
+        Hotlatex("\image", "ℑ")
+        Hotlatex("\wp", "℘")
+        Hotlatex("\o", "ø")
+        Hotlatex("\aleph", "ℵ")
+        Hotlatex("\Game", "⅁")
+        Hotlatex("\Bbbkk", "𝕜")
+        Hotlatex("\weierp", "℘")
+        Hotlatex("\O", "Ø")
+        Hotlatex("\alef", "ℵ")
+        Hotlatex("\Finv", "Ⅎ")
+        Hotlatex("\NN", "ℕ")
+        Hotlatex("\ZZ", "ℤ")
+        Hotlatex("\ss", "ß")
+        Hotlatex("\alefsym", "ℵ")
+        Hotlatex("\cnums", "ℂ")
+        Hotlatex("\natnums", "ℕ")
+        Hotlatex("\aa", "˚ ")
+        Hotlatex("\i", "ı")
+        Hotlatex("\beth", "ℶ")
+        Hotlatex("\Complex", "ℂ")
+        Hotlatex("\RR", "ℝ")
+        Hotlatex("\A", "A˚")
+        Hotlatex("\j", "ȷ")
+        Hotlatex("\gimel", "ℷ")
+        Hotlatex("\ell", "ℓ")
+        Hotlatex("\Re", "ℜ")
+        Hotlatex("\ae", "æ")
+        Hotlatex("\daleth", "ℸ")
+        Hotlatex("\hbar", "ℏ")
+        Hotlatex("\real", "ℜ")
+        Hotlatex("\AE", "Æ")
+        Hotlatex("\eth", "ð")
+        Hotlatex("\hslash", "ℏ")
+        Hotlatex("\reals", "ℝ")
+        Hotlatex("\oe", "œ")
 
-; 重叠和间距 https://katex.org/docs/supported.html#overlap-and-spacing
-; Unicode没必要实现
+        ; 布局 https://katex.org/docs/supported.html#layout
+        ; 不适合Unicode呈现，放弃
 
-; 逻辑和集合 https://katex.org/docs/supported.html#logic-and-set-theory
+        ; 换行符 https://katex.org/docs/supported.html#line-breaks
+        ; 对Unicode没必要实现
 
-:c*?:\forall`t::∀
-:c*?:\exists`t::∃
-:c*?:\exist`t::∃
-:c*?:\nexists`t::∄
-:c*?:\complement`t::∁
-:c*?:\therefore`t::∴
-:c*?:\because`t::∵
-:c*?:\emptyset`t::∅
-:c*?:\empty`t::∅
-:c*?:\varnothing`t::∅
-:c*?:\nsubseteq`t::⊈
-:c*?:\nsupseteq`t::⊉
-:c*?:\neg`t::¬
-:c*?:\lnot`t::¬
-:c*?:\notin`t::∉
-:c*?:\ni`t::∋
-:c*?:\notni`t::∌
+        ; 重叠和间距 https://katex.org/docs/supported.html#overlap-and-spacing
+        ; Unicode没必要实现
 
-;   ⊄   ⊅  ⊊ ⊋
-;   ⊤ ⊥ 
-; □ ⊨ ⊢
+        ; 逻辑和集合 https://katex.org/docs/supported.html#logic-and-set-theory
 
-; 宏 https://katex.org/docs/supported.html#macros
-; 没必要实现
+        Hotlatex("\forall", "∀")
+        Hotlatex("\exists", "∃")
+        Hotlatex("\exist", "∃")
+        Hotlatex("\nexists", "∄")
+        Hotlatex("\complement", "∁")
+        Hotlatex("\therefore", "∴")
+        Hotlatex("\because", "∵")
+        Hotlatex("\emptyset", "∅")
+        Hotlatex("\empty", "∅")
+        Hotlatex("\varnothing", "∅")
+        Hotlatex("\nsubseteq", "⊈")
+        Hotlatex("\nsupseteq", "⊉")
+        Hotlatex("\neg", "¬")
+        Hotlatex("\lnot", "¬")
+        Hotlatex("\notin", "∉")
+        Hotlatex("\ni", "∋")
+        Hotlatex("\notni", "∌")
 
-; 运算符 https://katex.org/docs/supported.html#operators
+        ;   ⊄   ⊅  ⊊ ⊋
+        ;   ⊤ ⊥ 
+        ; □ ⊨ ⊢
 
-; 大运算符 https://katex.org/docs/supported.html#big-operators
-:c*?:\sum`t::∑
-:c*?:\prod`t::∏
-:c*?:\bigotimes`t::⊗
-:c*?:\bigvee`t::⋁
-:c*?:\int`t::∫
-:c*?:\intop`t::∫
-:c*?:\smallint`t::∫
-:c*?:\iint`t::∬
-:c*?:\iiint`t::∭
-:c*?:\oint`t::∮
-:c*?:\oiint`t::∯
-:c*?:\oiiint`t::∰
-:c*?:\coprod`t::∐
-:c*?:\bigoplus`t::⨁
-:c*?:\bigwedge`t::⋀
-:c*?:\bigodot`t::⊙
-:c*?:\bigcap`t::⋂
-:c*?:\biguplus`t::⨄
-:c*?:\bigcup`t::⋃
-:c*?:\bigsqcup`t::⨆
+        ; 宏 https://katex.org/docs/supported.html#macros
+        ; 没必要实现
 
-; 二元运算符 https://katex.org/docs/supported.html#binary-operators
+        ; 运算符 https://katex.org/docs/supported.html#operators
 
-:c*?:\cdot`t::⋅
-:c*?:\cdotp`t::⋅
-:c*?:\gtrdot`t::⋗
-:c*?:\intercal`t::⊺
-:c*?:\centerdot`t::⋅
-:c*?:\land`t::∧
-:c*?:\rhd`t::⊳
-:c*?:\circ`t::∘
-:c*?:\leftthreetimes`t::⋋
-:c*?:\rightthreetimes`t::⋌
-:c*?:\amalg`t::⨿
-:c*?:\circledast`t::⊛
-:c*?:\ldotp`t::.
-:c*?:\rtimes`t::⋊
-:c*?:\circledcirc`t::⊚
-:c*?:\lor`t::∨
-:c*?:\ast`t::∗
-:c*?:\circleddash`t::⊝
-:c*?:\lessdot`t::⋖
-:c*?:\barwedge`t::⊼
-:c*?:\Cup`t::⋓
-:c*?:\lhd`t::⊲
-:c*?:\sqcap`t::⊓
-:c*?:\bigcirc`t::◯
-:c*?:\cup`t::∪
-:c*?:\ltimes`t::⋉
-:c*?:\sqcup`t::⊔
-:c*?:\curlyvee`t::⋎
-:c*?:\times`t::×
-:c*?:\boxdot`t::⊡
-:c*?:\curlywedge`t::⋏
-:c*?:\pm`t::±
-:c*?:\plusmn`t::±
-:c*?:\mp`t::∓
-:c*?:\unlhd`t::⊴
-:c*?:\boxminus`t::⊟
-:c*?:\div`t::÷
-:c*?:\odot`t::⨀
-:c*?:\unrhd`t::⊵
-:c*?:\boxplus`t::⊞
-:c*?:\divideontimes`t::⋇
-:c*?:\ominus`t::⊖
-:c*?:\uplus`t::⊎
-:c*?:\boxtimes`t::⊠
-:c*?:\dotplus`t::∔
-:c*?:\oplus`t::⊕
-:c*?:\vee`t::∨
-:c*?:\bullet`t::•
-:c*?:\doublebarwedge`t::⩞
-:c*?:\otimes`t::⨂
-:c*?:\veebar`t::⊻
-:c*?:\Cap`t::⋒
-:c*?:\doublecap`t::⋒
-:c*?:\oslash`t::⊘
-:c*?:\wedge`t::∧
-:c*?:\cap`t::∩
-:c*?:\doublecup`t::⋓
-:c*?:\wr`t::≀
+        ; 大运算符 https://katex.org/docs/supported.html#big-operators")
+        Hotlatex("\sum", "∑")
+        Hotlatex("\prod", "∏")
+        Hotlatex("\bigotimes", "⊗")
+        Hotlatex("\bigvee", "⋁")
+        Hotlatex("\int", "∫")
+        Hotlatex("\intop", "∫")
+        Hotlatex("\smallint", "∫")
+        Hotlatex("\iint", "∬")
+        Hotlatex("\iiint", "∭")
+        Hotlatex("\oint", "∮")
+        Hotlatex("\oiint", "∯")
+        Hotlatex("\oiiint", "∰")
+        Hotlatex("\coprod", "∐")
+        Hotlatex("\bigoplus", "⨁")
+        Hotlatex("\bigwedge", "⋀")
+        Hotlatex("\bigodot", "⊙")
+        Hotlatex("\bigcap", "⋂")
+        Hotlatex("\biguplus", "⨄")
+        Hotlatex("\bigcup", "⋃")
+        Hotlatex("\bigsqcup", "⨆")
 
-; 分数和二项式 https://katex.org/docs/supported.html#fractions-and-binomials
-; 没必要实现
+        ; 二元运算符 https://katex.org/docs/supported.html#binary-operators
 
-; 数学运算符 https://katex.org/docs/supported.html#fractions-and-binomials
-; 大部分没必要实现
-:c*?:\sqrt`t::√
+        Hotlatex("\cdot", "⋅")
+        Hotlatex("\cdotp", "⋅")
+        Hotlatex("\gtrdot", "⋗")
+        Hotlatex("\intercal", "⊺")
+        Hotlatex("\centerdot", "⋅")
+        Hotlatex("\land", "∧")
+        Hotlatex("\rhd", "⊳")
+        Hotlatex("\circ", "∘")
+        Hotlatex("\leftthreetimes", "⋋")
+        Hotlatex("\rightthreetimes", "⋌")
+        Hotlatex("\amalg", "⨿")
+        Hotlatex("\circledast", "⊛")
+        Hotlatex("\ldotp", ".")
+        Hotlatex("\rtimes", "⋊")
+        Hotlatex("\circledcirc", "⊚")
+        Hotlatex("\lor", "∨")
+        Hotlatex("\ast", "∗")
+        Hotlatex("\circleddash", "⊝")
+        Hotlatex("\lessdot", "⋖")
+        Hotlatex("\barwedge", "⊼")
+        Hotlatex("\Cup", "⋓")
+        Hotlatex("\lhd", "⊲")
+        Hotlatex("\sqcap", "⊓")
+        Hotlatex("\bigcirc", "◯")
+        Hotlatex("\cup", "∪")
+        Hotlatex("\ltimes", "⋉")
+        Hotlatex("\sqcup", "⊔")
+        Hotlatex("\curlyvee", "⋎")
+        Hotlatex("\times", "×")
+        Hotlatex("\boxdot", "⊡")
+        Hotlatex("\curlywedge", "⋏")
+        Hotlatex("\pm", "±")
+        Hotlatex("\plusmn", "±")
+        Hotlatex("\mp", "∓")
+        Hotlatex("\unlhd", "⊴")
+        Hotlatex("\boxminus", "⊟")
+        Hotlatex("\div", "÷")
+        Hotlatex("\odot", "⨀")
+        Hotlatex("\unrhd", "⊵")
+        Hotlatex("\boxplus", "⊞")
+        Hotlatex("\divideontimes", "⋇")
+        Hotlatex("\ominus", "⊖")
+        Hotlatex("\uplus", "⊎")
+        Hotlatex("\boxtimes", "⊠")
+        Hotlatex("\dotplus", "∔")
+        Hotlatex("\oplus", "⊕")
+        Hotlatex("\vee", "∨")
+        Hotlatex("\bullet", "•")
+        Hotlatex("\doublebarwedge", "⩞")
+        Hotlatex("\otimes", "⨂")
+        Hotlatex("\veebar", "⊻")
+        Hotlatex("\Cap", "⋒")
+        Hotlatex("\doublecap", "⋒")
+        Hotlatex("\oslash", "⊘")
+        Hotlatex("\wedge", "∧")
+        Hotlatex("\cap", "∩")
+        Hotlatex("\doublecup", "⋓")
+        Hotlatex("\wr", "≀")
 
-; 关系 https://katex.org/docs/supported.html#relations
-;      https://katex.org/docs/supported.html#negated-relations
+        ; 分数和二项式 https://katex.org/docs/supported.html#fractions-and-binomials
+        ; 没必要实现
 
-:c*?:\neq`t::≠
-:c*?:\lneqq`t::≨
-:c*?:\gneqq`t::≩
-:c*?:\doteqdot`t::≑
-:c*?:\Doteq`t::≑	
-:c*?:\lessapprox`t::⪅
-:c*?:\smile`t::⌣
-:c*?:\smallsmile`t::⌣
-:c*?:\eqcirc`t::≖
-:c*?:\lesseqgtr`t::⋚
-:c*?:\sqsubset`t::⊏
-:c*?:\lesseqqgtr`t::⪋
-:c*?:\sqsubseteq`t::⊑
-:c*?:\lessgtr`t::≶
-:c*?:\sqsupset`t::⊐
-:c*?:\approx`t::≈
-:c*?:\lesssim`t::≲
-:c*?:\sqsupseteq`t::⊒
-:c*?:\ll`t::≪
-:c*?:\Subset`t::⋐
-:c*?:\eqsim`t::≂
-:c*?:\lll`t::⋘
-:c*?:\subset`t::⊂
-:c*?:\sub`t::⊂
-:c*?:\approxeq`t::≊
-:c*?:\eqslantgtr`t::⪖
-:c*?:\llless`t::⋘
-:c*?:\subseteq`t::⊆
-:c*?:\sube`t::⊆
-:c*?:\asymp`t::≍
-:c*?:\eqslantless`t::⪕
-:c*?:\subseteqq`t::⫅
-:c*?:\backepsilon`t::∍
-:c*?:\equiv`t::≡
-:c*?:\mid`t::∣
-:c*?:\succ`t::≻
-:c*?:\backsim`t::∽
-:c*?:\fallingdotseq`t::≒
-:c*?:\models`t::⊨
-:c*?:\succapprox`t::⪸
-:c*?:\backsimeq`t::⋍
-:c*?:\frown`t::⌢
-:c*?:\multimap`t::⊸
-:c*?:\succcurlyeq`t::≽
-:c*?:\between`t::≬
-:c*?:\geq`t::≥
-:c*?:\ge`t::≥
-:c*?:\origof`t::⊶
-:c*?:\succeq`t::⪰
-:c*?:\bowtie`t::⋈
-:c*?:\owns`t::∋
-:c*?:\succsim`t::≿
-:c*?:\bumpeq`t::≏
-:c*?:\geqq`t::≧
-:c*?:\parallel`t::∥
-:c*?:\Supset`t::⋑
-:c*?:\Bumpeq`t::≎
-:c*?:\geqslant`t::⩾
-:c*?:\perp`t::⊥
-:c*?:\supset`t::⊃
-:c*?:\circeq`t::≗
-:c*?:\gg`t::≫
-:c*?:\pitchfork`t::⋔
-:c*?:\supseteq`t::⊇
-:c*?:\supe`t::⊇
-:c*?:\ggg`t::⋙
-:c*?:\prec`t::≺
-:c*?:\supseteqq`t::⫆
-:c*?:\gggtr`t::⋙
-:c*?:\precapprox`t::⪷
-:c*?:\thickapprox`t::≈
-:c*?:\preccurlyeq`t::≼
-:c*?:\gtrapprox`t::⪆
-:c*?:\preceq`t::⪯
-:c*?:\trianglelefteq`t::⊴
-:c*?:\gtreqless`t::⋛
-:c*?:\precsim`t::≾
-:c*?:\triangleq`t::≜
-:c*?:\gtreqqless`t::⪌
-:c*?:\propto`t::∝
-:c*?:\trianglerighteq`t::⊵
-:c*?:\gtrless`t::≷
-:c*?:\risingdotseq`t::≓
-:c*?:\varpropto`t::∝
-:c*?:\gtrsim`t::≳
-:c*?:\vartriangle`t::△
-:c*?:\cong`t::≅
-:c*?:\imageof`t::⊷
-:c*?:\shortparallel`t::∥
-:c*?:\vartriangleleft`t::⊲
-:c*?:\curlyeqprec`t::⋞
-:c*?:\in`t::∈
-:c*?:\isin`t::∈
-:c*?:\vartriangleright`t::⊳
-:c*?:\curlyeqsucc`t::⋟
-:c*?:\Join`t::⋈
-:c*?:\dashv`t::⊣
-:c*?:\le`t::≤
-:c*?:\vdash`t::⊢
-:c*?:\leq`t::≤
-:c*?:\simeq`t::≃
-:c*?:\vDash`t::⊨
-:c*?:\doteq`t::≐
-:c*?:\leqq`t::≦
-:c*?:\smallfrown`t::⌢
-:c*?:\Vdash`t::⊩
-:c*?:\leqslant`t::⩽
-:c*?:\Vvdash`t::⊪
+        ; 数学运算符 https://katex.org/docs/supported.html#fractions-and-binomials
+        ; 大部分没必要实现")
+        Hotlatex("\sqrt", "√")
 
-; 箭头 https://katex.org/docs/supported.html#arrows
+        ; 关系 https://katex.org/docs/supported.html#relations
+        ;      https://katex.org/docs/supported.html#negated-relations
 
-:c*?:\circlearrowleft`t::↺
-:c*?:\circlearrowright`t::↻
-:c*?:\curvearrowleft`t::↶
-:c*?:\curvearrowright`t::↷
-:c*?:\Darr`t::⇓
-:c*?:\dArr`t::⇓
-:c*?:\darr`t::↓
-:c*?:\dashleftarrow`t::⇠
-:c*?:\dashrightarrow`t::⇢
-:c*?:\downarrow`t::↓
-:c*?:\Downarrow`t::⇓
-:c*?:\downdownarrows`t::⇊
-:c*?:\downharpoonleft`t::⇃
-:c*?:\downharpoonright`t::⇂
-:c*?:\gets`t::←
-:c*?:\Harr`t::⇔
-:c*?:\hArr`t::⇔
-:c*?:\harr`t::↔
-:c*?:\hookleftarrow`t::↩
-:c*?:\hookrightarrow`t::↪
-:c*?:\iff`t::⟺
-:c*?:\impliedby`t::⟸
-:c*?:\implies`t::⟹
-:c*?:\Larr`t::⇐
-:c*?:\lArr`t::⇐
-:c*?:\larr`t::←
-:c*?:\leadsto`t::⇝
-:c*?:\leftarrow`t::←
-:c*?:\Leftarrow`t::⇐
-:c*?:\leftarrowtail`t::↢
-:c*?:\leftharpoondown`t::↽
-:c*?:\leftharpoonup`t::↼
-:c*?:\leftleftarrows`t::⇇
-:c*?:\leftrightarrow`t::↔
-:c*?:\Leftrightarrow`t::⇔
-:c*?:\leftrightarrows`t::⇆
-:c*?:\leftrightharpoons`t::⇋
-:c*?:\leftrightsquigarrow`t::↭
-:c*?:\Lleftarrow`t::⇚
-:c*?:\longleftarrow`t::⟵
-:c*?:\Longleftarrow`t::⟸
-:c*?:\longleftrightarrow`t::⟷
-:c*?:\Longleftrightarrow`t::⟺
-:c*?:\longmapsto`t::⟼
-:c*?:\longrightarrow`t::⟶
-:c*?:\Longrightarrow`t::⟹
-:c*?:\looparrowleft`t::↫
-:c*?:\looparrowright`t::↬
-:c*?:\Lrarr`t::⇔
-:c*?:\lrArr`t::⇔
-:c*?:\lrarr`t::↔
-:c*?:\Lsh`t::↰
-:c*?:\mapsto`t::↦
-:c*?:\nearrow`t::↗
-:c*?:\nleftarrow`t::↚
-:c*?:\nLeftarrow`t::⇍
-:c*?:\nleftrightarrow`t::↮ 
-:c*?:\nLeftrightarrow`t::⇎
-:c*?:\nrightarrow`t::↛
-:c*?:\nRightarrow`t::⇏
-:c*?:\nwarrow`t::↖
-:c*?:\Rarr`t::⇒
-:c*?:\rArr`t::⇒
-:c*?:\rarr`t::→
-:c*?:\restriction`t::↾
-:c*?:\rightarrow`t::→
-:c*?:\Rightarrow`t::⇒
-:c*?:\rightarrowtail`t::↣
-:c*?:\rightharpoondown`t::⇁
-:c*?:\rightharpoonup`t::⇀
-:c*?:\rightleftarrows`t::⇄
-:c*?:\rightleftharpoons`t::⇌
-:c*?:\rightrightarrows`t::⇉
-:c*?:\rightsquigarrow`t::⇝
-:c*?:\Rrightarrow`t::⇛
-:c*?:\Rsh`t::↱
-:c*?:\searrow`t::↘
-:c*?:\swarrow`t::↙
-:c*?:\to`t::→
-:c*?:\twoheadleftarrow`t::↞
-:c*?:\twoheadrightarrow`t::↠
-:c*?:\Uarr`t::⇑
-:c*?:\uArr`t::⇑
-:c*?:\uarr`t::↑
-:c*?:\uparrow`t::↑
-:c*?:\Uparrow`t::⇑
-:c*?:\updownarrow`t::↕
-:c*?:\Updownarrow`t::⇕
-:c*?:\upharpoonleft`t::↿
-:c*?:\upharpoonright`t::↾
-:c*?:\upuparrows`t::⇈
+        Hotlatex("\neq", "≠")
+        Hotlatex("\lneqq", "≨")
+        Hotlatex("\gneqq", "≩")
+        Hotlatex("\doteqdot", "≑")
+        Hotlatex("\Doteq", "≑	")
+        Hotlatex("\lessapprox", "⪅")
+        Hotlatex("\smile", "⌣")
+        Hotlatex("\smallsmile", "⌣")
+        Hotlatex("\eqcirc", "≖")
+        Hotlatex("\lesseqgtr", "⋚")
+        Hotlatex("\sqsubset", "⊏")
+        Hotlatex("\lesseqqgtr", "⪋")
+        Hotlatex("\sqsubseteq", "⊑")
+        Hotlatex("\lessgtr", "≶")
+        Hotlatex("\sqsupset", "⊐")
+        Hotlatex("\approx", "≈")
+        Hotlatex("\lesssim", "≲")
+        Hotlatex("\sqsupseteq", "⊒")
+        Hotlatex("\ll", "≪")
+        Hotlatex("\Subset", "⋐")
+        Hotlatex("\eqsim", "≂")
+        Hotlatex("\lll", "⋘")
+        Hotlatex("\subset", "⊂")
+        Hotlatex("\sub", "⊂")
+        Hotlatex("\approxeq", "≊")
+        Hotlatex("\eqslantgtr", "⪖")
+        Hotlatex("\llless", "⋘")
+        Hotlatex("\subseteq", "⊆")
+        Hotlatex("\sube", "⊆")
+        Hotlatex("\asymp", "≍")
+        Hotlatex("\eqslantless", "⪕")
+        Hotlatex("\subseteqq", "⫅")
+        Hotlatex("\backepsilon", "∍")
+        Hotlatex("\equiv", "≡")
+        Hotlatex("\mid", "∣")
+        Hotlatex("\succ", "≻")
+        Hotlatex("\backsim", "∽")
+        Hotlatex("\fallingdotseq", "≒")
+        Hotlatex("\models", "⊨")
+        Hotlatex("\succapprox", "⪸")
+        Hotlatex("\backsimeq", "⋍")
+        Hotlatex("\frown", "⌢")
+        Hotlatex("\multimap", "⊸")
+        Hotlatex("\succcurlyeq", "≽")
+        Hotlatex("\between", "≬")
+        Hotlatex("\geq", "≥")
+        Hotlatex("\ge", "≥")
+        Hotlatex("\origof", "⊶")
+        Hotlatex("\succeq", "⪰")
+        Hotlatex("\bowtie", "⋈")
+        Hotlatex("\owns", "∋")
+        Hotlatex("\succsim", "≿")
+        Hotlatex("\bumpeq", "≏")
+        Hotlatex("\geqq", "≧")
+        Hotlatex("\parallel", "∥")
+        Hotlatex("\Supset", "⋑")
+        Hotlatex("\Bumpeq", "≎")
+        Hotlatex("\geqslant", "⩾")
+        Hotlatex("\perp", "⊥")
+        Hotlatex("\supset", "⊃")
+        Hotlatex("\circeq", "≗")
+        Hotlatex("\gg", "≫")
+        Hotlatex("\pitchfork", "⋔")
+        Hotlatex("\supseteq", "⊇")
+        Hotlatex("\supe", "⊇")
+        Hotlatex("\ggg", "⋙")
+        Hotlatex("\prec", "≺")
+        Hotlatex("\supseteqq", "⫆")
+        Hotlatex("\gggtr", "⋙")
+        Hotlatex("\precapprox", "⪷")
+        Hotlatex("\thickapprox", "≈")
+        Hotlatex("\preccurlyeq", "≼")
+        Hotlatex("\gtrapprox", "⪆")
+        Hotlatex("\preceq", "⪯")
+        Hotlatex("\trianglelefteq", "⊴")
+        Hotlatex("\gtreqless", "⋛")
+        Hotlatex("\precsim", "≾")
+        Hotlatex("\triangleq", "≜")
+        Hotlatex("\gtreqqless", "⪌")
+        Hotlatex("\propto", "∝")
+        Hotlatex("\trianglerighteq", "⊵")
+        Hotlatex("\gtrless", "≷")
+        Hotlatex("\risingdotseq", "≓")
+        Hotlatex("\varpropto", "∝")
+        Hotlatex("\gtrsim", "≳")
+        Hotlatex("\vartriangle", "△")
+        Hotlatex("\cong", "≅")
+        Hotlatex("\imageof", "⊷")
+        Hotlatex("\shortparallel", "∥")
+        Hotlatex("\vartriangleleft", "⊲")
+        Hotlatex("\curlyeqprec", "⋞")
+        Hotlatex("\in", "∈")
+        Hotlatex("\isin", "∈")
+        Hotlatex("\vartriangleright", "⊳")
+        Hotlatex("\curlyeqsucc", "⋟")
+        Hotlatex("\Join", "⋈")
+        Hotlatex("\dashv", "⊣")
+        Hotlatex("\le", "≤")
+        Hotlatex("\vdash", "⊢")
+        Hotlatex("\leq", "≤")
+        Hotlatex("\simeq", "≃")
+        Hotlatex("\vDash", "⊨")
+        Hotlatex("\doteq", "≐")
+        Hotlatex("\leqq", "≦")
+        Hotlatex("\smallfrown", "⌢")
+        Hotlatex("\Vdash", "⊩")
+        Hotlatex("\leqslant", "⩽")
+        Hotlatex("\Vvdash", "⊪")
 
-; 其它常用符号 https://katex.org/docs/supported.html#symbols-and-punctuation
+        ; 箭头 https://katex.org/docs/supported.html#arrows
 
-:c*?:\backprime`t::‵	
-:c*?:\prime`t::′	
-:c*?:\blacklozenge`t::⧫	
-:c*?:\P`t::¶	
-:c*?:\S`t::§	
-:c*?:\sect`t::§	
-:c*?:\copyright`t::©
-:c*?:\circledR`t::®	
-:c*?:\circledS`t::Ⓢ
-:c*?:\dots`t::…
-:c*?:\cdots`t::⋯
-:c*?:\ddots`t::⋱
-:c*?:\ldots`t::…
-:c*?:\vdots`t::⋮
-:c*?:\dotsb`t::⋯
-:c*?:\dotsc`t::…
-:c*?:\dotsi`t::⋯
-:c*?:\dotsm`t::⋯
-:c*?:\dotso`t::…
-:c*?:\sdot`t::⋅
-:c*?:\mathellipsis`t::…
-:c*?:\textellipsis`t::…
-:c*?:\Box`t::□
-:c*?:\square`t::□
-:c*?:\blacksquare`t::■
-:c*?:\triangle`t::△
-:c*?:\triangledown`t::▽
-:c*?:\triangleleft`t::◃
-:c*?:\triangleright`t::▹
-:c*?:\bigtriangledown`t::▽
-:c*?:\bigtriangleup`t::△
-:c*?:\blacktriangle`t::▲
-:c*?:\blacktriangledown`t::▼
-:c*?:\blacktriangleleft`t::◀
-:c*?:\blacktriangleright`t::▶
-:c*?:\diamond`t::⋄
-:c*?:\Diamond`t::◊
-:c*?:\lozenge`t::◊
-:c*?:\star`t::⋆
-:c*?:\bigstar`t::★
-:c*?:\clubsuit`t::♣
-:c*?:\clubs`t::♣
-:c*?:\diamondsuit`t::♢
-:c*?:\diamonds`t::♢
-:c*?:\spadesuit`t::♠
-:c*?:\maltese`t::✠
-:c*?:\nabla`t::∇
-:c*?:\infty`t::∞
-:c*?:\infin`t::∞
-:c*?:\checkmark`t::✓
-:c*?:\dag`t::†
-:c*?:\dagger`t::†
-:c*?:\ddag`t::‡
-:c*?:\ddagger`t::‡
-:c*?:\Dagger`t::‡
-:c*?:\angle`t::∠
-:c*?:\measuredangle`t::∡
-:c*?:\sphericalangle`t::∢
-:c*?:\top`t::⊤
-:c*?:\bot`t::⊥
-:c*?:\pounds`t::£
-:c*?:\mathsterling`t::£
-:c*?:\yen`t::¥
-:c*?:\surd`t::√
-:c*?:\degree`t::°
-:c*?:\mho`t::℧
-:c*?:\flat`t::♭
-:c*?:\natural`t::♮
-:c*?:\sharp`t::♯
-:c*?:\heartsuit`t::♡
-:c*?:\hearts`t::♡
-:c*?:\spades`t::♠
-:c*?:\minuso`t::⦵
+        Hotlatex("\circlearrowleft", "↺")
+        Hotlatex("\circlearrowright", "↻")
+        Hotlatex("\curvearrowleft", "↶")
+        Hotlatex("\curvearrowright", "↷")
+        Hotlatex("\Darr", "⇓")
+        Hotlatex("\dArr", "⇓")
+        Hotlatex("\darr", "↓")
+        Hotlatex("\dashleftarrow", "⇠")
+        Hotlatex("\dashrightarrow", "⇢")
+        Hotlatex("\downarrow", "↓")
+        Hotlatex("\Downarrow", "⇓")
+        Hotlatex("\downdownarrows", "⇊")
+        Hotlatex("\downharpoonleft", "⇃")
+        Hotlatex("\downharpoonright", "⇂")
+        Hotlatex("\gets", "←")
+        Hotlatex("\Harr", "⇔")
+        Hotlatex("\hArr", "⇔")
+        Hotlatex("\harr", "↔")
+        Hotlatex("\hookleftarrow", "↩")
+        Hotlatex("\hookrightarrow", "↪")
+        Hotlatex("\iff", "⟺")
+        Hotlatex("\impliedby", "⟸")
+        Hotlatex("\implies", "⟹")
+        Hotlatex("\Larr", "⇐")
+        Hotlatex("\lArr", "⇐")
+        Hotlatex("\larr", "←")
+        Hotlatex("\leadsto", "⇝")
+        Hotlatex("\leftarrow", "←")
+        Hotlatex("\Leftarrow", "⇐")
+        Hotlatex("\leftarrowtail", "↢")
+        Hotlatex("\leftharpoondown", "↽")
+        Hotlatex("\leftharpoonup", "↼")
+        Hotlatex("\leftleftarrows", "⇇")
+        Hotlatex("\leftrightarrow", "↔")
+        Hotlatex("\Leftrightarrow", "⇔")
+        Hotlatex("\leftrightarrows", "⇆")
+        Hotlatex("\leftrightharpoons", "⇋")
+        Hotlatex("\leftrightsquigarrow", "↭")
+        Hotlatex("\Lleftarrow", "⇚")
+        Hotlatex("\longleftarrow", "⟵")
+        Hotlatex("\Longleftarrow", "⟸")
+        Hotlatex("\longleftrightarrow", "⟷")
+        Hotlatex("\Longleftrightarrow", "⟺")
+        Hotlatex("\longmapsto", "⟼")
+        Hotlatex("\longrightarrow", "⟶")
+        Hotlatex("\Longrightarrow", "⟹")
+        Hotlatex("\looparrowleft", "↫")
+        Hotlatex("\looparrowright", "↬")
+        Hotlatex("\Lrarr", "⇔")
+        Hotlatex("\lrArr", "⇔")
+        Hotlatex("\lrarr", "↔")
+        Hotlatex("\Lsh", "↰")
+        Hotlatex("\mapsto", "↦")
+        Hotlatex("\nearrow", "↗")
+        Hotlatex("\nleftarrow", "↚")
+        Hotlatex("\nLeftarrow", "⇍")
+        Hotlatex("\nleftrightarrow", "↮ ")
+        Hotlatex("\nLeftrightarrow", "⇎")
+        Hotlatex("\nrightarrow", "↛")
+        Hotlatex("\nRightarrow", "⇏")
+        Hotlatex("\nwarrow", "↖")
+        Hotlatex("\Rarr", "⇒")
+        Hotlatex("\rArr", "⇒")
+        Hotlatex("\rarr", "→")
+        Hotlatex("\restriction", "↾")
+        Hotlatex("\rightarrow", "→")
+        Hotlatex("\Rightarrow", "⇒")
+        Hotlatex("\rightarrowtail", "↣")
+        Hotlatex("\rightharpoondown", "⇁")
+        Hotlatex("\rightharpoonup", "⇀")
+        Hotlatex("\rightleftarrows", "⇄")
+        Hotlatex("\rightleftharpoons", "⇌")
+        Hotlatex("\rightrightarrows", "⇉")
+        Hotlatex("\rightsquigarrow", "⇝")
+        Hotlatex("\Rrightarrow", "⇛")
+        Hotlatex("\Rsh", "↱")
+        Hotlatex("\searrow", "↘")
+        Hotlatex("\swarrow", "↙")
+        Hotlatex("\to", "→")
+        Hotlatex("\twoheadleftarrow", "↞")
+        Hotlatex("\twoheadrightarrow", "↠")
+        Hotlatex("\Uarr", "⇑")
+        Hotlatex("\uArr", "⇑")
+        Hotlatex("\uarr", "↑")
+        Hotlatex("\uparrow", "↑")
+        Hotlatex("\Uparrow", "⇑")
+        Hotlatex("\updownarrow", "↕")
+        Hotlatex("\Updownarrow", "⇕")
+        Hotlatex("\upharpoonleft", "↿")
+        Hotlatex("\upharpoonright", "↾")
+        Hotlatex("\upuparrows", "⇈")
 
-;∤  ∦ ♯
+        ; 其它常用符号 https://katex.org/docs/supported.html#symbols-and-punctuation
+
+        Hotlatex("\backprime", "‵	")
+        Hotlatex("\prime", "′	")
+        Hotlatex("\blacklozenge", "⧫	")
+        Hotlatex("\P", "¶	")
+        Hotlatex("\S", "§	")
+        Hotlatex("\sect", "§	")
+        Hotlatex("\copyright", "©")
+        Hotlatex("\circledR", "®	")
+        Hotlatex("\circledS", "Ⓢ")
+        Hotlatex("\dots", "…")
+        Hotlatex("\cdots", "⋯")
+        Hotlatex("\ddots", "⋱")
+        Hotlatex("\ldots", "…")
+        Hotlatex("\vdots", "⋮")
+        Hotlatex("\dotsb", "⋯")
+        Hotlatex("\dotsc", "…")
+        Hotlatex("\dotsi", "⋯")
+        Hotlatex("\dotsm", "⋯")
+        Hotlatex("\dotso", "…")
+        Hotlatex("\sdot", "⋅")
+        Hotlatex("\mathellipsis", "…")
+        Hotlatex("\textellipsis", "…")
+        Hotlatex("\Box", "□")
+        Hotlatex("\square", "□")
+        Hotlatex("\blacksquare", "■")
+        Hotlatex("\triangle", "△")
+        Hotlatex("\triangledown", "▽")
+        Hotlatex("\triangleleft", "◃")
+        Hotlatex("\triangleright", "▹")
+        Hotlatex("\bigtriangledown", "▽")
+        Hotlatex("\bigtriangleup", "△")
+        Hotlatex("\blacktriangle", "▲")
+        Hotlatex("\blacktriangledown", "▼")
+        Hotlatex("\blacktriangleleft", "◀")
+        Hotlatex("\blacktriangleright", "▶")
+        Hotlatex("\diamond", "⋄")
+        Hotlatex("\Diamond", "◊")
+        Hotlatex("\lozenge", "◊")
+        Hotlatex("\star", "⋆")
+        Hotlatex("\bigstar", "★")
+        Hotlatex("\clubsuit", "♣")
+        Hotlatex("\clubs", "♣")
+        Hotlatex("\diamondsuit", "♢")
+        Hotlatex("\diamonds", "♢")
+        Hotlatex("\spadesuit", "♠")
+        Hotlatex("\maltese", "✠")
+        Hotlatex("\nabla", "∇")
+        Hotlatex("\infty", "∞")
+        Hotlatex("\infin", "∞")
+        Hotlatex("\checkmark", "✓")
+        Hotlatex("\dag", "†")
+        Hotlatex("\dagger", "†")
+        Hotlatex("\ddag", "‡")
+        Hotlatex("\ddagger", "‡")
+        Hotlatex("\Dagger", "‡")
+        Hotlatex("\angle", "∠")
+        Hotlatex("\measuredangle", "∡")
+        Hotlatex("\sphericalangle", "∢")
+        Hotlatex("\top", "⊤")
+        Hotlatex("\bot", "⊥")
+        Hotlatex("\pounds", "£")
+        Hotlatex("\mathsterling", "£")
+        Hotlatex("\yen", "¥")
+        Hotlatex("\surd", "√")
+        Hotlatex("\degree", "°")
+        Hotlatex("\mho", "℧")
+        Hotlatex("\flat", "♭")
+        Hotlatex("\natural", "♮")
+        Hotlatex("\sharp", "♯")
+        Hotlatex("\heartsuit", "♡")
+        Hotlatex("\hearts", "♡")
+        Hotlatex("\spades", "♠")
+        Hotlatex("\minuso", "⦵")
+
+        ;∤  ∦ ♯
 
 
-; Unicode数学斜体符号
-; 有待处理
-;Item	Range	Item	Range
-;Bold	\text{𝐀-𝐙 𝐚-𝐳 𝟎-𝟗}A-Z a-z 0-9	Double-struck	\text{𝔸-}ℤ\ 𝕜A-Z k
-;Italic	\text{𝐴-𝑍 𝑎-𝑧}A-Z a-z	Sans serif	\text{𝖠-𝖹 𝖺-𝗓 𝟢-𝟫}A-Z a-z 0-9
-;Bold Italic	\text{𝑨-𝒁 𝒂-𝒛}A-Z a-z	Sans serif bold	\text{𝗔-𝗭 𝗮-𝘇 𝟬-𝟵}A-Z a-z 0-9
-;Script	\text{𝒜-𝒵}A-Z	Sans serif italic	\text{𝘈-𝘡 𝘢-𝘻}A-Z a-z
-;	Monospace	\text{𝙰-𝚉 𝚊-𝚣 𝟶-𝟿}A-Z a-z 0-9
+        ; Unicode数学斜体符号
+        ; 有待处理
+        ;Item	Range	Item	Range
+        ;Bold	\text{𝐀-𝐙 𝐚-𝐳 𝟎-𝟗}A-Z a-z 0-9	Double-struck	\text{𝔸-}ℤ\ 𝕜A-Z k
+        ;Italic	\text{𝐴-𝑍 𝑎-𝑧}A-Z a-z	Sans serif	\text{𝖠-𝖹 𝖺-𝗓 𝟢-𝟫}A-Z a-z 0-9
+        ;Bold Italic	\text{𝑨-𝒁 𝒂-𝒛}A-Z a-z	Sans serif bold	\text{𝗔-𝗭 𝗮-𝘇 𝟬-𝟵}A-Z a-z 0-9
+        ;Script	\text{𝒜-𝒵}A-Z	Sans serif italic	\text{𝘈-𝘡 𝘢-𝘻}A-Z a-z
+        ;	Monospace	\text{𝙰-𝚉 𝚊-𝚣 𝟶-𝟿}A-Z a-z 0-9
 
-; Unicode
-; 有待处理
+        ; Unicode
+        ; 有待处理
 
-; 字体
+        ; 字体
 
-; \mathbb{x}  用 \mathbbx 代替
-:c*?:\mathbba`t::𝕒
-:c*?:\mathbbA`t::𝔸
-:c*?:\mathbbb`t::𝕓
-:c*?:\mathbbB`t::𝔹
-:c*?:\mathbbc`t::𝕔
-:c*?:\mathbbC`t::ℂ
-:c*?:\mathbbd`t::𝕕
-:c*?:\mathbbD`t::𝔻
-:c*?:\mathbbe`t::𝕖
-:c*?:\mathbbE`t::𝔼
-:c*?:\mathbbf`t::𝕗
-:c*?:\mathbbF`t::𝔽
-:c*?:\mathbbg`t::𝕘
-:c*?:\mathbbG`t::𝔾
-:c*?:\mathbbh`t::𝕙
-:c*?:\mathbbH`t::ℍ
-:c*?:\mathbbi`t::𝕚
-:c*?:\mathbbI`t::𝕀
-:c*?:\mathbbj`t::𝕛
-:c*?:\mathbbJ`t::𝕁
-:c*?:\mathbbk`t::𝕜
-:c*?:\mathbbK`t::𝕂
-:c*?:\mathbbl`t::𝕝
-:c*?:\mathbbL`t::𝕃
-:c*?:\mathbbm`t::𝕞
-:c*?:\mathbbM`t::𝕄
-:c*?:\mathbbn`t::𝕟
-:c*?:\mathbbN`t::ℕ
-:c*?:\mathbbo`t::𝕠
-:c*?:\mathbbO`t::𝕆
-:c*?:\mathbbp`t::𝕡
-:c*?:\mathbbP`t::ℙ
-:c*?:\mathbbq`t::𝕢
-:c*?:\mathbbQ`t::ℚ
-:c*?:\mathbbr`t::𝕣
-:c*?:\mathbbR`t::ℝ
-:c*?:\mathbbs`t::𝕤
-:c*?:\mathbbS`t::𝕊
-:c*?:\mathbbt`t::𝕥
-:c*?:\mathbbT`t::𝕋
-:c*?:\mathbbu`t::𝕦
-:c*?:\mathbbU`t::𝕌
-:c*?:\mathbbv`t::𝕧
-:c*?:\mathbbV`t::𝕍
-:c*?:\mathbbw`t::𝕨
-:c*?:\mathbbW`t::𝕎
-:c*?:\mathbbx`t::𝕩
-:c*?:\mathbbX`t::𝕏
-:c*?:\mathbby`t::𝕪
-:c*?:\mathbbY`t::𝕐
-:c*?:\mathbbz`t::𝕫
-:c*?:\mathbbZ`t::ℤ
+        ; \mathbb{x}  用 \mathbbx 代替")
+        Hotlatex("\mathbba", "𝕒")
+        Hotlatex("\mathbbA", "𝔸")
+        Hotlatex("\mathbbb", "𝕓")
+        Hotlatex("\mathbbB", "𝔹")
+        Hotlatex("\mathbbc", "𝕔")
+        Hotlatex("\mathbbC", "ℂ")
+        Hotlatex("\mathbbd", "𝕕")
+        Hotlatex("\mathbbD", "𝔻")
+        Hotlatex("\mathbbe", "𝕖")
+        Hotlatex("\mathbbE", "𝔼")
+        Hotlatex("\mathbbf", "𝕗")
+        Hotlatex("\mathbbF", "𝔽")
+        Hotlatex("\mathbbg", "𝕘")
+        Hotlatex("\mathbbG", "𝔾")
+        Hotlatex("\mathbbh", "𝕙")
+        Hotlatex("\mathbbH", "ℍ")
+        Hotlatex("\mathbbi", "𝕚")
+        Hotlatex("\mathbbI", "𝕀")
+        Hotlatex("\mathbbj", "𝕛")
+        Hotlatex("\mathbbJ", "𝕁")
+        Hotlatex("\mathbbk", "𝕜")
+        Hotlatex("\mathbbK", "𝕂")
+        Hotlatex("\mathbbl", "𝕝")
+        Hotlatex("\mathbbL", "𝕃")
+        Hotlatex("\mathbbm", "𝕞")
+        Hotlatex("\mathbbM", "𝕄")
+        Hotlatex("\mathbbn", "𝕟")
+        Hotlatex("\mathbbN", "ℕ")
+        Hotlatex("\mathbbo", "𝕠")
+        Hotlatex("\mathbbO", "𝕆")
+        Hotlatex("\mathbbp", "𝕡")
+        Hotlatex("\mathbbP", "ℙ")
+        Hotlatex("\mathbbq", "𝕢")
+        Hotlatex("\mathbbQ", "ℚ")
+        Hotlatex("\mathbbr", "𝕣")
+        Hotlatex("\mathbbR", "ℝ")
+        Hotlatex("\mathbbs", "𝕤")
+        Hotlatex("\mathbbS", "𝕊")
+        Hotlatex("\mathbbt", "𝕥")
+        Hotlatex("\mathbbT", "𝕋")
+        Hotlatex("\mathbbu", "𝕦")
+        Hotlatex("\mathbbU", "𝕌")
+        Hotlatex("\mathbbv", "𝕧")
+        Hotlatex("\mathbbV", "𝕍")
+        Hotlatex("\mathbbw", "𝕨")
+        Hotlatex("\mathbbW", "𝕎")
+        Hotlatex("\mathbbx", "𝕩")
+        Hotlatex("\mathbbX", "𝕏")
+        Hotlatex("\mathbby", "𝕪")
+        Hotlatex("\mathbbY", "𝕐")
+        Hotlatex("\mathbbz", "𝕫")
+        Hotlatex("\mathbbZ", "ℤ")
 
-:c*?:\mathbb0`t::𝟘
-:c*?:\mathbb1`t::𝟙
-:c*?:\mathbb2`t::𝟚
-:c*?:\mathbb3`t::𝟛
-:c*?:\mathbb4`t::𝟜
-:c*?:\mathbb5`t::𝟝
-:c*?:\mathbb6`t::𝟞
-:c*?:\mathbb7`t::𝟟
-:c*?:\mathbb8`t::𝟠
-:c*?:\mathbb9`t::𝟡
+        Hotlatex("\mathbb0", "𝟘")
+        Hotlatex("\mathbb1", "𝟙")
+        Hotlatex("\mathbb2", "𝟚")
+        Hotlatex("\mathbb3", "𝟛")
+        Hotlatex("\mathbb4", "𝟜")
+        Hotlatex("\mathbb5", "𝟝")
+        Hotlatex("\mathbb6", "𝟞")
+        Hotlatex("\mathbb7", "𝟟")
+        Hotlatex("\mathbb8", "𝟠")
+        Hotlatex("\mathbb9", "𝟡")
 
-; \mathfrak{x}  用 \mathfrakx 代替
-:c*?:\mathfraka`t::𝔞
-:c*?:\mathfrakA`t::𝔄
-:c*?:\mathfrakb`t::𝔟
-:c*?:\mathfrakB`t::𝔅
-:c*?:\mathfrakc`t::𝔠
-:c*?:\mathfrakC`t::ℭ
-:c*?:\mathfrakd`t::𝔡
-:c*?:\mathfrakD`t::𝔇
-:c*?:\mathfrake`t::𝔢
-:c*?:\mathfrakE`t::𝔈
-:c*?:\mathfrakf`t::𝔣
-:c*?:\mathfrakF`t::𝔉
-:c*?:\mathfrakg`t::𝔤
-:c*?:\mathfrakG`t::𝔊
-:c*?:\mathfrakh`t::𝔥
-:c*?:\mathfrakH`t::ℌ
-:c*?:\mathfraki`t::𝔦
-:c*?:\mathfrakI`t::ℑ
-:c*?:\mathfrakj`t::𝔧
-:c*?:\mathfrakJ`t::𝔍
-:c*?:\mathfrakk`t::𝔨
-:c*?:\mathfrakK`t::𝔎
-:c*?:\mathfrakl`t::𝔩
-:c*?:\mathfrakL`t::𝔏
-:c*?:\mathfrakm`t::𝔪
-:c*?:\mathfrakM`t::𝔐
-:c*?:\mathfrakn`t::𝔫
-:c*?:\mathfrakN`t::𝔑
-:c*?:\mathfrako`t::𝔬
-:c*?:\mathfrakO`t::𝔒
-:c*?:\mathfrakp`t::𝔭
-:c*?:\mathfrakP`t::𝔓
-:c*?:\mathfrakq`t::𝔮
-:c*?:\mathfrakQ`t::𝔔
-:c*?:\mathfrakr`t::𝔯
-:c*?:\mathfrakR`t::ℜ
-:c*?:\mathfraks`t::𝔰
-:c*?:\mathfrakS`t::𝔖
-:c*?:\mathfrakt`t::𝔱
-:c*?:\mathfrakT`t::𝔗
-:c*?:\mathfraku`t::𝔲
-:c*?:\mathfrakU`t::𝔘
-:c*?:\mathfrakv`t::𝔳
-:c*?:\mathfrakV`t::𝔙
-:c*?:\mathfrakw`t::𝔴
-:c*?:\mathfrakW`t::𝔚
-:c*?:\mathfrakx`t::𝔵
-:c*?:\mathfrakX`t::𝔛
-:c*?:\mathfraky`t::𝔶
-:c*?:\mathfrakY`t::𝔜
-:c*?:\mathfrakz`t::𝔷
-:c*?:\mathfrakZ`t::ℨ
+        ; \mathfrak{x}  用 \mathfrakx 代替")
+        Hotlatex("\mathfraka", "𝔞")
+        Hotlatex("\mathfrakA", "𝔄")
+        Hotlatex("\mathfrakb", "𝔟")
+        Hotlatex("\mathfrakB", "𝔅")
+        Hotlatex("\mathfrakc", "𝔠")
+        Hotlatex("\mathfrakC", "ℭ")
+        Hotlatex("\mathfrakd", "𝔡")
+        Hotlatex("\mathfrakD", "𝔇")
+        Hotlatex("\mathfrake", "𝔢")
+        Hotlatex("\mathfrakE", "𝔈")
+        Hotlatex("\mathfrakf", "𝔣")
+        Hotlatex("\mathfrakF", "𝔉")
+        Hotlatex("\mathfrakg", "𝔤")
+        Hotlatex("\mathfrakG", "𝔊")
+        Hotlatex("\mathfrakh", "𝔥")
+        Hotlatex("\mathfrakH", "ℌ")
+        Hotlatex("\mathfraki", "𝔦")
+        Hotlatex("\mathfrakI", "ℑ")
+        Hotlatex("\mathfrakj", "𝔧")
+        Hotlatex("\mathfrakJ", "𝔍")
+        Hotlatex("\mathfrakk", "𝔨")
+        Hotlatex("\mathfrakK", "𝔎")
+        Hotlatex("\mathfrakl", "𝔩")
+        Hotlatex("\mathfrakL", "𝔏")
+        Hotlatex("\mathfrakm", "𝔪")
+        Hotlatex("\mathfrakM", "𝔐")
+        Hotlatex("\mathfrakn", "𝔫")
+        Hotlatex("\mathfrakN", "𝔑")
+        Hotlatex("\mathfrako", "𝔬")
+        Hotlatex("\mathfrakO", "𝔒")
+        Hotlatex("\mathfrakp", "𝔭")
+        Hotlatex("\mathfrakP", "𝔓")
+        Hotlatex("\mathfrakq", "𝔮")
+        Hotlatex("\mathfrakQ", "𝔔")
+        Hotlatex("\mathfrakr", "𝔯")
+        Hotlatex("\mathfrakR", "ℜ")
+        Hotlatex("\mathfraks", "𝔰")
+        Hotlatex("\mathfrakS", "𝔖")
+        Hotlatex("\mathfrakt", "𝔱")
+        Hotlatex("\mathfrakT", "𝔗")
+        Hotlatex("\mathfraku", "𝔲")
+        Hotlatex("\mathfrakU", "𝔘")
+        Hotlatex("\mathfrakv", "𝔳")
+        Hotlatex("\mathfrakV", "𝔙")
+        Hotlatex("\mathfrakw", "𝔴")
+        Hotlatex("\mathfrakW", "𝔚")
+        Hotlatex("\mathfrakx", "𝔵")
+        Hotlatex("\mathfrakX", "𝔛")
+        Hotlatex("\mathfraky", "𝔶")
+        Hotlatex("\mathfrakY", "𝔜")
+        Hotlatex("\mathfrakz", "𝔷")
+        Hotlatex("\mathfrakZ", "ℨ")
 
-; \mathcal{x}  用 \mathcalx 代替
-:c*?:\mathcala`t::𝓪
-:c*?:\mathcalA`t::𝓐
-:c*?:\mathcalb`t::𝓫
-:c*?:\mathcalB`t::𝓑
-:c*?:\mathcalc`t::𝓬
-:c*?:\mathcalC`t::𝓒
-:c*?:\mathcald`t::𝓭
-:c*?:\mathcalD`t::𝓓
-:c*?:\mathcale`t::𝓮
-:c*?:\mathcalE`t::𝓔
-:c*?:\mathcalf`t::𝓯
-:c*?:\mathcalF`t::𝓕
-:c*?:\mathcalg`t::𝓰
-:c*?:\mathcalG`t::𝓖
-:c*?:\mathcalh`t::𝓱
-:c*?:\mathcalH`t::𝓗
-:c*?:\mathcali`t::𝓲
-:c*?:\mathcalI`t::𝓘
-:c*?:\mathcalj`t::𝓳
-:c*?:\mathcalJ`t::𝓙
-:c*?:\mathcalk`t::𝓴
-:c*?:\mathcalK`t::𝓚
-:c*?:\mathcall`t::𝓵
-:c*?:\mathcalL`t::𝓛
-:c*?:\mathcalm`t::𝓶
-:c*?:\mathcalM`t::𝓜
-:c*?:\mathcaln`t::𝓷
-:c*?:\mathcalN`t::𝓝
-:c*?:\mathcalo`t::𝓸
-:c*?:\mathcalO`t::𝓞
-:c*?:\mathcalp`t::𝓹
-:c*?:\mathcalP`t::𝓟
-:c*?:\mathcalq`t::𝓺
-:c*?:\mathcalQ`t::𝓠
-:c*?:\mathcalr`t::𝓻
-:c*?:\mathcalR`t::𝓡
-:c*?:\mathcals`t::𝓼
-:c*?:\mathcalS`t::𝓢
-:c*?:\mathcalt`t::𝓽
-:c*?:\mathcalT`t::𝓣
-:c*?:\mathcalu`t::𝓾
-:c*?:\mathcalU`t::𝓤
-:c*?:\mathcalv`t::𝓿
-:c*?:\mathcalV`t::𝓥
-:c*?:\mathcalw`t::𝔀
-:c*?:\mathcalW`t::𝓦
-:c*?:\mathcalx`t::𝔁
-:c*?:\mathcalX`t::𝓧
-:c*?:\mathcaly`t::𝔂
-:c*?:\mathcalY`t::𝓨
-:c*?:\mathcalz`t::𝔃
-:c*?:\mathcalZ`t::𝓩
+        ; \mathcal{x}  用 \mathcalx 代替")
+        Hotlatex("\mathcala", "𝓪")
+        Hotlatex("\mathcalA", "𝓐")
+        Hotlatex("\mathcalb", "𝓫")
+        Hotlatex("\mathcalB", "𝓑")
+        Hotlatex("\mathcalc", "𝓬")
+        Hotlatex("\mathcalC", "𝓒")
+        Hotlatex("\mathcald", "𝓭")
+        Hotlatex("\mathcalD", "𝓓")
+        Hotlatex("\mathcale", "𝓮")
+        Hotlatex("\mathcalE", "𝓔")
+        Hotlatex("\mathcalf", "𝓯")
+        Hotlatex("\mathcalF", "𝓕")
+        Hotlatex("\mathcalg", "𝓰")
+        Hotlatex("\mathcalG", "𝓖")
+        Hotlatex("\mathcalh", "𝓱")
+        Hotlatex("\mathcalH", "𝓗")
+        Hotlatex("\mathcali", "𝓲")
+        Hotlatex("\mathcalI", "𝓘")
+        Hotlatex("\mathcalj", "𝓳")
+        Hotlatex("\mathcalJ", "𝓙")
+        Hotlatex("\mathcalk", "𝓴")
+        Hotlatex("\mathcalK", "𝓚")
+        Hotlatex("\mathcall", "𝓵")
+        Hotlatex("\mathcalL", "𝓛")
+        Hotlatex("\mathcalm", "𝓶")
+        Hotlatex("\mathcalM", "𝓜")
+        Hotlatex("\mathcaln", "𝓷")
+        Hotlatex("\mathcalN", "𝓝")
+        Hotlatex("\mathcalo", "𝓸")
+        Hotlatex("\mathcalO", "𝓞")
+        Hotlatex("\mathcalp", "𝓹")
+        Hotlatex("\mathcalP", "𝓟")
+        Hotlatex("\mathcalq", "𝓺")
+        Hotlatex("\mathcalQ", "𝓠")
+        Hotlatex("\mathcalr", "𝓻")
+        Hotlatex("\mathcalR", "𝓡")
+        Hotlatex("\mathcals", "𝓼")
+        Hotlatex("\mathcalS", "𝓢")
+        Hotlatex("\mathcalt", "𝓽")
+        Hotlatex("\mathcalT", "𝓣")
+        Hotlatex("\mathcalu", "𝓾")
+        Hotlatex("\mathcalU", "𝓤")
+        Hotlatex("\mathcalv", "𝓿")
+        Hotlatex("\mathcalV", "𝓥")
+        Hotlatex("\mathcalw", "𝔀")
+        Hotlatex("\mathcalW", "𝓦")
+        Hotlatex("\mathcalx", "𝔁")
+        Hotlatex("\mathcalX", "𝓧")
+        Hotlatex("\mathcaly", "𝔂")
+        Hotlatex("\mathcalY", "𝓨")
+        Hotlatex("\mathcalz", "𝔃")
+        Hotlatex("\mathcalZ", "𝓩")
 
-; 重音符  https://katex.org/docs/supported.html#accents
+        ; 重音符  https://katex.org/docs/supported.html#accents
 
-; \hat{x}  用 \hatx 代替
-:c*?:\hata`t::â
-:c*?:\hatA`t::Â
-:c*?:\hatb`t::b̂
-:c*?:\hatB`t::B̂
-:c*?:\hatc`t::ĉ
-:c*?:\hatC`t::Ĉ
-:c*?:\hatd`t::d̂
-:c*?:\hatD`t::D̂
-:c*?:\hate`t::ê
-:c*?:\hatE`t::Ê
-:c*?:\hatf`t::f̂
-:c*?:\hatF`t::F̂
-:c*?:\hatg`t::ĝ
-:c*?:\hatG`t::Ĝ
-:c*?:\hath`t::ĥ
-:c*?:\hatH`t::Ĥ
-:c*?:\hati`t::î
-:c*?:\hatI`t::Î
-:c*?:\hatj`t::ĵ
-:c*?:\hatJ`t::Ĵ
-:c*?:\hatk`t::k̂
-:c*?:\hatK`t::K̂
-:c*?:\hatl`t::l̂
-:c*?:\hatL`t::L̂
-:c*?:\hatm`t::m̂
-:c*?:\hatM`t::M̂
-:c*?:\hatn`t::n̂
-:c*?:\hatN`t::N̂
-:c*?:\hato`t::ô
-:c*?:\hatO`t::Ô
-:c*?:\hatp`t::p̂
-:c*?:\hatP`t::P̂
-:c*?:\hatq`t::q̂
-:c*?:\hatQ`t::Q̂
-:c*?:\hatr`t::r̂
-:c*?:\hatR`t::R̂
-:c*?:\hats`t::ŝ
-:c*?:\hatS`t::Ŝ
-:c*?:\hatt`t::t̂
-:c*?:\hatT`t::T̂
-:c*?:\hatu`t::û
-:c*?:\hatU`t::Û
-:c*?:\hatv`t::v̂
-:c*?:\hatV`t::V̂
-:c*?:\hatw`t::ŵ
-:c*?:\hatW`t::Ŵ
-:c*?:\hatx`t::x̂
-:c*?:\hatX`t::X̂
-:c*?:\haty`t::ŷ
-:c*?:\hatY`t::Ŷ
-:c*?:\hatz`t::ẑ
-:c*?:\hatZ`t::Ẑ
+        ; \hat{x}  用 \hatx 代替")
+        Hotlatex("\hata", "â")
+        Hotlatex("\hatA", "Â")
+        Hotlatex("\hatb", "b̂")
+        Hotlatex("\hatB", "B̂")
+        Hotlatex("\hatc", "ĉ")
+        Hotlatex("\hatC", "Ĉ")
+        Hotlatex("\hatd", "d̂")
+        Hotlatex("\hatD", "D̂")
+        Hotlatex("\hate", "ê")
+        Hotlatex("\hatE", "Ê")
+        Hotlatex("\hatf", "f̂")
+        Hotlatex("\hatF", "F̂")
+        Hotlatex("\hatg", "ĝ")
+        Hotlatex("\hatG", "Ĝ")
+        Hotlatex("\hath", "ĥ")
+        Hotlatex("\hatH", "Ĥ")
+        Hotlatex("\hati", "î")
+        Hotlatex("\hatI", "Î")
+        Hotlatex("\hatj", "ĵ")
+        Hotlatex("\hatJ", "Ĵ")
+        Hotlatex("\hatk", "k̂")
+        Hotlatex("\hatK", "K̂")
+        Hotlatex("\hatl", "l̂")
+        Hotlatex("\hatL", "L̂")
+        Hotlatex("\hatm", "m̂")
+        Hotlatex("\hatM", "M̂")
+        Hotlatex("\hatn", "n̂")
+        Hotlatex("\hatN", "N̂")
+        Hotlatex("\hato", "ô")
+        Hotlatex("\hatO", "Ô")
+        Hotlatex("\hatp", "p̂")
+        Hotlatex("\hatP", "P̂")
+        Hotlatex("\hatq", "q̂")
+        Hotlatex("\hatQ", "Q̂")
+        Hotlatex("\hatr", "r̂")
+        Hotlatex("\hatR", "R̂")
+        Hotlatex("\hats", "ŝ")
+        Hotlatex("\hatS", "Ŝ")
+        Hotlatex("\hatt", "t̂")
+        Hotlatex("\hatT", "T̂")
+        Hotlatex("\hatu", "û")
+        Hotlatex("\hatU", "Û")
+        Hotlatex("\hatv", "v̂")
+        Hotlatex("\hatV", "V̂")
+        Hotlatex("\hatw", "ŵ")
+        Hotlatex("\hatW", "Ŵ")
+        Hotlatex("\hatx", "x̂")
+        Hotlatex("\hatX", "X̂")
+        Hotlatex("\haty", "ŷ")
+        Hotlatex("\hatY", "Ŷ")
+        Hotlatex("\hatz", "ẑ")
+        Hotlatex("\hatZ", "Ẑ")
 
-; \dot{x}  用 \dotx 代替
-; https://52unicode.com/combining-diacritical-marks-zifu
-:c*?:\dota`t::ȧ
-:c*?:\dotA`t::Ȧ
-:c*?:\dotb`t::ḃ
-:c*?:\dotB`t::Ḃ
-:c*?:\dotc`t::ċ
-:c*?:\dotC`t::Ċ
-:c*?:\dotd`t::ḋ
-:c*?:\dotD`t::Ḋ
-:c*?:\dote`t::ė
-:c*?:\dotE`t::Ė
-:c*?:\dotf`t::ḟ
-:c*?:\dotF`t::Ḟ
-:c*?:\dotg`t::ġ
-:c*?:\dotG`t::Ġ
-:c*?:\doth`t::ḣ
-:c*?:\dotH`t::Ḣ
-:c*?:\doti`t::i′
-:c*?:\dotI`t::I′
-:c*?:\dotj`t::j′
-:c*?:\dotJ`t::J′
-:c*?:\dotk`t::k̇
-:c*?:\dotK`t::K̇
-:c*?:\dotl`t::l̇
-:c*?:\dotL`t::L̇
-:c*?:\dotm`t::ṁ
-:c*?:\dotM`t::Ṁ
-:c*?:\dotn`t::ṅ
-:c*?:\dotN`t::Ṅ
-:c*?:\doto`t::ȯ
-:c*?:\dotO`t::Ȯ
-:c*?:\dotp`t::ṗ
-:c*?:\dotP`t::Ṗ
-:c*?:\dotq`t::q̇
-:c*?:\dotQ`t::Q̇
-:c*?:\dotr`t::ṙ
-:c*?:\dotR`t::Ṙ
-;:c*?:\dots`t::ṡ ; 和 \dots -> … 有冲突 
-:c*?:\dotS`t::Ṡ
-:c*?:\dott`t::ṫ
-:c*?:\dotT`t::Ṫ
-:c*?:\dotu`t::u̇
-:c*?:\dotU`t::U̇
-:c*?:\dotv`t::v̇
-:c*?:\dotV`t::V̇
-:c*?:\dotw`t::ẇ
-:c*?:\dotW`t::Ẇ
-:c*?:\dotx`t::ẋ
-:c*?:\dotX`t::Ẋ
-:c*?:\doty`t::ẏ
-:c*?:\dotY`t::Ẏ
-:c*?:\dotz`t::ż
-:c*?:\dotZ`t::Ż
+        ; \dot{x}  用 \dotx 代替
+        ; https://52unicode.com/combining-diacritical-marks-zifu")
+        Hotlatex("\dota", "ȧ")
+        Hotlatex("\dotA", "Ȧ")
+        Hotlatex("\dotb", "ḃ")
+        Hotlatex("\dotB", "Ḃ")
+        Hotlatex("\dotc", "ċ")
+        Hotlatex("\dotC", "Ċ")
+        Hotlatex("\dotd", "ḋ")
+        Hotlatex("\dotD", "Ḋ")
+        Hotlatex("\dote", "ė")
+        Hotlatex("\dotE", "Ė")
+        Hotlatex("\dotf", "ḟ")
+        Hotlatex("\dotF", "Ḟ")
+        Hotlatex("\dotg", "ġ")
+        Hotlatex("\dotG", "Ġ")
+        Hotlatex("\doth", "ḣ")
+        Hotlatex("\dotH", "Ḣ")
+        Hotlatex("\doti", "i′")
+        Hotlatex("\dotI", "I′")
+        Hotlatex("\dotj", "j′")
+        Hotlatex("\dotJ", "J′")
+        Hotlatex("\dotk", "k̇")
+        Hotlatex("\dotK", "K̇")
+        Hotlatex("\dotl", "l̇")
+        Hotlatex("\dotL", "L̇")
+        Hotlatex("\dotm", "ṁ")
+        Hotlatex("\dotM", "Ṁ")
+        Hotlatex("\dotn", "ṅ")
+        Hotlatex("\dotN", "Ṅ")
+        Hotlatex("\doto", "ȯ")
+        Hotlatex("\dotO", "Ȯ")
+        Hotlatex("\dotp", "ṗ")
+        Hotlatex("\dotP", "Ṗ")
+        Hotlatex("\dotq", "q̇")
+        Hotlatex("\dotQ", "Q̇")
+        Hotlatex("\dotr", "ṙ")
+        Hotlatex("\dotR", "Ṙ")
+        ;        Hotlatex("\dots", "ṡ ; 和 \dots -> … 有冲突 ")
+        Hotlatex("\dotS", "Ṡ")
+        Hotlatex("\dott", "ṫ")
+        Hotlatex("\dotT", "Ṫ")
+        Hotlatex("\dotu", "u̇")
+        Hotlatex("\dotU", "U̇")
+        Hotlatex("\dotv", "v̇")
+        Hotlatex("\dotV", "V̇")
+        Hotlatex("\dotw", "ẇ")
+        Hotlatex("\dotW", "Ẇ")
+        Hotlatex("\dotx", "ẋ")
+        Hotlatex("\dotX", "Ẋ")
+        Hotlatex("\doty", "ẏ")
+        Hotlatex("\dotY", "Ẏ")
+        Hotlatex("\dotz", "ż")
+        Hotlatex("\dotZ", "Ż")
 
-; \ddot{x}  用 \ddotx 代替
-; https://52unicode.com/combining-diacritical-marks-zifu
-:c*?:\ddota`t::ä
-:c*?:\ddotA`t::Ä
-:c*?:\ddotb`t::b̈
-:c*?:\ddotB`t::B̈
-:c*?:\ddotc`t::c̈
-:c*?:\ddotC`t::C̈
-:c*?:\ddotd`t::d̈
-:c*?:\ddotD`t::D̈
-:c*?:\ddote`t::ë
-:c*?:\ddotE`t::Ë
-:c*?:\ddotf`t::f̈
-:c*?:\ddotF`t::F̈
-:c*?:\ddotg`t::g̈
-:c*?:\ddotG`t::G̈
-:c*?:\ddoth`t::ḧ
-:c*?:\ddotH`t::Ḧ
-:c*?:\ddoti`t::i′′
-:c*?:\ddotI`t::Ï
-:c*?:\ddotj`t::j′′
-:c*?:\ddotJ`t::J̈
-:c*?:\ddotk`t::k̈
-:c*?:\ddotK`t::K̈
-:c*?:\ddotl`t::l̈
-:c*?:\ddotL`t::L̈
-:c*?:\ddotm`t::m̈
-:c*?:\ddotM`t::M̈
-:c*?:\ddotn`t::n̈
-:c*?:\ddotN`t::N̈
-:c*?:\ddoto`t::ö
-:c*?:\ddotO`t::Ö
-:c*?:\ddotp`t::p̈
-:c*?:\ddotP`t::P̈
-:c*?:\ddotq`t::q̈
-:c*?:\ddotQ`t::Q̈
-:c*?:\ddotr`t::r̈
-:c*?:\ddotR`t::R̈
-;:c*?:\ddots`t::s̈ ; 和 \ddots -> ⋱ 有冲突
-:c*?:\ddotS`t::S̈
-:c*?:\ddott`t::ẗ
-:c*?:\ddotT`t::T̈
-:c*?:\ddotu`t::ü
-:c*?:\ddotU`t::Ü
-:c*?:\ddotv`t::v̈
-:c*?:\ddotV`t::V̈
-:c*?:\ddotw`t::ẅ
-:c*?:\ddotW`t::Ẅ
-:c*?:\ddotx`t::ẍ
-:c*?:\ddotX`t::Ẍ
-:c*?:\ddoty`t::ÿ
-:c*?:\ddotY`t::Ÿ
-:c*?:\ddotz`t::z̈
-:c*?:\ddotZ`t::Z̈
+        ; \ddot{x}  用 \ddotx 代替
+        ; https://52unicode.com/combining-diacritical-marks-zifu")
+        Hotlatex("\ddota", "ä")
+        Hotlatex("\ddotA", "Ä")
+        Hotlatex("\ddotb", "b̈")
+        Hotlatex("\ddotB", "B̈")
+        Hotlatex("\ddotc", "c̈")
+        Hotlatex("\ddotC", "C̈")
+        Hotlatex("\ddotd", "d̈")
+        Hotlatex("\ddotD", "D̈")
+        Hotlatex("\ddote", "ë")
+        Hotlatex("\ddotE", "Ë")
+        Hotlatex("\ddotf", "f̈")
+        Hotlatex("\ddotF", "F̈")
+        Hotlatex("\ddotg", "g̈")
+        Hotlatex("\ddotG", "G̈")
+        Hotlatex("\ddoth", "ḧ")
+        Hotlatex("\ddotH", "Ḧ")
+        Hotlatex("\ddoti", "i′′")
+        Hotlatex("\ddotI", "Ï")
+        Hotlatex("\ddotj", "j′′")
+        Hotlatex("\ddotJ", "J̈")
+        Hotlatex("\ddotk", "k̈")
+        Hotlatex("\ddotK", "K̈")
+        Hotlatex("\ddotl", "l̈")
+        Hotlatex("\ddotL", "L̈")
+        Hotlatex("\ddotm", "m̈")
+        Hotlatex("\ddotM", "M̈")
+        Hotlatex("\ddotn", "n̈")
+        Hotlatex("\ddotN", "N̈")
+        Hotlatex("\ddoto", "ö")
+        Hotlatex("\ddotO", "Ö")
+        Hotlatex("\ddotp", "p̈")
+        Hotlatex("\ddotP", "P̈")
+        Hotlatex("\ddotq", "q̈")
+        Hotlatex("\ddotQ", "Q̈")
+        Hotlatex("\ddotr", "r̈")
+        Hotlatex("\ddotR", "R̈")
+        ;Hotlatex("\ddots", "s̈ ; 和 \ddots -> ⋱ 有冲突")
+        Hotlatex("\ddotS", "S̈")
+        Hotlatex("\ddott", "ẗ")
+        Hotlatex("\ddotT", "T̈")
+        Hotlatex("\ddotu", "ü")
+        Hotlatex("\ddotU", "Ü")
+        Hotlatex("\ddotv", "v̈")
+        Hotlatex("\ddotV", "V̈")
+        Hotlatex("\ddotw", "ẅ")
+        Hotlatex("\ddotW", "Ẅ")
+        Hotlatex("\ddotx", "ẍ")
+        Hotlatex("\ddotX", "Ẍ")
+        Hotlatex("\ddoty", "ÿ")
+        Hotlatex("\ddotY", "Ÿ")
+        Hotlatex("\ddotz", "z̈")
+        Hotlatex("\ddotZ", "Z̈")
 
-; \tilde{x}  用 \tildex 代替
-; https://52unicode.com/combining-diacritical-marks-zifu
-:c*?:\tildea`t::ã 
-:c*?:\tildeA`t::Ã
-:c*?:\tildeb`t::b͂
-:c*?:\tildeB`t::B͂
-:c*?:\tildec`t::c͂
-:c*?:\tildeC`t::C͂
-:c*?:\tilded`t::d͂
-:c*?:\tildeD`t::D͂
-:c*?:\tildee`t::ẽ
-:c*?:\tildeE`t::Ẽ
-:c*?:\tildef`t::f͂
-:c*?:\tildeF`t::F͂
-:c*?:\tildeg`t::g͂
-:c*?:\tildeG`t::G͂
-:c*?:\tildeh`t::h͂
-:c*?:\tildeH`t::H͂
-:c*?:\tildei`t::i͂
-:c*?:\tildeI`t::Ĩ
-:c*?:\tildej`t::j͂
-:c*?:\tildeJ`t::J͂
-:c*?:\tildek`t::k͂
-:c*?:\tildeK`t::K͂
-:c*?:\tildel`t::l͂
-:c*?:\tildeL`t::L͂
-:c*?:\tildem`t::m͂
-:c*?:\tildeM`t::M͂
-:c*?:\tilden`t::ñ
-:c*?:\tildeN`t::Ñ
-:c*?:\tildeo`t::õ
-:c*?:\tildeO`t::Õ
-:c*?:\tildep`t::p͂
-:c*?:\tildeP`t::P͂
-:c*?:\tildeq`t::q͂
-:c*?:\tildeQ`t::Q͂
-:c*?:\tilder`t::r͂
-:c*?:\tildeR`t::R͂
-:c*?:\tildes`t::s͂
-:c*?:\tildeS`t::S͂
-:c*?:\tildet`t::t͂
-:c*?:\tildeT`t::T͂
-:c*?:\tildeu`t::ũ
-:c*?:\tildeU`t::Ũ
-:c*?:\tildev`t::ṽ
-:c*?:\tildeV`t::Ṽ
-:c*?:\tildew`t::w͂
-:c*?:\tildeW`t::W͂
-:c*?:\tildex`t::x͂
-:c*?:\tildeX`t::X͂
-:c*?:\tildey`t::ỹ
-:c*?:\tildeY`t::Ỹ
-:c*?:\tildez`t::z͂
-:c*?:\tildeZ`t::Z͂
+        ; \tilde{x}  用 \tildex 代替
+        ; https://52unicode.com/combining-diacritical-marks-zifu")
+        Hotlatex("\tildea", "ã ")
+        Hotlatex("\tildeA", "Ã")
+        Hotlatex("\tildeb", "b͂")
+        Hotlatex("\tildeB", "B͂")
+        Hotlatex("\tildec", "c͂")
+        Hotlatex("\tildeC", "C͂")
+        Hotlatex("\tilded", "d͂")
+        Hotlatex("\tildeD", "D͂")
+        Hotlatex("\tildee", "ẽ")
+        Hotlatex("\tildeE", "Ẽ")
+        Hotlatex("\tildef", "f͂")
+        Hotlatex("\tildeF", "F͂")
+        Hotlatex("\tildeg", "g͂")
+        Hotlatex("\tildeG", "G͂")
+        Hotlatex("\tildeh", "h͂")
+        Hotlatex("\tildeH", "H͂")
+        Hotlatex("\tildei", "i͂")
+        Hotlatex("\tildeI", "Ĩ")
+        Hotlatex("\tildej", "j͂")
+        Hotlatex("\tildeJ", "J͂")
+        Hotlatex("\tildek", "k͂")
+        Hotlatex("\tildeK", "K͂")
+        Hotlatex("\tildel", "l͂")
+        Hotlatex("\tildeL", "L͂")
+        Hotlatex("\tildem", "m͂")
+        Hotlatex("\tildeM", "M͂")
+        Hotlatex("\tilden", "ñ")
+        Hotlatex("\tildeN", "Ñ")
+        Hotlatex("\tildeo", "õ")
+        Hotlatex("\tildeO", "Õ")
+        Hotlatex("\tildep", "p͂")
+        Hotlatex("\tildeP", "P͂")
+        Hotlatex("\tildeq", "q͂")
+        Hotlatex("\tildeQ", "Q͂")
+        Hotlatex("\tilder", "r͂")
+        Hotlatex("\tildeR", "R͂")
+        Hotlatex("\tildes", "s͂")
+        Hotlatex("\tildeS", "S͂")
+        Hotlatex("\tildet", "t͂")
+        Hotlatex("\tildeT", "T͂")
+        Hotlatex("\tildeu", "ũ")
+        Hotlatex("\tildeU", "Ũ")
+        Hotlatex("\tildev", "ṽ")
+        Hotlatex("\tildeV", "Ṽ")
+        Hotlatex("\tildew", "w͂")
+        Hotlatex("\tildeW", "W͂")
+        Hotlatex("\tildex", "x͂")
+        Hotlatex("\tildeX", "X͂")
+        Hotlatex("\tildey", "ỹ")
+        Hotlatex("\tildeY", "Ỹ")
+        Hotlatex("\tildez", "z͂")
+        Hotlatex("\tildeZ", "Z͂")
 
-; \bar{x}  用 \barx 代替
-; https://52unicode.com/combining-diacritical-marks-zifu
-:c*?:\bara`t::ā
-:c*?:\barA`t::Ā
-:c*?:\barb`t::b̄
-:c*?:\barB`t::B̄
-:c*?:\barc`t::c̄
-:c*?:\barC`t::C̄
-:c*?:\bard`t::d̄
-:c*?:\barD`t::D̄
-:c*?:\bare`t::ē
-:c*?:\barE`t::Ē
-:c*?:\barf`t::f̄
-:c*?:\barF`t::F̄
-:c*?:\barg`t::ḡ
-:c*?:\barG`t::Ḡ
-:c*?:\barh`t::h̄
-:c*?:\barH`t::H̄
-:c*?:\bari`t::ī
-:c*?:\barI`t::Ī
-:c*?:\barj`t::j̄
-:c*?:\barJ`t::J̄
-:c*?:\bark`t::k̄
-:c*?:\barK`t::K̄
-:c*?:\barl`t::l̄
-:c*?:\barL`t::L̄
-:c*?:\barm`t::m̄
-:c*?:\barM`t::M̄
-:c*?:\barn`t::n̄
-:c*?:\barN`t::N̄
-:c*?:\baro`t::ō
-:c*?:\barO`t::Ō
-:c*?:\barp`t::p̄
-:c*?:\barP`t::P̄
-:c*?:\barq`t::q̄
-:c*?:\barQ`t::Q̄
-:c*?:\barr`t::r̄
-:c*?:\barR`t::R̄
-:c*?:\bars`t::s̄
-:c*?:\barS`t::S̄
-:c*?:\bart`t::t̄
-:c*?:\barT`t::T̄
-:c*?:\baru`t::ū
-:c*?:\barU`t::Ū
-:c*?:\barv`t::v̄
-:c*?:\barV`t::V̄
-:c*?:\barw`t::w̄
-:c*?:\barW`t::W̄
-:c*?:\barx`t::x̄
-:c*?:\barX`t::X̄
-:c*?:\bary`t::ȳ
-:c*?:\barY`t::Ȳ
-:c*?:\barz`t::z̄
-:c*?:\barZ`t::Z̄
+        ; \bar{x}  用 \barx 代替
+        ; https://52unicode.com/combining-diacritical-marks-zifu")
+        Hotlatex("\bara", "ā")
+        Hotlatex("\barA", "Ā")
+        Hotlatex("\barb", "b̄")
+        Hotlatex("\barB", "B̄")
+        Hotlatex("\barc", "c̄")
+        Hotlatex("\barC", "C̄")
+        Hotlatex("\bard", "d̄")
+        Hotlatex("\barD", "D̄")
+        Hotlatex("\bare", "ē")
+        Hotlatex("\barE", "Ē")
+        Hotlatex("\barf", "f̄")
+        Hotlatex("\barF", "F̄")
+        Hotlatex("\barg", "ḡ")
+        Hotlatex("\barG", "Ḡ")
+        Hotlatex("\barh", "h̄")
+        Hotlatex("\barH", "H̄")
+        Hotlatex("\bari", "ī")
+        Hotlatex("\barI", "Ī")
+        Hotlatex("\barj", "j̄")
+        Hotlatex("\barJ", "J̄")
+        Hotlatex("\bark", "k̄")
+        Hotlatex("\barK", "K̄")
+        Hotlatex("\barl", "l̄")
+        Hotlatex("\barL", "L̄")
+        Hotlatex("\barm", "m̄")
+        Hotlatex("\barM", "M̄")
+        Hotlatex("\barn", "n̄")
+        Hotlatex("\barN", "N̄")
+        Hotlatex("\baro", "ō")
+        Hotlatex("\barO", "Ō")
+        Hotlatex("\barp", "p̄")
+        Hotlatex("\barP", "P̄")
+        Hotlatex("\barq", "q̄")
+        Hotlatex("\barQ", "Q̄")
+        Hotlatex("\barr", "r̄")
+        Hotlatex("\barR", "R̄")
+        Hotlatex("\bars", "s̄")
+        Hotlatex("\barS", "S̄")
+        Hotlatex("\bart", "t̄")
+        Hotlatex("\barT", "T̄")
+        Hotlatex("\baru", "ū")
+        Hotlatex("\barU", "Ū")
+        Hotlatex("\barv", "v̄")
+        Hotlatex("\barV", "V̄")
+        Hotlatex("\barw", "w̄")
+        Hotlatex("\barW", "W̄")
+        Hotlatex("\barx", "x̄")
+        Hotlatex("\barX", "X̄")
+        Hotlatex("\bary", "ȳ")
+        Hotlatex("\barY", "Ȳ")
+        Hotlatex("\barz", "z̄")
+        Hotlatex("\barZ", "Z̄")
+    }
+}
+
+; 按下\键，等候输入，然后tab，可能出现如下5种情况
+;     1) \后如果输入少于2个字符，TAB后不做任何处理，完全由前面的 热LaTeX处理
+;     2) 如果完全匹配，不做任何动作，完全由前面的 热LaTeX处理
+;     3) 如果不完全匹配，但只有唯一匹配， 由这里复制替换成unicode
+;     4) 如果不完全匹配，并且不唯一，弹出菜单，然后选择替换
+;     5) 如果不匹配，不做任何处理
+; ~ 表示触发热键时, 热键中按键原有的功能不会被屏蔽(对操作系统隐藏)
+~\::
+Input, search, V , {tab}
+n := StrLen(search)+2 ; 需要删除的字符数
+if (n < 4)
+{
+    ; \后如果输入少于2个字符，TAB后不做任何处理
+    return
+}
+matches := []
+for index, value in latexHotstring
+{
+    key := value
+    value := unicodestring[index]
+    if  (SubStr(key, 1, 1)="\") and InStr(key, search) 
+    {
+        if (search = SubStr(key, 2)) 
+        {
+            ;1) 如果完全匹配，不做任何动作，完全由前面的 热LaTeX处理
+            matches := []
+            return
+        }
+        ; 收集匹配的热LaTeX
+        matches.Push(key "=" value)
+    }    
+}
+if (matches.Length() == 1)
+{
+    ; 2) 如果不完全匹配，但只有唯一匹配， 由这里复制替换成unicode
+    value := StrSplit(matches[1], "=")[2]
+    Send, {bs %n%}%value%
+    return
+} 
+if (matches.Length() > 1)
+{
+    ; 3) 如果不完全匹配，并且不唯一，弹出菜单，然后选择替换
+    for index, value in matches
+    {
+        Menu, HotMenu, Add, %value%, MenuHandler
+    }
+    Send, {bs %n%}
+    Menu, HotMenu, Show
+    return
+
+}
+; 4) 如果不匹配，不做任何处理
+return
+
+MenuHandler:
+value := StrSplit(A_ThisMenuItem, "=")[2]
+Send, %value%
+Menu, HotMenu, DeleteAll
+return
 

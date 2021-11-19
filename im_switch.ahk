@@ -11,12 +11,11 @@
 global ids := []
 ; 每个窗口ID,对应一个独立中英文状态【0代表英，1代表中】 
 global imState := {}
+Return
 
 ; 查看中英文状态信息
 imStateInfo()
 {
-    global ids
-    global imState
     id := getHWND()
     if (!imState[id])
     {
@@ -34,10 +33,7 @@ imStateInfo()
 
 ; 获取当前活动窗口ID(HWND)
 getHWND()
-{
-    global ids
-    global imState
-    
+{   
     ; 当前活动窗口ID
     id := WinExist("A")
     
@@ -65,7 +61,6 @@ getHWND()
 ; 获取当前窗口的中英文状态变量值
 getImState()
 {
-    global imState
     id := getHWND()
     if (!imState[id])
     {
@@ -77,7 +72,6 @@ getImState()
 ; 切换当前窗口的中英文状态变量值 
 switchImState()
 {
-    global imState
     id := getHWND()
     if (!imState[id])
     {
@@ -97,7 +91,6 @@ switchImState()
 ; 设定当前窗口的中英文状态变量值
 setImState(v)
 {
-    global imState
     id := getHWND()
     imState[id] := v
     return imState[id]
