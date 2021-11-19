@@ -14,6 +14,8 @@ global imState := {}
 ; 由于关联数组的键不区分大小写，所以只能改用两个数组
 global latexHotstring := []
 global unicodestring := []
+; 默认1: 启用热字串（对应unicode模式）;  0: 禁用热字串（对应latex助手模式）
+global latexMode := 1
 loadHotlatex()
 Return ;  include中完全一样的代码不会重复执行
 
