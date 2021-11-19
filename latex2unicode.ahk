@@ -35,6 +35,7 @@
 
 ; 热字符串列表
 ; 由于关联数组的键不区分大小写，所以只能改用两个数组
+;StringCaseSense, On
 global latexHotstring := []
 global unicodestring := []
 ; 默认1: 启用热字串（对应unicode模式）;  0: 禁用热字串（对应latex助手模式）
@@ -1208,7 +1209,7 @@ loadHotlatex()
 ;
 ; ~ 表示触发热键时, 热键中按键原有的功能不会被屏蔽(对操作系统隐藏)
 ~\::
-Input, search, V , {tab}
+Input, search, V C , {tab}
 n := StrLen(search)+2 ; 需要删除的字符数
 if (n < 4)
 {
@@ -1222,14 +1223,11 @@ for index, value in latexHotstring
     value := unicodestring[index]
     if  (SubStr(key, 1, 1)="\") and InStr(key, search) 
     {
-        if (search = SubStr(key, 2)) 
+        if (search == SubStr(key, 2)) 
         {
-            if (latexMode = 1)
-            {
-                ;2) 如果完全匹配，不做任何动作，完全由前面的 热LaTeX处理 【unicode模式】
-                matches := []
-                return
-            }
+            ;2) 如果完全匹配，不做任何动作，完全由前面的 热LaTeX处理 【unicode模式】
+            matches := []
+            return
             
             ; 但是在latex助手模式下，没有热LaTeX，需要继续收集
         }
