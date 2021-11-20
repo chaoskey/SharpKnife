@@ -1343,6 +1343,7 @@ if (matches.Length() > 1)
         Menu, HotMenu, Add, %itemName%, MenuHandler
     }
     Send, {bs %n%}
+    Sleep 30 ; 延迟30毫秒，确保弹出窗口前退格完成（似乎没有同步发送的API，只能这样）
     Menu, HotMenu, Show
     return
 
