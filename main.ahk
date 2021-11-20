@@ -10,13 +10,13 @@ global ids := []
 ; 【im_switch】每个窗口ID,对应一个独立中英文状态【0代表英，1代表中】 
 global imState := {}
 
-; 【latex2unicode】 热字符串列表
-; 由于关联数组的键不区分大小写，所以只能改用两个数组
-;StringCaseSense, On
-global latexHotstring := []
-global unicodestring := []
+; 【latex2unicode】 
 ; 默认1: 启用热字串（对应unicode模式）;  0: 禁用热字串（对应latex助手模式）
 global latexMode := 1
+; 热字符串列表 （由于关联数组的键不区分大小写，所以改用两个数组）
+global latexHotstring := []
+global unicodestring := []
+; 加载热latex
 loadHotlatex()
 Return ;  include中完全一样的代码不会重复执行
 

@@ -33,13 +33,13 @@
 ;                     如果输入的正确的片段（不完全正确），会弹出菜单，选择输入，比如: \bigoplus
 ; ----------------------------------------------
 
-; 热字符串列表
-; 由于关联数组的键不区分大小写，所以只能改用两个数组
-;StringCaseSense, On
-global latexHotstring := []
-global unicodestring := []
+; 【latex2unicode】 
 ; 默认1: 启用热字串（对应unicode模式）;  0: 禁用热字串（对应latex助手模式）
 global latexMode := 1
+; 热字符串列表 （由于关联数组的键不区分大小写，所以改用两个数组）
+global latexHotstring := []
+global unicodestring := []
+; 加载热latex
 loadHotlatex()
 Return
 
@@ -1210,10 +1210,12 @@ loadHotlatex()
 ; ~ 表示触发热键时, 热键中按键原有的功能不会被屏蔽(对操作系统隐藏)
 ~\::
 Input, search, V C , {tab}
+search := Trim(search)
 n := StrLen(search)+2 ; 需要删除的字符数
 if (n < 4)
 {
     ; 1) \后如果输入少于2个字符，TAB后不做任何处理
+    Send, {bs}
     return
 }
 matches := []
@@ -1227,9 +1229,8 @@ for index, value in latexHotstring
         {
             ;2) 如果完全匹配，不做任何动作，完全由前面的 热LaTeX处理 【unicode模式】
             matches := []
+            Send, {bs}
             return
-            
-            ; 但是在latex助手模式下，没有热LaTeX，需要继续收集
         }
         ; 收集匹配的热LaTeX
         matches.Push(key "=" value)
@@ -1238,16 +1239,21 @@ for index, value in latexHotstring
 if (matches.Length() == 1)
 {
     ; 3) 如果不完全匹配，但只有唯一匹配， 由这里复制替换成unicode
+    ; unicdoe模式选择等号右边输出； latex助手模式选择等号左边输出
     value := StrSplit(matches[1], "=")[latexMode+1]
     Send, {bs %n%}%value%
     return
 } 
 if (matches.Length() > 1)
 {
+    ;a := matches[1] ";" matches[2] ";" matches[3] ";" matches[4] ";;" matches.Length()
     ; 4) 如果不完全匹配，并且不唯一，弹出菜单，然后选择替换
     for index, value in matches
     {
-        Menu, HotMenu, Add, %value%, MenuHandler
+        ; 发现问题: 添加的菜单项不区分大小写，比如: a A 只能作为同一个菜单项。
+        ; 解决方案: 加序号前缀
+        itemName := index " : " value
+        Menu, HotMenu, Add, %itemName%, MenuHandler
     }
     Send, {bs %n%}
     Menu, HotMenu, Show
@@ -1258,7 +1264,11 @@ if (matches.Length() > 1)
 return
 
 MenuHandler:
-value := StrSplit(A_ThisMenuItem, "=")[latexMode+1]
+; 剔除序号前缀
+idx := InStr(A_ThisMenuItem, ":")+1
+value := SubStr(A_ThisMenuItem, idx)
+; unicdoe模式选择等号右边输出； latex助手模式选择等号左边输出
+value := StrSplit(value, "=")[latexMode+1]
 Send, %value%
 Menu, HotMenu, DeleteAll
 return
