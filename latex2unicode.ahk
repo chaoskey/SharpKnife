@@ -1215,10 +1215,27 @@ n := StrLen(search)+2 ; 需要删除的字符数
 if (n < 4)
 {
     ; 1) \后如果输入少于2个字符，TAB后不做任何处理
+    ; 但有如下修正
     if (latexMode==0)
     {
         ; latex助手模式下，必须删除tab，复原
         Send, {bs}
+        return
+    }
+    flag := False ; 默认输入不正确
+    for index, value in latexHotstring
+    {
+        if (value == ("\" search))
+        {
+            flag := True
+            Break
+        }
+    }
+    if (Not flag)
+    {
+        ; 如果输入不正确，必须删除tab，复原
+        Send, {bs}
+        return
     }
     return
 }
@@ -1273,7 +1290,7 @@ return
 
 MenuHandler:
 ; 剔除序号前缀
-idx := InStr(A_ThisMenuItem, ":")+1
+idx := InStr(A_ThisMenuItem, ":")+2
 value := SubStr(A_ThisMenuItem, idx)
 ; unicdoe模式选择等号右边输出； latex助手模式选择等号左边输出
 value := StrSplit(value, "=")[latexMode+1]
