@@ -1215,7 +1215,11 @@ n := StrLen(search)+2 ; 需要删除的字符数
 if (n < 4)
 {
     ; 1) \后如果输入少于2个字符，TAB后不做任何处理
-    Send, {bs}
+    if (latexMode==0)
+    {
+        ; latex助手模式下，必须删除tab，复原
+        Send, {bs}
+    }
     return
 }
 matches := []
@@ -1229,7 +1233,11 @@ for index, value in latexHotstring
         {
             ;2) 如果完全匹配，不做任何动作，完全由前面的 热LaTeX处理 【unicode模式】
             matches := []
-            Send, {bs}
+            if (latexMode==0)
+            {
+                ; latex助手模式下，必须删除tab，复原
+                Send, {bs}
+            }
             return
         }
         ; 收集匹配的热LaTeX
@@ -1246,7 +1254,6 @@ if (matches.Length() == 1)
 } 
 if (matches.Length() > 1)
 {
-    ;a := matches[1] ";" matches[2] ";" matches[3] ";" matches[4] ";;" matches.Length()
     ; 4) 如果不完全匹配，并且不唯一，弹出菜单，然后选择替换
     for index, value in matches
     {
@@ -1261,6 +1268,7 @@ if (matches.Length() > 1)
 
 }
 ; 5) 如果不匹配，不做任何处理
+Send, {bs}
 return
 
 MenuHandler:
