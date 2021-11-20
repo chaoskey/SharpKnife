@@ -335,17 +335,11 @@ loadHotlatex()
         Hotlatex("\emptyset", "∅")
         Hotlatex("\empty", "∅")
         Hotlatex("\varnothing", "∅")
-        Hotlatex("\nsubseteq", "⊈")
-        Hotlatex("\nsupseteq", "⊉")
         Hotlatex("\neg", "¬")
         Hotlatex("\lnot", "¬")
-        Hotlatex("\notin", "∉")
         Hotlatex("\ni", "∋")
-        Hotlatex("\notni", "∌")
 
-        ;   ⊄   ⊅  ⊊ ⊋
-        ;   ⊤ ⊥ 
-        ; □ ⊨ ⊢
+        ;   ⊄   ⊅  
 
         ; 宏 https://katex.org/docs/supported.html#macros
         ; 没必要实现
@@ -445,9 +439,6 @@ loadHotlatex()
         ; 关系 https://katex.org/docs/supported.html#relations
         ;      https://katex.org/docs/supported.html#negated-relations
 
-        Hotlatex("\neq", "≠")
-        Hotlatex("\lneqq", "≨")
-        Hotlatex("\gneqq", "≩")
         Hotlatex("\doteqdot", "≑")
         Hotlatex("\Doteq", "≑	")
         Hotlatex("\lessapprox", "⪅")
@@ -553,6 +544,66 @@ loadHotlatex()
         Hotlatex("\Vdash", "⊩")
         Hotlatex("\leqslant", "⩽")
         Hotlatex("\Vvdash", "⊪")
+
+        Hotlatex("\not", "≠")
+        Hotlatex("\gnapprox", "⪊")
+        Hotlatex("\gneq", "⪈")
+        Hotlatex("\gneqq", "≩")
+        Hotlatex("\gnsim", "⋧")
+        Hotlatex("\gvertneqq", "≩") ; 找不到完全一致unicode，只能用最接近的替代
+        Hotlatex("\lnapprox", "⪉")
+        Hotlatex("\lneq", "⪇")
+        Hotlatex("\lneqq", "≨")
+        Hotlatex("\lnsim", "⋦")
+        Hotlatex("\lvertneqq", "≨") ; 找不到完全一致unicode，只能用最接近的替代
+        Hotlatex("\ncong", "≆")
+        Hotlatex("\ne", "≠")
+        Hotlatex("\neq", "≠")
+        Hotlatex("\ngeq", "≱ ")
+        ;Hotlatex("\ngeqq", "≧̸") ; 有问题？ https://52unicode.com/combining-diacritical-marks-zifu
+        ;Hotlatex("\ngeqslant", "⩾̸") ; 有问题？ https://52unicode.com/combining-diacritical-marks-zifu
+        Hotlatex("\ngtr", "≯ ")
+        Hotlatex("\nleq", "≰ ")
+        ;Hotlatex("\nleqq", "≦") ; 有问题？ https://52unicode.com/combining-diacritical-marks-zifu
+        ;Hotlatex("\nleqslant", "̸⩽") ; 有问题？ https://52unicode.com/combining-diacritical-marks-zifu
+        Hotlatex("\nless", "≮ ")
+        Hotlatex("\nmid", "∤")
+        Hotlatex("\notin", "∉")
+        Hotlatex("\notni", "∌")
+        Hotlatex("\nparallel", "∦")
+        Hotlatex("\nprec", "⊀")
+        Hotlatex("\npreceq", "⋠")
+        ;Hotlatex("\nshortmid", "|") ; 有问题？ https://52unicode.com/combining-diacritical-marks-zifu
+        ;Hotlatex("\nshortparallel", "∦") ; 有问题？https://52unicode.com/combining-diacritical-marks-zifu
+        Hotlatex("\nsim", "≁")
+        Hotlatex("\nsubseteq", "⊈")
+        ;Hotlatex("\nsubseteqq", "̸⫅") ; 有问题？ https://52unicode.com/combining-diacritical-marks-zifu
+        Hotlatex("\nsucc", "⊁")
+        Hotlatex("\nsucceq", "⋡")
+        Hotlatex("\nsupseteq", "⊉")
+        ;Hotlatex("\nsupseteqq", "̸⫆") ; 有问题？ https://52unicode.com/combining-diacritical-marks-zifu
+        Hotlatex("\ntriangleleft", "⋪")
+        Hotlatex("\ntrianglelefteq", "⋬")
+        Hotlatex("\ntriangleright", "⋫")
+        Hotlatex("\ntrianglerighteq", "⋭")
+        Hotlatex("\nvdash", "⊬")
+        Hotlatex("\nvDash", "⊭")
+        Hotlatex("\nVDash", "⊯")
+        Hotlatex("\nVdash", "⊮")
+        Hotlatex("\precnapprox", "⪹")
+        Hotlatex("\precneqq", "⪵")
+        Hotlatex("\precnsim", "⋨")
+        Hotlatex("\subsetneq", "⊊")
+        Hotlatex("\subsetneqq", "⫋")
+        Hotlatex("\succnapprox", "⪺")
+        Hotlatex("\succneqq", "⪶")
+        Hotlatex("\succnsim", "⋩")
+        Hotlatex("\supsetneq", "⊋")
+        Hotlatex("\supsetneqq", "⫌")
+        Hotlatex("\varsubsetneq", "⊊") ; 找不到完全一致unicode，只能用最接近的替代
+        Hotlatex("\varsubsetneqq", "⫋") ; 找不到完全一致unicode，只能用最接近的替代
+        Hotlatex("\varsupsetneq", "⊋") ; 找不到完全一致unicode，只能用最接近的替代
+        Hotlatex("\varsupsetneqq", "⫌") ; 找不到完全一致unicode，只能用最接近的替代
 
         ; 箭头 https://katex.org/docs/supported.html#arrows
 
@@ -723,9 +774,6 @@ loadHotlatex()
         Hotlatex("\hearts", "♡")
         Hotlatex("\spades", "♠")
         Hotlatex("\minuso", "⦵")
-
-        ;∤  ∦ ♯
-
 
         ; Unicode数学斜体符号
         ; 有待处理
