@@ -1308,10 +1308,10 @@ if (latexMode=1)
     ToolTip, unicode模式
 else
     ToolTip, latex助手模式
-SetTimer, RemoveToolTip, -1000
+SetTimer, RemoveLatexToolTip, -1000
 return
 
-RemoveToolTip:
+RemoveLatexToolTip:
 ToolTip
 return
 

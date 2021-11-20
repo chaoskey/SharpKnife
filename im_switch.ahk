@@ -3,7 +3,7 @@
 ; 假设：
 ;	1) 输入法采用微软拼音并且默认为英文
 ;	2) 本脚开机启动
-;	3) 管住手，禁止鼠标点击切换中英文
+;	3) 管住手，禁止鼠标点击切换中英文 【如果提示和系统显示不一样，才能通过鼠标切换来保持同步】
 ;   4) 为每一个活动过的窗口记录中英文状态
 ;------------------------------------------------
 
@@ -106,6 +106,7 @@ return
 
 ~^Space::		; Ctl+空格，并且保留原始功能
 switchImState()		; 切换并记录中英文状态
+IMToolTip()
 return
 
 ; Markdown中准备编辑数学公式
@@ -117,6 +118,7 @@ if (getImState() = 1)
 }
 setImState(0)		; 记录并切换到英文状态   
 Send $			; 保留原始功能
+IMToolTip()
 return
 
 ; Vim中回到普通模式
@@ -127,6 +129,7 @@ if (getImState() = 1)
     Send ^{Space}	; 切换到英文状态
 }
 setImState(0)
+IMToolTip()
 return
 
 ; Vim进入命令行模式 【+;就是冒号:】
@@ -138,9 +141,19 @@ if (getImState() = 1)
 }
 setImState(0)
 Send {Text}:
+IMToolTip()
 return
 
+IMToolTip()
+{
+    state := getImState()
+    if (state=1)
+        ToolTip, 中
+    else
+        ToolTip, EN
+    SetTimer, RemoveIMToolTip, -1000
+}
 
-
-
-
+RemoveIMToolTip:
+ToolTip
+return
