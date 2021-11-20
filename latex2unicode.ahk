@@ -1210,6 +1210,9 @@ loadHotlatex()
 ; ~ 表示触发热键时, 热键中按键原有的功能不会被屏蔽(对操作系统隐藏)
 ~\::
 Input, search, V C , {tab}
+if (ErrorLevel = "NewInput")
+    ; 一旦出现别的新线程请求输入，则放弃当前输入，防止相互干扰
+    return
 search := Trim(search)
 n := StrLen(search)+2 ; 需要删除的字符数
 if (n < 4)
@@ -1251,10 +1254,8 @@ for index, value in latexHotstring
             ;2) 如果完全匹配，不做任何动作，完全由前面的 热LaTeX处理 【unicode模式】
             matches := []
             if (latexMode==0)
-            {
                 ; latex助手模式下，必须删除tab，复原
                 Send, {bs}
-            }
             return
         }
         ; 收集匹配的热LaTeX
@@ -1304,13 +1305,9 @@ return
 latexMode := Mod(latexMode+1,2)
 toggleHotlatex(latexMode)
 if (latexMode=1)
-{
     ToolTip, unicode模式
-}
 else
-{
     ToolTip, latex助手模式
-}
 SetTimer, RemoveToolTip, -1000
 return
 
