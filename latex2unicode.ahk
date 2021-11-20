@@ -352,7 +352,7 @@ loadHotlatex()
 
         ; 运算符 https://katex.org/docs/supported.html#operators
 
-        ; 大运算符 https://katex.org/docs/supported.html#big-operators")
+        ; 大运算符 https://katex.org/docs/supported.html#big-operators
         Hotlatex("\sum", "∑")
         Hotlatex("\prod", "∏")
         Hotlatex("\bigotimes", "⊗")
@@ -741,7 +741,7 @@ loadHotlatex()
 
         ; 字体
 
-        ; \mathbb{x}  用 \mathbbx 代替")
+        ; \mathbb{x}  用 \mathbbx 代替
         Hotlatex("\mathbba", "𝕒")
         Hotlatex("\mathbbA", "𝔸")
         Hotlatex("\mathbbb", "𝕓")
@@ -806,7 +806,7 @@ loadHotlatex()
         Hotlatex("\mathbb8", "𝟠")
         Hotlatex("\mathbb9", "𝟡")
 
-        ; \mathfrak{x}  用 \mathfrakx 代替")
+        ; \mathfrak{x}  用 \mathfrakx 代替
         Hotlatex("\mathfraka", "𝔞")
         Hotlatex("\mathfrakA", "𝔄")
         Hotlatex("\mathfrakb", "𝔟")
@@ -860,7 +860,7 @@ loadHotlatex()
         Hotlatex("\mathfrakz", "𝔷")
         Hotlatex("\mathfrakZ", "ℨ")
 
-        ; \mathcal{x}  用 \mathcalx 代替")
+        ; \mathcal{x}  用 \mathcalx 代替
         Hotlatex("\mathcala", "𝓪")
         Hotlatex("\mathcalA", "𝓐")
         Hotlatex("\mathcalb", "𝓫")
@@ -916,7 +916,7 @@ loadHotlatex()
 
         ; 重音符  https://katex.org/docs/supported.html#accents
 
-        ; \hat{x}  用 \hatx 代替")
+        ; \hat{x}  用 \hatx 代替
         Hotlatex("\hata", "â")
         Hotlatex("\hatA", "Â")
         Hotlatex("\hatb", "b̂")
@@ -971,7 +971,7 @@ loadHotlatex()
         Hotlatex("\hatZ", "Ẑ")
 
         ; \dot{x}  用 \dotx 代替
-        ; https://52unicode.com/combining-diacritical-marks-zifu")
+        ; https://52unicode.com/combining-diacritical-marks-zifu
         Hotlatex("\dota", "ȧ")
         Hotlatex("\dotA", "Ȧ")
         Hotlatex("\dotb", "ḃ")
@@ -1008,7 +1008,7 @@ loadHotlatex()
         Hotlatex("\dotQ", "Q̇")
         Hotlatex("\dotr", "ṙ")
         Hotlatex("\dotR", "Ṙ")
-        ;        Hotlatex("\dots", "ṡ ; 和 \dots -> … 有冲突 ")
+        ;Hotlatex("\dots", "ṡ") ; 和 \dots -> … 有冲突，通过菜单选择来解决
         Hotlatex("\dotS", "Ṡ")
         Hotlatex("\dott", "ṫ")
         Hotlatex("\dotT", "Ṫ")
@@ -1026,7 +1026,7 @@ loadHotlatex()
         Hotlatex("\dotZ", "Ż")
 
         ; \ddot{x}  用 \ddotx 代替
-        ; https://52unicode.com/combining-diacritical-marks-zifu")
+        ; https://52unicode.com/combining-diacritical-marks-zifu
         Hotlatex("\ddota", "ä")
         Hotlatex("\ddotA", "Ä")
         Hotlatex("\ddotb", "b̈")
@@ -1063,7 +1063,7 @@ loadHotlatex()
         Hotlatex("\ddotQ", "Q̈")
         Hotlatex("\ddotr", "r̈")
         Hotlatex("\ddotR", "R̈")
-        ;Hotlatex("\ddots", "s̈ ; 和 \ddots -> ⋱ 有冲突")
+        ;Hotlatex("\ddots", "s̈") ; 和 \ddots -> ⋱ 有冲突，通过菜单选择来解决
         Hotlatex("\ddotS", "S̈")
         Hotlatex("\ddott", "ẗ")
         Hotlatex("\ddotT", "T̈")
@@ -1081,7 +1081,7 @@ loadHotlatex()
         Hotlatex("\ddotZ", "Z̈")
 
         ; \tilde{x}  用 \tildex 代替
-        ; https://52unicode.com/combining-diacritical-marks-zifu")
+        ; https://52unicode.com/combining-diacritical-marks-zifu
         Hotlatex("\tildea", "ã ")
         Hotlatex("\tildeA", "Ã")
         Hotlatex("\tildeb", "b͂")
@@ -1136,7 +1136,7 @@ loadHotlatex()
         Hotlatex("\tildeZ", "Z͂")
 
         ; \bar{x}  用 \barx 代替
-        ; https://52unicode.com/combining-diacritical-marks-zifu")
+        ; https://52unicode.com/combining-diacritical-marks-zifu
         Hotlatex("\bara", "ā")
         Hotlatex("\barA", "Ā")
         Hotlatex("\barb", "b̄")
@@ -1207,13 +1207,15 @@ loadHotlatex()
 ;       latex助手模式: 如果输入正确的或完全不正确，没有任何反应
 ;                     如果输入的正确的片段（不完全正确），会弹出菜单，选择输入，比如: \bigoplus
 ;
-; ~ 表示触发热键时, 热键中按键原有的功能不会被屏蔽(对操作系统隐藏)
+; ~ 表示触发热键时, 热键中按键原有的功能不会被屏蔽(对操作系统隐藏) 
 ~\::
-Input, search, V C , {tab}
+Input, search, V C , {tab}{space}{enter}.{esc}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}{Up}{Down}{Home}{End}{PgUp}{PgDn}{CapsLock}{NumLock}{PrintScreen}{Pause}
 if (ErrorLevel = "NewInput")
-    ; 一旦出现别的新线程请求输入，则放弃当前输入，防止相互干扰
+    ; 在输入没有完成以前，一旦出现别的新线程请求输入，则放弃当前输入，防止相互干扰
     return
-search := Trim(search)
+if (ErrorLevel != "EndKey:tab")
+    ; 非tab终止符触发，表示放弃
+    return
 n := StrLen(search)+2 ; 需要删除的字符数
 if (n < 4)
 {
@@ -1242,6 +1244,7 @@ if (n < 4)
     }
     return
 }
+flag := False ; 默认是不完全匹配模式
 matches := []
 for index, value in latexHotstring
 {
@@ -1251,23 +1254,34 @@ for index, value in latexHotstring
     {
         if (search == SubStr(key, 2)) 
         {
-            ;2) 如果完全匹配，不做任何动作，完全由前面的 热LaTeX处理 【unicode模式】
-            matches := []
-            if (latexMode==0)
-                ; latex助手模式下，必须删除tab，复原
-                Send, {bs}
-            return
+            if (Not flag)
+            {
+                ; 进入完全匹配模式
+                matches := []
+                flag := True
+            }    
+            ; 收集完全匹配的热LaTeX
+            matches.Push(key "=" value)
+        }else if (Not flag) {
+            ; 在不完全匹配模式下，才能收集不完全匹配的热LaTeX
+            matches.Push(key "=" value)
         }
-        ; 收集匹配的热LaTeX
-        matches.Push(key "=" value)
     }    
 }
 if (matches.Length() == 1)
 {
-    ; 3) 如果不完全匹配，但只有唯一匹配， 由这里复制替换成unicode
-    ; unicdoe模式选择等号右边输出； latex助手模式选择等号左边输出
-    value := StrSplit(matches[1], "=")[latexMode+1]
-    Send, {bs %n%}%value%
+    if flag
+    {
+        ; 2) 如果完全匹配，不做任何动作，完全由前面的 热LaTeX处理 【unicode模式】
+        if (latexMode==0)
+            ; latex助手模式下，必须删除tab，复原
+            Send, {bs}
+    } else {
+        ; 3) 如果不完全匹配，但只有唯一匹配， 由这里复制替换成unicode
+        ; unicdoe模式选择等号右边输出； latex助手模式选择等号左边输出
+        value := StrSplit(matches[1], "=")[latexMode+1]
+        Send, {bs %n%}%value%
+    }
     return
 } 
 if (matches.Length() > 1)
