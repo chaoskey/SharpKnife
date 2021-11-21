@@ -301,7 +301,7 @@ loadHotlatex()
         Hotlatex("\alefsym", "ℵ")
         Hotlatex("\cnums", "ℂ")
         Hotlatex("\natnums", "ℕ")
-        Hotlatex("\aa", "˚ ")
+        Hotlatex("\aa", "˚")
         Hotlatex("\i", "ı")
         Hotlatex("\beth", "ℶ")
         Hotlatex("\Complex", "ℂ")
@@ -566,14 +566,14 @@ loadHotlatex()
         Hotlatex("\ncong", "≆")
         Hotlatex("\ne", "≠")
         Hotlatex("\neq", "≠")
-        Hotlatex("\ngeq", "≱ ")
+        Hotlatex("\ngeq", "≱")
         ;Hotlatex("\ngeqq", "≧̸") ; 有问题？ https://52unicode.com/combining-diacritical-marks-zifu
         ;Hotlatex("\ngeqslant", "⩾̸") ; 有问题？ https://52unicode.com/combining-diacritical-marks-zifu
-        Hotlatex("\ngtr", "≯ ")
-        Hotlatex("\nleq", "≰ ")
+        Hotlatex("\ngtr", "≯")
+        Hotlatex("\nleq", "≰")
         ;Hotlatex("\nleqq", "≦") ; 有问题？ https://52unicode.com/combining-diacritical-marks-zifu
         ;Hotlatex("\nleqslant", "̸⩽") ; 有问题？ https://52unicode.com/combining-diacritical-marks-zifu
-        Hotlatex("\nless", "≮ ")
+        Hotlatex("\nless", "≮")
         Hotlatex("\nmid", "∤")
         Hotlatex("\notin", "∉")
         Hotlatex("\notni", "∌")
@@ -670,7 +670,7 @@ loadHotlatex()
         Hotlatex("\nearrow", "↗")
         Hotlatex("\nleftarrow", "↚")
         Hotlatex("\nLeftarrow", "⇍")
-        Hotlatex("\nleftrightarrow", "↮ ")
+        Hotlatex("\nleftrightarrow", "↮")
         Hotlatex("\nLeftrightarrow", "⇎")
         Hotlatex("\nrightarrow", "↛")
         Hotlatex("\nRightarrow", "⇏")
@@ -797,6 +797,7 @@ loadHotlatex()
         ; 字体
 
         ; \mathbb{x}  用 \mathbbx 代替
+        Hotlatex("\mathbb", "\mathbb") ; 如果完全匹配，保持原样
         Hotlatex("\mathbba", "𝕒")
         Hotlatex("\mathbbA", "𝔸")
         Hotlatex("\mathbbb", "𝕓")
@@ -862,6 +863,7 @@ loadHotlatex()
         Hotlatex("\mathbb9", "𝟡")
 
         ; \mathfrak{x}  用 \mathfrakx 代替
+        Hotlatex("\mathfrak", "\mathfrak") ; 如果完全匹配，保持原样
         Hotlatex("\mathfraka", "𝔞")
         Hotlatex("\mathfrakA", "𝔄")
         Hotlatex("\mathfrakb", "𝔟")
@@ -916,6 +918,7 @@ loadHotlatex()
         Hotlatex("\mathfrakZ", "ℨ")
 
         ; \mathcal{x}  用 \mathcalx 代替
+        Hotlatex("\mathcal", "\mathcal") ; 如果完全匹配，保持原样
         Hotlatex("\mathcala", "𝓪")
         Hotlatex("\mathcalA", "𝓐")
         Hotlatex("\mathcalb", "𝓫")
@@ -972,6 +975,7 @@ loadHotlatex()
         ; 重音符  https://katex.org/docs/supported.html#accents
 
         ; \hat{x}  用 \hatx 代替
+        Hotlatex("\hat", "̂")  ;   A\hat[Tab]  等效于 \hatA[Tab]
         Hotlatex("\hata", "â")
         Hotlatex("\hatA", "Â")
         Hotlatex("\hatb", "b̂")
@@ -1027,6 +1031,7 @@ loadHotlatex()
 
         ; \dot{x}  用 \dotx 代替
         ; https://52unicode.com/combining-diacritical-marks-zifu
+        Hotlatex("\dot", "̇")  ;   A\dot[Tab]  等效于 \dotA[Tab]
         Hotlatex("\dota", "ȧ")
         Hotlatex("\dotA", "Ȧ")
         Hotlatex("\dotb", "ḃ")
@@ -1082,6 +1087,7 @@ loadHotlatex()
 
         ; \ddot{x}  用 \ddotx 代替
         ; https://52unicode.com/combining-diacritical-marks-zifu
+        Hotlatex("\ddot", "̈") ;   A\ddot[Tab]  等效于 \ddotA[Tab]
         Hotlatex("\ddota", "ä")
         Hotlatex("\ddotA", "Ä")
         Hotlatex("\ddotb", "b̈")
@@ -1137,7 +1143,8 @@ loadHotlatex()
 
         ; \tilde{x}  用 \tildex 代替
         ; https://52unicode.com/combining-diacritical-marks-zifu
-        Hotlatex("\tildea", "ã ")
+        Hotlatex("\tilde", "̃") ;   A\tilde[Tab]  等效于 \tildeA[Tab]
+        Hotlatex("\tildea", "ã")
         Hotlatex("\tildeA", "Ã")
         Hotlatex("\tildeb", "b͂")
         Hotlatex("\tildeB", "B͂")
@@ -1192,6 +1199,7 @@ loadHotlatex()
 
         ; \bar{x}  用 \barx 代替
         ; https://52unicode.com/combining-diacritical-marks-zifu
+        Hotlatex("\bar", "̄") ;   A\bar[Tab]  等效于 \barA[Tab]
         Hotlatex("\bara", "ā")
         Hotlatex("\barA", "Ā")
         Hotlatex("\barb", "b̄")
@@ -1351,8 +1359,12 @@ HotlatexHandler(prefix)
         } else {
             ; 由于是唯一匹配，直接替换即可
             ; unicdoe模式选择等号右边输出； latex助手模式选择等号左边输出
-            value := StrSplit(matches[1], "=")[latexMode+1]
-            Send, {bs %n%}%value%
+            tmp := StrSplit(matches[1], "=")
+            value := tmp[latexMode+1]
+            if (tmp[1] == tmp[2])
+                Send, {bs}
+            else
+                Send, {bs %n%}%value%
         }
         return
     } 
