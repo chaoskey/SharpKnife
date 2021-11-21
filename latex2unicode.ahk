@@ -787,10 +787,29 @@ loadHotlatex()
         ; https://52unicode.com/combining-diacritical-marks-zifu
         
         Hotlatex("\hat", "̂")  ;   R\hat[Tab]  -> R̂
+        ;Hotlatex("\^", "̂")  ;   R\^[Tab]  -> R̂    有冲突，不能用
         Hotlatex("\dot", "̇")  ;   R\dot[Tab]  -> Ṙ
+        Hotlatex("\.", "̇")  ;   R\.[Tab]  -> Ṙ
         Hotlatex("\ddot", "̈") ;   R\ddot[Tab]  -> R̈
+        Hotlatex("\""", "̈") ;   R\ddot[Tab]  -> R̈  
         Hotlatex("\tilde", "̃") ;   R\tilde[Tab]  -> R̃
+        Hotlatex("\~", "̃") ;   R\~[Tab]  -> R̃
         Hotlatex("\bar", "̄") ;   R\bar[Tab]  -> R̄ 
+        ;Hotlatex("\`=", "̄") ;   R\=[Tab]  -> R̄ 有问题？？
+
+        Hotlatex("\mathring", "ͦ") ;   R\mathring[Tab]  -> Rͦ
+        Hotlatex("\r", "ͦ") ;   R\mathring[Tab]  -> Rͦ
+        Hotlatex("\acute", "́") ;   R\acute[Tab]  -> Ŕ
+        Hotlatex("\'", "́") ;   R\'[Tab]  -> Ŕ
+        ;Hotlatex("\vec", "̄") ;   R\vec[Tab]  -> R   找不到对应的可显示的unicode符号
+        Hotlatex("\breve", "̆") ;   R\breve[Tab]  -> R̆
+        Hotlatex("\u", "̆") ;   R\u[Tab]  -> R̆
+        Hotlatex("\check", "̌") ;   R\check[Tab]  -> Ř
+        Hotlatex("\v", "̌") ;   R\v[Tab]  -> Ř
+        Hotlatex("\grave", "̀") ;   R\grave[Tab]  -> R̀
+        Hotlatex("\``", "̀") ;   R\`[Tab]  -> R̀ 
+        Hotlatex("\underbar", "̲") ;   R\underbar[Tab]  -> R̲
+        Hotlatex("\H", "̋") ;   R\H[Tab]  -> R̋
 
         ; Unicode数学斜体符号
         ; 有待处理
@@ -1022,7 +1041,7 @@ HotlatexHandler(prefix)
         oldPrefix := prefix
     
     ; 等候输入
-    Input, search, V C , {tab}{space}{enter}.{esc}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}{Up}{Down}{Home}{End}{PgUp}{PgDn}{CapsLock}{NumLock}{PrintScreen}{Pause}
+    Input, search, V C , {tab}{space}{enter}{esc}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}{Up}{Down}{Home}{End}{PgUp}{PgDn}{CapsLock}{NumLock}{PrintScreen}{Pause}
     if (ErrorLevel = "NewInput")
     {
         ; 在输入没有完成以前，一旦出现别的新线程请求输入，则放弃当前输入，防止相互干扰
