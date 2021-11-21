@@ -32,6 +32,8 @@
 ;       latex助手模式: 如果输入正确的或完全不正确，没有任何反应
 ;                     如果输入的正确的片段（不完全正确），会弹出菜单，选择输入，比如: \bigoplus
 ; ----------------------------------------------
+; 模块注册。   据此可实现模块之间的相互调用
+global modules := {}
 
 ; 【latex2unicode】 
 ; 默认1: 启用热字串（对应unicode模式）;  0: 禁用热字串（对应latex助手模式）
@@ -39,6 +41,8 @@ global latexMode := 1
 ; 热字符串列表 （由于关联数组的键不区分大小写，所以改用两个数组）
 global latexHotstring := []
 global unicodestring := []
+; latex2unicode模块注册
+modules["latex2unicode"] := True
 ; 加载热latex
 loadHotlatex()
 Return
@@ -1241,12 +1245,14 @@ loadHotlatex()
 }
 
 ;------------------------------------------------------------------------------------------------------
-;        latex热键处理
+;        latex热键处理 (完全用Input接管)
 ;------------------------------------------------------------------------------------------------------
 ; 按下\键，等候输入，然后tab，可能出现如下4种情况
 ;     1) \后如果输入少于2个字符，尝试完全匹配，否则无任何变化
-;     2) 如果完全匹配 或 不完全但唯一匹配，会自动替换成:  unicode（unicode模式） 或 正确的latex代码（latex助手模式）
-;     3) 如果不完全且不唯一匹配，会弹出菜单选择替换，替换的结果是: unicode字符（unicode模式）或 正确的latex代码（latex助手模式）
+;     2) 如果完全匹配 或 不完全但唯一匹配，会自动替换成:  unicode（unicode模式） 
+;                                                  或 正确的latex代码（latex助手模式）
+;     3) 如果不完全且不唯一匹配，会弹出菜单选择替换，替换的结果是: unicode字符（unicode模式）
+;                                                          或 正确的latex代码（latex助手模式）
 ;     4) 如果不匹配，不做任何处理
 ;
 ;  可用`Win + \`  进行 unicode模式 / latex助手模式 切换  【会有1s后消失的提示】
@@ -1256,19 +1262,47 @@ loadHotlatex()
 ;------------------------------------------------------------------------------------------------------
 HotlatexHandler(prefix)
 {
+    ; 记录老前缀，防止类似 “_\” 的组合键导致相互干扰
+    global oldPrefix
+
+    ; 如果已经加载im_switch模块，支持在中文输入状态下直接输入，会自动切换倒英文状态
+    if modules["im_switch"] and (getImState() = 1)
+    {
+        Send ^{Space}{bs 2}{text}%prefix%
+        setImState(0)
+        IMToolTip()
+    }
+    
+    ; 临时记录老前缀
+    if (not oldPrefix)
+        oldPrefix := prefix
+    
+    ; 等候输入
     Input, search, V C , {tab}{space}{enter}.{esc}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}{Up}{Down}{Home}{End}{PgUp}{PgDn}{CapsLock}{NumLock}{PrintScreen}{Pause}
     if (ErrorLevel = "NewInput")
+    {
         ; 在输入没有完成以前，一旦出现别的新线程请求输入，则放弃当前输入，防止相互干扰
+
+        ; “_\”  第一个键作为老前缀， 第二个键作为新前缀
+        ; 一旦输入第二个键，会导致第一个键的处理放弃，进而导致后续清空老前缀的代码没有执行
+        ; 最后，在第二个键的执行中，组合老前缀，使得处理能够继续
         return
+    }
     if (ErrorLevel != "EndKey:tab")
         ; 非tab终止符触发，表示放弃
         return
-    ; 需要删除的字符数
-    n := StrLen(search)+2
+    ; 如果老前缀和当前前缀不一样，则将老前缀和当前前缀组合（构成形如：“_\”的前缀）
+    if (prefix != oldPrefix)
+        prefix := oldPrefix "" prefix
+    ; 然后清空老前缀， 复位
+    oldPrefix := ""
+
+    ; 需要删除的字符数:  前缀数 + 输入字符数 + `t字符数
+    n := StrLen(prefix) + StrLen(search) + 1
 
     flag := False ; 默认是不完全匹配模式
     ; 如果输入的字符数小于2然后[tab]，则要求完全匹配（防止菜单过长）
-    if n < 4
+    if (n < StrLen(prefix) + 2 + 1)
         flag := True
 
     ; 搜索匹配
@@ -1276,14 +1310,14 @@ HotlatexHandler(prefix)
     for index, value in latexHotstring
     {
         ; 如果是完全匹配，跳过字符数过大的部分（基于已排序的情况）
-        if flag and (StrLen(value) > StrLen(search) + 1)
+        if flag and (StrLen(value) > n-1)
             Break
          
         key := value
         value := unicodestring[index]
-        if  (SubStr(key, 1, 1) = prefix) and InStr(key, search) 
+        if  (SubStr(key, 1, StrLen(prefix)) == prefix) and InStr(key, search) 
         {
-            if (search == SubStr(key, 2)) 
+            if (search == SubStr(key, StrLen(prefix)+1)) 
             {
                 if (Not flag)
                 {
@@ -1351,10 +1385,10 @@ return
 ~\::    ; latex命令热键
 HotlatexHandler("\")
 return
-~+6::    ; 上标热键
+~+6::   ; 上标热键 Shift+6(+6 或 ^) 
 HotlatexHandler("^")
 return
-~_::     ; 下标热键
+~+-::   ; 下标热键 Shift+-(+- 或 _) 
 HotlatexHandler("_")
 return
 
