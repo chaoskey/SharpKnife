@@ -21,11 +21,11 @@
 ;    \barR[TAB]          R̄   【上横杠字符触发】
 ;
 ;    \[片断字符串][TAB]       【搜索字符触发】
-;           1) \后如果输入少于2个字符，TAB后不做任何处理，但可能触发前面11类情况之一
-;           2) 如果完全匹配，就是前面11类情况之一
-;           3) 如果不完全匹配，但只有唯一匹配， 这就是我们需要的触发
-;           4) 如果不完全匹配，并且不唯一，弹出菜单，然后选择触发
-;           5) 如果不匹配，不做任何处理   
+;           1) \后如果输入少于2个字符，可能是前面11类情况之一， 直接触发
+;           2) 如果完全匹配，就是前面11类情况之一， 直接触发
+;           3) 如果不完全匹配，但只有唯一匹配， 直接触发
+;           4) 如果不完全匹配，并且不唯一，弹出菜单选择触发
+;           5) 如果不匹配，不做任何处理  
 ; 
 ;  可用`Win + \`  进行 unicode模式 / latex助手模式 切换  【会有1s后消失的提示】
 ;       unicode模式:   输出的结果是unicode字符，比如 ⨁
@@ -43,38 +43,38 @@ global unicodestring := []
 loadHotlatex()
 Return
 
+;------------------------------------------------------------------------------------------
+;  latex热键收集      
+;------------------------------------------------------------------------------------------
+
 ; 模仿热字串(Hotstring)，专门用来添加热latex(Hotlatex)
-;   只允许被loadHotlatex()调用
+; 收集热latex串，并排序（方便快速定位）
 Hotlatex(key, value)
 {
-    if (StrLen(Trim(value))!=0)
+    ; 默认尾部插入
+    idx := latexHotstring.Length() + 1
+    ; 通过字符串比较，确定正确插入位置
+    for i_, v_ in latexHotstring
     {
-        ; 绑定热字串 (value必须非空)
-        Hotstring(":c*?:" key "`t", value)
-    }
-
-    ; 收集热字串，方便动态提示
-    ; value可能为空
-    latexHotstring.Push(key)
-    unicodestring.Push(value)
-}
-
-; 热latex的批量启用/禁用 （用于模式切换）
-toggleHotlatex(OnOff)
-{
-    ; 确保数据已经加载
-    loadHotlatex()
-
-    for index, value in latexHotstring
-    {
-        key := value
-        value := unicodestring[index]
-        if (StrLen(Trim(value))!=0)
+        if (leStr(key, v_))
         {
-            ; 热字串启用/禁用
-            Hotstring(":c*?:" key "`t", value, OnOff)
+            idx := i_
+            Break
         }
     }
+    latexHotstring.InsertAt(idx, key)
+    unicodestring.InsertAt(idx, Value)
+}
+
+; 字符串比较: ≤
+; 优先长度比较，然后字典比较
+leStr(str1, str2)
+{
+    if (StrLen(str1) < StrLen(str2))
+        return True
+    if (StrLen(str1) > StrLen(str2))
+        return False
+    return (str1 <= str2)
 }
 
 ; 装载LaTeX热字符
@@ -440,7 +440,7 @@ loadHotlatex()
         ;      https://katex.org/docs/supported.html#negated-relations
 
         Hotlatex("\doteqdot", "≑")
-        Hotlatex("\Doteq", "≑	")
+        Hotlatex("\Doteq", "≑")
         Hotlatex("\lessapprox", "⪅")
         Hotlatex("\smile", "⌣")
         Hotlatex("\smallsmile", "⌣")
@@ -573,8 +573,8 @@ loadHotlatex()
         Hotlatex("\nparallel", "∦")
         Hotlatex("\nprec", "⊀")
         Hotlatex("\npreceq", "⋠")
-        ;Hotlatex("\nshortmid", "|") ; 有问题？ https://52unicode.com/combining-diacritical-marks-zifu
-        ;Hotlatex("\nshortparallel", "∦") ; 有问题？https://52unicode.com/combining-diacritical-marks-zifu
+        Hotlatex("\nshortmid", "∤")
+        Hotlatex("\nshortparallel", "∦")
         Hotlatex("\nsim", "≁")
         Hotlatex("\nsubseteq", "⊈")
         ;Hotlatex("\nsubseteqq", "̸⫅") ; 有问题？ https://52unicode.com/combining-diacritical-marks-zifu
@@ -701,14 +701,14 @@ loadHotlatex()
 
         ; 其它常用符号 https://katex.org/docs/supported.html#symbols-and-punctuation
 
-        Hotlatex("\backprime", "‵	")
-        Hotlatex("\prime", "′	")
-        Hotlatex("\blacklozenge", "⧫	")
-        Hotlatex("\P", "¶	")
-        Hotlatex("\S", "§	")
-        Hotlatex("\sect", "§	")
+        Hotlatex("\backprime", "‵")
+        Hotlatex("\prime", "′")
+        Hotlatex("\blacklozenge", "⧫")
+        Hotlatex("\P", "¶")
+        Hotlatex("\S", "§")
+        Hotlatex("\sect", "§")
         Hotlatex("\copyright", "©")
-        Hotlatex("\circledR", "®	")
+        Hotlatex("\circledR", "®")
         Hotlatex("\circledS", "Ⓢ")
         Hotlatex("\dots", "…")
         Hotlatex("\cdots", "⋯")
@@ -1056,7 +1056,7 @@ loadHotlatex()
         Hotlatex("\dotQ", "Q̇")
         Hotlatex("\dotr", "ṙ")
         Hotlatex("\dotR", "Ṙ")
-        ;Hotlatex("\dots", "ṡ") ; 和 \dots -> … 有冲突，通过菜单选择来解决
+        Hotlatex("\dots", "ṡ") ; 和 \dots -> … 有冲突，通过菜单选择来解决
         Hotlatex("\dotS", "Ṡ")
         Hotlatex("\dott", "ṫ")
         Hotlatex("\dotT", "Ṫ")
@@ -1111,7 +1111,7 @@ loadHotlatex()
         Hotlatex("\ddotQ", "Q̈")
         Hotlatex("\ddotr", "r̈")
         Hotlatex("\ddotR", "R̈")
-        ;Hotlatex("\ddots", "s̈") ; 和 \ddots -> ⋱ 有冲突，通过菜单选择来解决
+        Hotlatex("\ddots", "s̈") ; 和 \ddots -> ⋱ 有冲突，通过菜单选择来解决
         Hotlatex("\ddotS", "S̈")
         Hotlatex("\ddott", "ẗ")
         Hotlatex("\ddotT", "T̈")
@@ -1240,119 +1240,104 @@ loadHotlatex()
     }
 }
 
-; 按下\键，等候输入，然后tab，可能出现如下5种情况
-;     1) \后如果输入少于2个字符，TAB后不做任何处理，完全由前面的 热LaTeX处理
-;     2) 如果完全匹配，不做任何动作，完全由前面的 热LaTeX处理（unicode模式） 
-;                                          或 没有任何变化（latex助手模式）
-;     3) 如果不完全匹配，但只有唯一匹配， 会自动替换成: unicode（unicode模式） 
-;                                              或 正确的latex代码（latex助手模式）
-;     4) 如果不完全匹配，并且不唯一，弹出菜单，然后选择替换，替换的结果是: unicode字符（unicode模式） 
-;                                                                 或 正确的latex代码（latex助手模式）
-;     5) 如果不匹配，不做任何处理
+;------------------------------------------------------------------------------------------------------
+;        latex热键处理
+;------------------------------------------------------------------------------------------------------
+; 按下\键，等候输入，然后tab，可能出现如下4种情况
+;     1) \后如果输入少于2个字符，尝试完全匹配，否则无任何变化
+;     2) 如果完全匹配 或 不完全但唯一匹配，会自动替换成:  unicode（unicode模式） 或 正确的latex代码（latex助手模式）
+;     3) 如果不完全且不唯一匹配，会弹出菜单选择替换，替换的结果是: unicode字符（unicode模式）或 正确的latex代码（latex助手模式）
+;     4) 如果不匹配，不做任何处理
 ;
 ;  可用`Win + \`  进行 unicode模式 / latex助手模式 切换  【会有1s后消失的提示】
 ;       unicode模式:   输出的结果是unicode字符，比如 ⨁
 ;       latex助手模式: 如果输入正确的或完全不正确，没有任何反应
 ;                     如果输入的正确的片段（不完全正确），会弹出菜单，选择输入，比如: \bigoplus
-;
-; ~ 表示触发热键时, 热键中按键原有的功能不会被屏蔽(对操作系统隐藏) 
-~\::
-Input, search, V C , {tab}{space}{enter}.{esc}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}{Up}{Down}{Home}{End}{PgUp}{PgDn}{CapsLock}{NumLock}{PrintScreen}{Pause}
-if (ErrorLevel = "NewInput")
-    ; 在输入没有完成以前，一旦出现别的新线程请求输入，则放弃当前输入，防止相互干扰
-    return
-if (ErrorLevel != "EndKey:tab")
-    ; 非tab终止符触发，表示放弃
-    return
-n := StrLen(search)+2 ; 需要删除的字符数
-if (n < 4)
+;------------------------------------------------------------------------------------------------------
+HotlatexHandler(prefix)
 {
-    ; 1) \后如果输入少于2个字符，TAB后不做任何处理
-    ; 但有如下修正
-    if (latexMode==0)
-    {
-        ; latex助手模式下，必须删除tab，复原
-        Send, {bs}
+    Input, search, V C , {tab}{space}{enter}.{esc}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}{Up}{Down}{Home}{End}{PgUp}{PgDn}{CapsLock}{NumLock}{PrintScreen}{Pause}
+    if (ErrorLevel = "NewInput")
+        ; 在输入没有完成以前，一旦出现别的新线程请求输入，则放弃当前输入，防止相互干扰
         return
-    }
-    flag := False ; 默认输入不正确
+    if (ErrorLevel != "EndKey:tab")
+        ; 非tab终止符触发，表示放弃
+        return
+    ; 需要删除的字符数
+    n := StrLen(search)+2
+
+    flag := False ; 默认是不完全匹配模式
+    ; 如果输入的字符数小于2然后[tab]，则要求完全匹配（防止菜单过长）
+    if n < 4
+        flag := True
+
+    ; 搜索匹配
+    matches := []
     for index, value in latexHotstring
     {
-        if (value == ("\" search))
-        {
-            flag := True
+        ; 如果是完全匹配，跳过字符数过大的部分（基于已排序的情况）
+        if flag and (StrLen(value) > StrLen(search) + 1)
             Break
-        }
+         
+        key := value
+        value := unicodestring[index]
+        if  (SubStr(key, 1, 1) = prefix) and InStr(key, search) 
+        {
+            if (search == SubStr(key, 2)) 
+            {
+                if (Not flag)
+                {
+                    ; 进入完全匹配模式
+                    matches := []
+                    flag := True
+                }    
+                ; 收集完全匹配的热LaTeX
+                matches.Push(key "=" value)
+            }else if (Not flag) {
+                ; 在不完全匹配模式下，才能收集不完全匹配的热LaTeX
+                matches.Push(key "=" value)
+            }
+        }    
     }
-    if (Not flag)
+
+    ; 唯一匹配（可能是完全匹配，也可能是不完全匹配）
+    if (matches.Length() == 1)
     {
-        ; 如果输入不正确，必须删除tab，复原
-        Send, {bs}
+        if flag and (latexMode==0)
+        {
+            ; latex助手模式下的完全匹配， 只需要退1格复原
+            Send, {bs}
+        } else {
+            ; 由于是唯一匹配，直接替换即可
+            ; unicdoe模式选择等号右边输出； latex助手模式选择等号左边输出
+            value := StrSplit(matches[1], "=")[latexMode+1]
+            Send, {bs %n%}%value%
+        }
+        return
+    } 
+
+    ; 不唯一匹配（肯定是不完全匹配，需要弹出菜单，通过选择进行替换）
+    if (matches.Length() > 1)
+    {
+        ; 弹出菜单
+        for index, value in matches
+        {
+            ; 发现问题: 添加的菜单项不区分大小写，比如: a A 只能作为同一个菜单项。
+            ; 解决方案: 加序号前缀
+            itemName := index " : " value
+            Menu, HotMenu, Add, %itemName%, MenuHandler
+        }
+        Send, {bs %n%}
+        Sleep 30 ; 延迟30毫秒，确保弹出窗口前退格完成（似乎没有同步发送的API，只能这样）
+        Menu, HotMenu, Show
         return
     }
-    return
-}
-flag := False ; 默认是不完全匹配模式
-matches := []
-for index, value in latexHotstring
-{
-    key := value
-    value := unicodestring[index]
-    if  (SubStr(key, 1, 1)="\") and InStr(key, search) 
-    {
-        if (search == SubStr(key, 2)) 
-        {
-            if (Not flag)
-            {
-                ; 进入完全匹配模式
-                matches := []
-                flag := True
-            }    
-            ; 收集完全匹配的热LaTeX
-            matches.Push(key "=" value)
-        }else if (Not flag) {
-            ; 在不完全匹配模式下，才能收集不完全匹配的热LaTeX
-            matches.Push(key "=" value)
-        }
-    }    
-}
-if (matches.Length() == 1)
-{
-    if flag
-    {
-        ; 2) 如果完全匹配，不做任何动作，完全由前面的 热LaTeX处理 【unicode模式】
-        if (latexMode==0)
-            ; latex助手模式下，必须删除tab，复原
-            Send, {bs}
-    } else {
-        ; 3) 如果不完全匹配，但只有唯一匹配， 由这里复制替换成unicode
-        ; unicdoe模式选择等号右边输出； latex助手模式选择等号左边输出
-        value := StrSplit(matches[1], "=")[latexMode+1]
-        Send, {bs %n%}%value%
-    }
-    return
-} 
-if (matches.Length() > 1)
-{
-    ; 4) 如果不完全匹配，并且不唯一，弹出菜单，然后选择替换
-    for index, value in matches
-    {
-        ; 发现问题: 添加的菜单项不区分大小写，比如: a A 只能作为同一个菜单项。
-        ; 解决方案: 加序号前缀
-        itemName := index " : " value
-        Menu, HotMenu, Add, %itemName%, MenuHandler
-    }
-    Send, {bs %n%}
-    Sleep 30 ; 延迟30毫秒，确保弹出窗口前退格完成（似乎没有同步发送的API，只能这样）
-    Menu, HotMenu, Show
-    return
 
+    ; 不匹配， 只需要退1格复原
+    Send, {bs}
 }
-; 5) 如果不匹配，不做任何处理
-Send, {bs}
-return
 
-MenuHandler:
+MenuHandler:    ; 菜单选择处理
 ; 剔除序号前缀
 idx := InStr(A_ThisMenuItem, ":")+2
 value := SubStr(A_ThisMenuItem, idx)
@@ -1362,11 +1347,23 @@ Send, %value%
 Menu, HotMenu, DeleteAll
 return
 
+; ~ 表示触发热键时, 热键中按键原有的功能不会被屏蔽(对操作系统隐藏) 
+~\::    ; latex命令热键
+HotlatexHandler("\")
+return
+~+6::    ; 上标热键
+HotlatexHandler("^")
+return
+~_::     ; 下标热键
+HotlatexHandler("_")
+return
 
-; `Win + \`  进行 unicode模式 / latex助手模式 切换
-#\::
+;-----------------------------------------------------------------------------
+;    `Win + \`  进行 unicode模式 / latex助手模式 切换
+;-----------------------------------------------------------------------------
+
+#\::    ; 模式切换热键
 latexMode := Mod(latexMode+1,2)
-toggleHotlatex(latexMode)
 if (latexMode=1)
     ToolTip, unicode模式
 else
@@ -1374,7 +1371,7 @@ else
 SetTimer, RemoveLatexToolTip, -1000
 return
 
-RemoveLatexToolTip:
+RemoveLatexToolTip:    ; 删除当前模式提示
 ToolTip
 return
 
