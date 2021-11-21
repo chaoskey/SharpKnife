@@ -10,11 +10,6 @@
 ; 模块注册。   据此可实现模块之间的相互调用
 global modules := {}
 
-; 【im_switch】 
-; 窗口ID(HWND)列表【只保留最近活动的10个ID就足够了】
-global ids := []
-; 每个窗口ID,对应一个独立中英文状态【0代表英，1代表中】 
-global imState := {}
 ; im_switch模块注册
 modules["im_switch"] := True
 Return
@@ -22,6 +17,9 @@ Return
 ; 查看中英文状态信息
 imStateInfo()
 {
+    global ids
+    global imState
+
     id := getHWND()
     if (!imState[id])
     {
@@ -40,6 +38,16 @@ imStateInfo()
 ; 获取当前活动窗口ID(HWND)
 getHWND()
 {   
+    ; 窗口ID(HWND)列表【只保留最近活动的10个ID就足够了】
+    global ids
+    ; 每个窗口ID,对应一个独立中英文状态【0代表英，1代表中】 
+    global imState
+
+    if (not ids)
+        ids := []
+    if (not imState)
+        imstate := {}
+
     ; 当前活动窗口ID
     id := WinExist("A")
     
@@ -67,6 +75,7 @@ getHWND()
 ; 获取当前窗口的中英文状态变量值
 getImState()
 {
+    global imState
     id := getHWND()
     if (!imState[id])
     {
@@ -78,6 +87,7 @@ getImState()
 ; 切换当前窗口的中英文状态变量值 
 switchImState()
 {
+    global imState
     id := getHWND()
     if (!imState[id])
     {
@@ -97,6 +107,7 @@ switchImState()
 ; 设定当前窗口的中英文状态变量值
 setImState(v)
 {
+    global imState
     id := getHWND()
     imState[id] := v
     return imState[id]
@@ -105,6 +116,12 @@ setImState(v)
 ; 查看中英文状态信息
 
 ::imstate::
+if (getImState() = 1)
+{
+    Send ^{Space}	; 切换到英文状态
+}
+setImState(0)		; 记录并切换到英文状态  
+IMToolTip()
 imStateInfo()
 return
 
@@ -152,8 +169,7 @@ return
 
 IMToolTip()
 {
-    state := getImState()
-    if (state=1)
+    if (getImState() = 1)
         ToolTip, 中
     else
         ToolTip, EN

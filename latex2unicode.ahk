@@ -35,12 +35,6 @@
 ; 模块注册。   据此可实现模块之间的相互调用
 global modules := {}
 
-; 【latex2unicode】 
-; 默认1: 启用热字串（对应unicode模式）;  0: 禁用热字串（对应latex助手模式）
-global latexMode := 1
-; 热字符串列表 （由于关联数组的键不区分大小写，所以改用两个数组）
-global latexHotstring := []
-global unicodestring := []
 ; latex2unicode模块注册
 modules["latex2unicode"] := True
 ; 加载热latex
@@ -55,6 +49,9 @@ Return
 ; 收集热latex串，并排序（方便快速定位）
 Hotlatex(key, value)
 {
+    global latexHotstring
+    global unicodestring
+
     ; 默认尾部插入
     idx := latexHotstring.Length() + 1
     ; 通过字符串比较，确定正确插入位置
@@ -84,6 +81,12 @@ leStr(str1, str2)
 ; 装载LaTeX热字符
 loadHotlatex()
 {
+    ; 默认1: 启用热字串（对应unicode模式）;  0: 禁用热字串（对应latex助手模式）
+    global latexMode := 1
+    ; 热字符串列表 （由于关联数组的键不区分大小写，所以改用两个数组）
+    global latexHotstring := []
+    global unicodestring := []
+
     if (latexHotstring.Count() = 0)
     {
         ; 下标和上标 【确保在希腊字母前面】 https://katex.org/docs/supported.html#line-breaks
@@ -91,7 +94,7 @@ loadHotlatex()
         Hotlatex("_0", "₀")
         Hotlatex("^0", "⁰")
         Hotlatex("_1", "₁")
-        Hotlatex("_1", "¹")
+        Hotlatex("^1", "¹")
         Hotlatex("_2", "₂")
         Hotlatex("^2", "²")
         Hotlatex("_3", "₃")
@@ -1262,6 +1265,10 @@ loadHotlatex()
 ;------------------------------------------------------------------------------------------------------
 HotlatexHandler(prefix)
 {
+    global latexMode
+    global latexHotstring
+    global unicodestring
+
     ; 记录老前缀，防止类似 “_\” 的组合键导致相互干扰
     global oldPrefix
 
@@ -1397,6 +1404,7 @@ return
 ;-----------------------------------------------------------------------------
 
 #\::    ; 模式切换热键
+global latexMode
 latexMode := Mod(latexMode+1,2)
 if (latexMode=1)
     ToolTip, unicode模式
