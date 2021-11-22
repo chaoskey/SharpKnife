@@ -78,8 +78,14 @@ loadHotlatex()
     ; 默认1: 对应unicode模式;  0: 对应latex助手模式
     global latexMode := 1
     ; 热字符串列表 （由于关联数组的键不区分大小写，所以改用两个数组）
-    global latexHotstring := []
-    global unicodestring := []
+    global latexHotstring
+    global unicodestring
+
+    if not latexHotstring
+    {
+        latexHotstring := []
+        unicodestring := []
+    }
 
     if (latexHotstring.Count() = 0)
     {
@@ -166,6 +172,7 @@ loadHotlatex()
         Hotlatex("^\theta", "ᶿ")
         Hotlatex("_\rho", "ᵨ")
         Hotlatex("_\psi", "ᵩ")
+        Hotlatex("_\partial", "ₔ")
 
         ; 分割符 https://katex.org/docs/supported.html#delimiters
 
