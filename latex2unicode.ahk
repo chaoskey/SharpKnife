@@ -75,7 +75,7 @@ leStr(str1, str2)
 ; 装载LaTeX热字符
 loadHotlatex()
 {
-    ; 默认1: 启用热字串（对应unicode模式）;  0: 禁用热字串（对应latex助手模式）
+    ; 默认1: 对应unicode模式;  0: 对应latex助手模式
     global latexMode := 1
     ; 热字符串列表 （由于关联数组的键不区分大小写，所以改用两个数组）
     global latexHotstring := []
@@ -436,6 +436,19 @@ loadHotlatex()
         ; 数学运算符 https://katex.org/docs/supported.html#fractions-and-binomials
         ; 大部分没必要实现")
         Hotlatex("\sqrt", "√")
+        Hotlatex("\frac", "分数 \frac{a}{b}")
+        Hotlatex("\tfrac", "分数 \tfrac{a}{b}")
+        Hotlatex("\genfrac", "复杂分数 \genfrac ( ] {2pt}{1}a{a+1}")
+        Hotlatex("\over", "分数 {a \over b}")
+        Hotlatex("\dfrac", "大分数 \dfrac{a}{b}")
+        Hotlatex("\above", "粗杠分数 {a \above{2pt} b+1}")
+        Hotlatex("\cfrac", "连分数 \cfrac{a}{1 + \cfrac{1}{b}}")
+        Hotlatex("\binom", "组合数 \binom{n}{k}")
+        Hotlatex("\dbinom", "大组合数 \dbinom{n}{k}")
+        Hotlatex("\brace", "花括组合数 {n\brace k}")
+        Hotlatex("\choose", "组合数 {n \choose k}")
+        Hotlatex("\tbinom", "组合数 \tbinom{n}{k}")
+        Hotlatex("\brack", "方括组合数 {n\brack k}")
 
         ; 关系 https://katex.org/docs/supported.html#relations
         ;      https://katex.org/docs/supported.html#negated-relations
@@ -804,22 +817,62 @@ loadHotlatex()
         Hotlatex("\underbar", "̲") ;   R\underbar[Tab]  -> R̲
         Hotlatex("\H", "̋") ;   R\H[Tab]  -> R̋
 
+        Hotlatex("\widetilde", "上宽波浪 \widetilde{ac}")
+        Hotlatex("\overgroup", "上宽括号 \overgroup{AB}")
+        Hotlatex("\utilde", "下宽波浪 \utilde{AB}")
+        Hotlatex("\undergroup", "下宽括号 \undergroup{AB}")
+        Hotlatex("\Overrightarrow", "上宽右箭头 \Overrightarrow{AB}")
+        Hotlatex("\overleftarrow", "上宽左箭头 \overleftarrow{AB}")
+        Hotlatex("\overrightarrow", "上宽右箭头 \overrightarrow{AB}")
+        Hotlatex("\underleftarrow", "下宽左箭头 \underleftarrow{AB}")
+        Hotlatex("\underrightarrow", "下宽右箭头 \underrightarrow{AB}")
+        Hotlatex("\overleftharpoon", "上宽左半箭头 \overleftharpoon{ac}")
+        Hotlatex("\overrightharpoon", "上宽右半箭头 \overrightharpoon{ac}")
+        Hotlatex("\overleftrightarrow", "上宽双箭头 \overleftrightarrow{AB}")
+        Hotlatex("\overbrace", "上宽花括号 \overbrace{AB}")
+        Hotlatex("\underleftrightarrow", "下宽双箭头 \underleftrightarrow{AB}")
+        Hotlatex("\underbrace", "下宽花括号 \underbrace{AB}")
+        Hotlatex("\overline", "上宽横杠 \overline{AB}")
+        Hotlatex("\overlinesegment", "上宽线段 \overlinesegment{AB}")
+        Hotlatex("\underline", "下宽横杠 \underline{AB}")
+        Hotlatex("\underlinesegment", "下宽线段 \underlinesegment{AB}")
+        Hotlatex("\widehat", "上宽帽 \widehat{ac}")
+        Hotlatex("\widecheck", "上宽倒帽 \widecheck{ac}")
+
         ; Unicode数学斜体符号
-        ; 有待处理
-        ;Item	Range	Item	Range
-        ;Bold	\text{𝐀-𝐙 𝐚-𝐳 𝟎-𝟗}A-Z a-z 0-9	Double-struck	\text{𝔸-}ℤ\ 𝕜A-Z k
-        ;Italic	\text{𝐴-𝑍 𝑎-𝑧}A-Z a-z	Sans serif	\text{𝖠-𝖹 𝖺-𝗓 𝟢-𝟫}A-Z a-z 0-9
-        ;Bold Italic	\text{𝑨-𝒁 𝒂-𝒛}A-Z a-z	Sans serif bold	\text{𝗔-𝗭 𝗮-𝘇 𝟬-𝟵}A-Z a-z 0-9
-        ;Script	\text{𝒜-𝒵}A-Z	Sans serif italic	\text{𝘈-𝘡 𝘢-𝘻}A-Z a-z
-        ;	Monospace	\text{𝙰-𝚉 𝚊-𝚣 𝟶-𝟿}A-Z a-z 0-9
+        ; 字体 https://katex.org/docs/supported.html#style-color-size-and-font
 
-        ; Unicode
-        ; 有待处理
-
-        ; 字体
+        Hotlatex("\mathrm", "罗马正体 \mathrm{R}")
+        Hotlatex("\mathbf", "正粗体 \mathbf{R}")
+        Hotlatex("\mathit", "意大利斜体 ℝ \mathit{R}")
+        Hotlatex("\mathnormal", "默认字体 \mathnormal{R}")
+        Hotlatex("\textbf", "正粗体 \textbf{R}")
+        Hotlatex("\textit", "意大利斜体 \textit{R}")
+        Hotlatex("\textrm", "罗马正体 ℝ \textrm{R}")
+        Hotlatex("\bf", "正粗体 \bf R")
+        Hotlatex("\it", "意大利斜体 \it R")
+        Hotlatex("\rm", "罗马正体 \rm R")
+        Hotlatex("\bold", "加粗 \bold{R}")
+        Hotlatex("\textup", "直立文本 \textup{R}")
+        Hotlatex("\textnormal", "默认字体 \textnormal{R}")
+        Hotlatex("\boldsymbol", "加粗斜体 \boldsymbol{R}")
+        Hotlatex("\Bbb", "黑板粗体 ℝ \Bbb{R}")
+        Hotlatex("\text", "等宽字体 \text{R}")
+        Hotlatex("\bm", "加粗 \bm{R}")
+        Hotlatex("\mathsf", "无衬线字体 \mathsf{R}")
+        Hotlatex("\textmd", "中等权重 \textmd{R}")
+        Hotlatex("\frak", "哥特体 ℜ \frak{R}")
+        Hotlatex("\textsf", "无衬线字体 \textsf{R}")
+        Hotlatex("\mathtt", "等宽字体 \mathtt{R}")
+        Hotlatex("\sf", "无衬线字体 \sf R")
+        Hotlatex("\texttt", "等宽字体 \texttt{R}")
+        Hotlatex("\tt", "等宽字体 \tt R")
+        Hotlatex("\cal", "手写体 𝓡 \cal R")
+        Hotlatex("\mathscr", " 花体 \mathscr{R}")
 
         ; \mathbb{x}  用 \mathbbx 代替
-        Hotlatex("\mathbb", "\mathbb") ; 如果完全匹配，保持原样
+        Hotlatex("\mathbb", "黑板粗体 ℝ \mathbb{R}") ; 如果“键”在“值”中完整出现过，表明只适用于latex助手模式，
+        ;                                并且可作为说明出现（如果弹出菜单，就可见）
         Hotlatex("\mathbba", "𝕒")
         Hotlatex("\mathbbA", "𝔸")
         Hotlatex("\mathbbb", "𝕓")
@@ -885,7 +938,7 @@ loadHotlatex()
         Hotlatex("\mathbb9", "𝟡")
 
         ; \mathfrak{x}  用 \mathfrakx 代替
-        Hotlatex("\mathfrak", "\mathfrak") ; 如果完全匹配，保持原样
+        Hotlatex("\mathfrak", "哥特体 ℜ \mathfrak{R}") 
         Hotlatex("\mathfraka", "𝔞")
         Hotlatex("\mathfrakA", "𝔄")
         Hotlatex("\mathfrakb", "𝔟")
@@ -940,7 +993,7 @@ loadHotlatex()
         Hotlatex("\mathfrakZ", "ℨ")
 
         ; \mathcal{x}  用 \mathcalx 代替
-        Hotlatex("\mathcal", "\mathcal") ; 如果完全匹配，保持原样
+        Hotlatex("\mathcal", "手写体 𝓡 \mathcal{R}") 
         Hotlatex("\mathcala", "𝓪")
         Hotlatex("\mathcalA", "𝓐")
         Hotlatex("\mathcalb", "𝓫")
@@ -1064,13 +1117,20 @@ HotlatexHandler(prefix)
     ; 搜索匹配
     matches := []
     for index, value in latexHotstring
-    {
-        ; 如果是完全匹配，跳过字符数过大的部分（基于已排序的情况）
-        if flag and (StrLen(value) > n-1)
-            Break
-         
+    {         
         key := value
         value := unicodestring[index]
+
+        if (latexMode == 1) and InStr(value, key)
+            ; 如果“键”在“值”中完整出现过，表明只适用于latex助手模式，
+            ; 并且可作为说明出现（如果弹出菜单，就可见）
+            ; 所以在unicode模式下，必须跳过
+            Continue
+
+        ; 如果是完全匹配，跳过字符数过大的部分（基于已排序的情况）
+        if flag and (StrLen(key) > n-1)
+            Break
+        
         if  (SubStr(key, 1, StrLen(prefix)) == prefix) and InStr(key, search) 
         {
             if (search == SubStr(key, StrLen(prefix)+1)) 
@@ -1100,12 +1160,8 @@ HotlatexHandler(prefix)
         } else {
             ; 由于是唯一匹配，直接替换即可
             ; unicdoe模式选择等号右边输出； latex助手模式选择等号左边输出
-            tmp := StrSplit(matches[1], "=")
-            value := tmp[latexMode+1]
-            if (tmp[1] == tmp[2])
-                Send, {bs}
-            else
-                Send, {bs %n%}%value%
+            value := StrSplit(matches[1], "=")[latexMode+1]
+            Send, {bs %n%}%value%
         }
         return
     } 
