@@ -6,7 +6,7 @@
 
 > 微软拼音输入法中英文状态同步记录，为每一个活动过的窗口记录中英文状态， 据此进行中文切换
 
-**假设 或 前置要求**：
+### 假设 或 前置要求
 
 - 输入法采用微软拼音并且默认为英文
 
@@ -14,9 +14,18 @@
 
 - 管住手，禁止鼠标点击切换中英文 【除非提示和系统显示不一样】
 
-**启动**:  【建议配置成开机启动】
+### 启动
 
-`autohotkey.exe im_switch.ahk` 或 `autohotkey.exe main.ahk`(包括本项目所有脚本)
+> 建议配置成开机启动
+
+```powershell
+git clone https://github.com/chaoskey/ahklib.git
+
+# 需要安装AutoHotkey
+autohotkey.exe im_switch.ahk
+# 或 所有脚本
+autohotkey.exe main.ahk
+```
 
 ## 基于LaTeX的Unicode特殊字符触发
 
@@ -55,7 +64,7 @@ autohotkey.exe main.ahk
 
 1) 只对不方便键盘输入的字符进行latex[TAB]替换， 如果没有替换说明输入错误或不支持
 
-2) 非TAB终止符触发（比如: `[Space][Enter].[Esc]`等等），表示放弃触发, 并且保持已输入的原样
+2) 非TAB终止符触发（比如: `[Space][Enter][Esc]`等等），表示放弃触发, 并且保持已输入的原样
 
 3) 用`Win + \`  进行 unicode模式 / latex助手模式 切换  【会有1s后消失的提示】
 
