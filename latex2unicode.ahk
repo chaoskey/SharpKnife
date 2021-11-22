@@ -167,7 +167,7 @@ loadHotlatex()
         Hotlatex("_\rho", "ᵨ")
         Hotlatex("_\psi", "ᵩ")
 
-        ; 定界符 https://katex.org/docs/supported.html#delimiters
+        ; 分割符 https://katex.org/docs/supported.html#delimiters
 
         Hotlatex("\vert", "∣")
         Hotlatex("\Vert", "∥")
@@ -192,7 +192,6 @@ loadHotlatex()
         Hotlatex("\rrbracket", "⟧")
         Hotlatex("\lBrace", "⦃")
         Hotlatex("\rBrace", "⦄")
-
         Hotlatex("\lang", "⟨")
         Hotlatex("\rang", "⟩")
 
@@ -807,7 +806,7 @@ loadHotlatex()
         Hotlatex("\r", "ͦ") ;   R\r[Tab]  -> Rͦ
         Hotlatex("\acute", "́") ;   R\acute[Tab]  -> Ŕ
         Hotlatex("\'", "́") ;   R\'[Tab]  -> Ŕ
-        ;Hotlatex("\vec", "̄") ;   R\vec[Tab]  -> R   找不到对应的可显示的unicode符号
+        Hotlatex("\vec", "上短箭头 \vec{F}") ;   R\vec[Tab]  -> R   找不到对应的可显示的unicode符号， 所以只能在latex助手模式中使用
         Hotlatex("\breve", "̆") ;   R\breve[Tab]  -> R̆
         Hotlatex("\u", "̆") ;   R\u[Tab]  -> R̆
         Hotlatex("\check", "̌") ;   R\check[Tab]  -> Ř
@@ -1044,7 +1043,23 @@ loadHotlatex()
         Hotlatex("\mathcaly", ":𝔂")
         Hotlatex("\mathcalY", ":𝓨")
         Hotlatex("\mathcalz", ":𝔃")
-        Hotlatex("\mathcalZ", ":𝓩")        
+        Hotlatex("\mathcalZ", ":𝓩")  
+
+        ; 批注
+        Hotlatex("\cancel", "右斜删除符 \cancel{5}")  
+        Hotlatex("\bcancel", "左斜删除符 \bcancel{5}")  
+        Hotlatex("\xcancel", "叉删除符 \xcancel{ABC}")  
+        Hotlatex("\sout", "横删除符 \sout{abc}")  
+        Hotlatex("\boxed", "方框符 \boxed{\pi=\frac c d}")  
+        Hotlatex("\angl", "直角标记 \angl n")  
+        Hotlatex("\angln", "直角标记 \angln")  
+        Hotlatex("\phase", "角度标记 \phase{-78^\circ}")  
+
+        ; 垂直布局
+        Hotlatex("\stackrel", "上标记 \stackrel{!}{=}")  
+        Hotlatex("\overset", "上标记 \overset{!}{=}")  
+        Hotlatex("\underset", "下标记 \underset{!}{=}")  
+        Hotlatex("\atop", "上下布局 a \atop b") 
     }
 }
 
