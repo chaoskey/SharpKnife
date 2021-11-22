@@ -5,22 +5,16 @@
 ; 
 ; 只对不方便键盘输入的字符进行latex[TAB]替换， 如果没有替换说明输入错误或不支持
 ;
-; 只支持单字符的latex触发（目前支持如下12类）
-;    _n[TAB]             ₙ   【下标触发】
-;    ^n[TAB]             ⁿ   【上标触发】
+; 只支持单字符的latex触发（目前支持如下6类）
+;    1.下标   _n[TAB]             ₙ   【下标触发】
+;    2.上标   ^n[TAB]             ⁿ   【上标触发】
+;    3.单字符  \alpha[TAB]         α   【单字符触发】
+;    4.字体     \mathbbR[TAB]       ℝ   【空心字符触发】
+;    4.字体     \mathfrakR[TAB]     ℜ   【Fraktur字符触发】
+;    4.字体     \mathcalR[TAB]      𝓡   【花体字符触发】  
+;    5.组合     R\[组合字符][TAB] 比如R\dot[TAB]          R̂   【组合字符触发】
+;    6.片段搜索     \[片断字符串][TAB]       【搜索字符触发】
 ;
-;    \alpha[TAB]         α   【单字符触发】
-;
-;    \mathbbR[TAB]       ℝ   【空心字符触发】
-;    \mathfrakR[TAB]     ℜ   【Fraktur字符触发】
-;    \mathcalR[TAB]      𝓡   【花体字符触发】
-;    R\hat[TAB]          R̂   【戴帽字符触发】
-;    R\dot[TAB]          Ṙ   【上单点字符触发】
-;    R\ddot[TAB]         R̈   【上双点字符触发】
-;    R\tilde[TAB]        R͂   【波浪字符触发】
-;    R\bar[TAB]          R̄   【上横杠字符触发】
-;
-;    \[片断字符串][TAB]       【搜索字符触发】
 ;           1) \后如果输入少于2个字符，可能是前面11类情况之一， 直接触发
 ;           2) 如果完全匹配，就是前面11类情况之一， 直接触发
 ;           3) 如果不完全匹配，但只有唯一匹配， 直接触发
@@ -791,14 +785,13 @@ loadHotlatex()
         Hotlatex("\dot", "̇")  ;   R\dot[Tab]  -> Ṙ
         Hotlatex("\.", "̇")  ;   R\.[Tab]  -> Ṙ
         Hotlatex("\ddot", "̈") ;   R\ddot[Tab]  -> R̈
-        Hotlatex("\""", "̈") ;   R\ddot[Tab]  -> R̈  
+        Hotlatex("\""", "̈") ;   R\"[Tab]  -> R̈  
         Hotlatex("\tilde", "̃") ;   R\tilde[Tab]  -> R̃
         Hotlatex("\~", "̃") ;   R\~[Tab]  -> R̃
         Hotlatex("\bar", "̄") ;   R\bar[Tab]  -> R̄ 
         ;Hotlatex("\`=", "̄") ;   R\=[Tab]  -> R̄ 有问题？？
-
         Hotlatex("\mathring", "ͦ") ;   R\mathring[Tab]  -> Rͦ
-        Hotlatex("\r", "ͦ") ;   R\mathring[Tab]  -> Rͦ
+        Hotlatex("\r", "ͦ") ;   R\r[Tab]  -> Rͦ
         Hotlatex("\acute", "́") ;   R\acute[Tab]  -> Ŕ
         Hotlatex("\'", "́") ;   R\'[Tab]  -> Ŕ
         ;Hotlatex("\vec", "̄") ;   R\vec[Tab]  -> R   找不到对应的可显示的unicode符号
