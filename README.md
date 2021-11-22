@@ -91,15 +91,15 @@ latex助手模式: 如果输入正确的或完全不正确，没有任何反应�
 | LaTeX | Unicode |
 | ---- | ---- |
 | R\hat[Tab] | R̂ |
-| R\dot[Tab] 或 R\.[Tab] | Ṙ |
-| R\ddot[Tab] 或 R\"[Tab] | R̈ |
-| R\tilde[Tab] 或 R\~[Tab]  | R̃ |
+| R\dot[Tab] 或 R\\.[Tab] | Ṙ |
+| R\ddot[Tab] 或 R\\"[Tab] | R̈ |
+| R\tilde[Tab] 或 R\\~[Tab]  | R̃ |
 | R\bar[Tab] | R̄ |
 | R\mathring[Tab] 或 R\r[Tab] | Rͦ |
-| R\acute[Tab] 或 R\'[Tab] | Ŕ |
+| R\acute[Tab] 或 R\\'[Tab] | Ŕ |
 | R\breve[Tab] 或 R\u[Tab] | R̆ |
 | R\check[Tab] 或 R\v[Tab] | Ř |
-| R\grave[Tab] 或 R\`[Tab] | R̀ |
+| R\grave[Tab] 或 R\\`[Tab] | R̀ |
 | R\underbar[Tab] | R̲ |
 | R\H[Tab] | R̋ |
 
