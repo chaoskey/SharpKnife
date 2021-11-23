@@ -1088,13 +1088,6 @@ loadHotlatex()
 ;------------------------------------------------------------------------------------------------------
 HotlatexHandler(prefix)
 {
-    global latexMode
-    global latexHotstring
-    global unicodestring
-
-    ; 记录老前缀，防止类似 “_\” 的组合键导致相互干扰
-    global oldPrefix
-
     ; 如果已经加载im_switch模块，支持在中文输入状态下直接输入，会自动切换倒英文状态
     if modules["im_switch"] and (getImState() = 1)
     {
@@ -1102,30 +1095,73 @@ HotlatexHandler(prefix)
         setImState(0)
         IMToolTip()
     }
-    
-    ; 临时记录老前缀
-    if (not oldPrefix)
-        oldPrefix := prefix
+
+    ;--------------------------------------------
+    ;        首先解决 _ \ ^  组合的相互干扰问题
+    ;--------------------------------------------
+
+    ; 按次序记录prefix 和 search，防止类似 “_\” 的组合相互干扰
+    global  prefixs
+    global  searchs
+    global  indexPrefix
+    global  lastErrorLevel
+
+    ; 比如: 如果输入“_abc\efg”, _先等候输入， \后等候输入
+    if (not prefixs)
+    {
+        prefixs := []
+        indexPrefix := 0
+    }
+    prefixs.Push(prefix)
+    indexPrefix := indexPrefix + 1
     
     ; 等候输入
     Input, search, V C , {tab}{space}{enter}{esc}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}{Up}{Down}{Home}{End}{PgUp}{PgDn}{CapsLock}{NumLock}{PrintScreen}{Pause}
-    if (ErrorLevel = "NewInput")
-    {
-        ; 在输入没有完成以前，一旦出现别的新线程请求输入，则放弃当前输入，防止相互干扰
+    if (not lastErrorLevel)
+        lastErrorLevel := ErrorLevel
 
-        ; “_\”  第一个键作为老前缀， 第二个键作为新前缀
-        ; 一旦输入第二个键，会导致第一个键的处理放弃，进而导致后续清空老前缀的代码没有执行
-        ; 最后，在第二个键的执行中，组合老前缀，使得处理能够继续
+    ; 比如: 前面输入“_abc\efg”, 然后tab, _先处理efg， 后处理abc\
+    ; 后处理的插前面，确保和prefixs对应
+    if not searchs
+        searchs := []
+    searchs.InsertAt(1, search)
+
+    if (indexPrefix > 1) and (prefixs[indexPrefix] == prefix)
+    {
+        ; 忽略后续触发，同时确保了searchs完全填充
+        indexPrefix := indexPrefix - 1
         return
     }
-    if (ErrorLevel != "EndKey:tab")
-        ; 非tab终止符触发，表示放弃
+
+    ; 拼凑成完整的待处理字符串
+    search := prefixs[1]
+    for index, value in searchs
+        search := search "" value
+
+    ; 确定最后一个前缀-搜索对（一定会匹配）
+    RegExMatch(search, "O)([_\^\\]+)([^_\^\\]*)$" , SubPat)
+    prefix := SubPat.Value(1)
+    search := SubPat.Value(2)
+
+    ; 清空全局变量
+    prefixs := []
+    searchs := []
+    indexPrefix := 0
+    ; 非tab终止符触发，表示放弃
+    if (lastErrorLevel != "EndKey:tab")
+    {
+        lastErrorLevel := ""
         return
-    ; 如果老前缀和当前前缀不一样，则将老前缀和当前前缀组合（构成形如：“_\”的前缀）
-    if (prefix != oldPrefix)
-        prefix := oldPrefix "" prefix
-    ; 然后清空老前缀， 复位
-    oldPrefix := ""
+    }
+    lastErrorLevel := ""
+
+    ;--------------------------------------------
+    ;        下面是正式的逻辑流程
+    ;--------------------------------------------
+
+    global latexMode
+    global latexHotstring
+    global unicodestring
 
     ; 需要删除的字符数:  前缀数 + 输入字符数 + `t字符数
     n := StrLen(prefix) + StrLen(search) + 1
