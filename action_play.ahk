@@ -62,13 +62,7 @@ doAction(){
 
 ; 加载动作文件  若已加载，则自动跳过
 loadAction(){
-
-    If !pToken := Gdip_Startup()
-{
-	MsgBox "Gdiplus failed to start. Please ensure you have gdiplus on your system"
-	ExitApp
-}
-
+    
     ; 指定一个在脚本退出时自动运行的回调函数或子程序.
 
     global action_cmds
