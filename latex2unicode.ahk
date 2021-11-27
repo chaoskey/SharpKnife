@@ -1089,11 +1089,14 @@ HotlatexHandler(prefix)
     global latexMode
 
     ; 如果已经加载im_switch模块，支持在中文输入状态下直接输入，会自动切换倒英文状态
-    if IsFunc("getImState") and (getImState() = 1)
+    _getImState := "getImState"
+    _setImState := "setImState"
+    _IMToolTip := "IMToolTip"
+    if isFunc(_getImState) and (%_getImState%() = 1)
     {
         Send ^{Space}{bs 2}{text}%prefix%
-        setImState(0)
-        IMToolTip()
+        %_setImState%(0)
+        %_IMToolTip%()
     }
 
     ;--------------------------------------------
