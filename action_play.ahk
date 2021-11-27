@@ -20,14 +20,24 @@
 ; 
 ;------------------------------------------------
 
-; 模块注册。   据此可实现模块之间的相互调用
-FileEncoding , UTF-8
-global modules := {}
 
-; action_play模块注册
-modules["action_play"] := True
+FileEncoding , UTF-8
 
 ; 启动GDI+
+#Include %A_ScriptDir%\lib\Gdip_All.ahk
+If !pToken := Gdip_Startup()
+{
+	MsgBox "启动GDI+启动失败，请确保您的系统中存在GDI+"
+	ExitApp
+}
+OnExit("ExitFunc")
+
+ExitFunc(ExitReason, ExitCode)
+{
+   global
+   Gdip_Shutdown(pToken)
+}
+
 Return
 
 ; 动作处理主流程
@@ -603,9 +613,9 @@ playVideo(file, position)
     pos_ := StrSplit(position, ",")
     xpos := pos_[1]
     ypos := pos_[2]
-
+    
     ; 播放视频
-    RunWait "ffplay" "-hide_banner" "-nostats" "-autoexit"  %file%
+    RunWait "ffplay" "-hide_banner" "-nostats" "-autoexit" %file%, , Hide
 }
 
 

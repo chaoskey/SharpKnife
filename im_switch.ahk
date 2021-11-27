@@ -7,12 +7,8 @@
 ;   4) 为每一个活动过的窗口记录中英文状态
 ;------------------------------------------------
 
-; 模块注册。   据此可实现模块之间的相互调用
-FileEncoding , UTF-8
-global modules := {}
 
-; im_switch模块注册
-modules["im_switch"] := True
+FileEncoding , UTF-8
 Return
 
 ; 查看中英文状态信息

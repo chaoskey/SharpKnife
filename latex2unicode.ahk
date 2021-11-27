@@ -26,12 +26,9 @@
 ;       latex助手模式: 如果输入正确的或完全不正确，没有任何反应
 ;                     如果输入的正确的片段（不完全正确），会弹出菜单，选择输入，比如: \bigoplus
 ; ----------------------------------------------
-; 模块注册。   据此可实现模块之间的相互调用
-FileEncoding , UTF-8
-global modules := {}
 
-; latex2unicode模块注册
-modules["latex2unicode"] := True
+
+FileEncoding , UTF-8
 ; 加载热latex
 loadHotlatex()
 Return
@@ -1092,7 +1089,7 @@ HotlatexHandler(prefix)
     global latexMode
 
     ; 如果已经加载im_switch模块，支持在中文输入状态下直接输入，会自动切换倒英文状态
-    if modules["im_switch"] and (getImState() = 1)
+    if IsFunc("getImState") and (getImState() = 1)
     {
         Send ^{Space}{bs 2}{text}%prefix%
         setImState(0)
