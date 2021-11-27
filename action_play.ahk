@@ -186,6 +186,9 @@ execSubCmd(cmd, content) {
     if (cmd = "声音") {
         return execAudioCmd(subcmd, paras) 
     }
+    if (cmd = "视频") {
+        return execVideoCmd(subcmd, paras) 
+    }
     ; 默认命令没终止
     return False
 }
@@ -448,7 +451,7 @@ drawImage(file, crop, position, alpha)
 execAudioCmd(subcmd, paras){
     global action_audio_dir
 
-    ; 当前待显示的音频参数
+    ; 当前待播放音频参数
     global currAudioPara
     if (not currAudioPara) {
         currAudioPara := {}
@@ -478,13 +481,13 @@ execAudioCmd(subcmd, paras){
         return True
     }
 
-    ; 改变图片目录
+    ; 改变音频目录
     if (subcmd = "目录") {
         action_audio_dir := paras
         return False ; 子命令未终止
     }
 
-    ; 显示图片
+    ; 播放音频
     if (subcmd = "播放") {
         file := ""
         if currAudioPara["file"] {
@@ -502,7 +505,7 @@ execAudioCmd(subcmd, paras){
         return True
     }
 
-    ; 当前待显示图片
+    ; 当前待播放音频
     currAudioPara["file"] :=  subcmd
     currAudioPara["subtitle"] :=  ""
     currAudioPara["position"] :=  ""
@@ -518,7 +521,7 @@ playAudio(file, subtitle, position)
     xpos := pos_[1]
     ypos := pos_[2]
 
-    if subtitle:
+    if subtitle
         ; 如果有字幕则在指定位置显示之 
         ToolTip , %subtitle%, %xpos%, %xpos%
     if file {
@@ -532,8 +535,77 @@ playAudio(file, subtitle, position)
         ; 朗读文字
         action_spvoice.Speak(subtitle)
     }
-    if subtitle: 
+    if subtitle
         ToolTip
+}
+
+; 执行视频子命令
+; 返回: 子命令是否终止
+execVideoCmd(subcmd, paras){
+    global action_video_dir
+
+    ; 当前待播放视频参数
+    global currVideoPara
+    if (not currVideoPara) {
+        currVideoPara := {}
+    }
+
+    ; 播放窗口位置
+    if (subcmd = "位置") {
+        if (paras == ""){
+            ; 当前鼠标位置
+            MouseGetPos, xpos, ypos
+        } else {
+            ; 指定位置
+            pos_ := StrSplit(paras, ",")
+            xpos := pos_[1]
+            ypos := pos_[2]
+        }
+        if currImagePara["file"] {
+            paras := xpos "," ypos
+            currImagePara["position"] := paras
+            return True
+        }
+        return True
+    }
+
+    ; 改变视频目录
+    if (subcmd = "目录") {
+        action_video_dir := paras
+        return False ; 子命令未终止
+    }
+
+    ; 播放音频
+    if (subcmd = "播放") {
+        file := ""
+        if currVideoPara["file"] {
+            file := action_video_dir "\" currVideoPara["file"]
+        }
+        ; 播放音频文件，如果文件为空，朗读文字
+        playVideo(file, currVideoPara["position"]) 
+
+        currVideoPara["file"] :=  ""
+        currVideoPara["position"] :=  ""
+        
+        return True
+    }
+
+    ; 当前待播放视频
+    currVideoPara["file"] :=  subcmd
+    currVideoPara["position"] :=  ""
+    return False
+}
+
+
+; 播放视频文件
+playVideo(file, position)
+{
+    pos_ := StrSplit(position, ",")
+    xpos := pos_[1]
+    ypos := pos_[2]
+
+    ; 播放视频
+    RunWait "ffplay" "-hide_banner" "-nostats" "-autoexit"  %file%
 }
 
 
