@@ -14,6 +14,26 @@ modules["im_switch"] := True
 modules["latex2unicode"] := True
 ; 加载热latex
 loadHotlatex()
+
+; action_play模块注册
+modules["action_play"] := True
+
+
+; 启动GDI+
+#Include %A_ScriptDir%\lib\Gdip_All.ahk
+If !pToken := Gdip_Startup()
+{
+	MsgBox "启动GDI+启动失败，请确保您的系统中存在GDI+"
+	ExitApp
+}
+OnExit("ExitFunc")
+
+ExitFunc(ExitReason, ExitCode)
+{
+   global
+   Gdip_Shutdown(pToken)
+}
+
 Return ;  include中完全一样的代码不会重复执行
 
 
@@ -49,4 +69,10 @@ Return ;  include中完全一样的代码不会重复执行
 ;    7) \hatR[TAB]          R̂   【戴帽花体字符触发】
 ; ----------------------------------------------
 #include %A_ScriptDir%\latex2unicode.ahk
+
+; -----------------------------------------------
+; 自动演示
+;------------------------------------------------
+; Uncomment if Gdip.ahk is not in your standard library
+#include %A_ScriptDir%\action_play.ahk
 
