@@ -458,10 +458,7 @@ execAudioCmd(subcmd, paras){
         if (paras = ""){
             return False
         }
-        if currAudioPara["file"] {
-            currAudioPara["subtitle"] := paras
-            return True
-        }
+        currAudioPara["subtitle"] := paras
         return True
     }
 
@@ -476,11 +473,8 @@ execAudioCmd(subcmd, paras){
             xpos := pos_[1]
             ypos := pos_[2]
         }
-        if currAudioPara["file"] {
-            paras := xpos "," ypos
-            currAudioPara["position"] := paras
-            return True
-        }
+        paras := xpos "," ypos
+        currAudioPara["position"] := paras
         return True
     }
 
@@ -492,16 +486,19 @@ execAudioCmd(subcmd, paras){
 
     ; 显示图片
     if (subcmd = "播放") {
+        file := ""
         if currAudioPara["file"] {
-            ; 显示图片
-            playAudio(action_audio_dir "\" currAudioPara["file"]
-                , currAudioPara["subtitle"]
-                , currAudioPara["position"]) 
-
-            currAudioPara["file"] :=  ""
-            currAudioPara["subtitle"] :=  ""
-            currAudioPara["position"] :=  ""
+            file := action_audio_dir "\" currAudioPara["file"]
         }
+        ; 播放音频文件，如果文件为空，朗读文字
+        playAudio(file
+            , currAudioPara["subtitle"]
+            , currAudioPara["position"]) 
+
+        currAudioPara["file"] :=  ""
+        currAudioPara["subtitle"] :=  ""
+        currAudioPara["position"] :=  ""
+        
         return True
     }
 
@@ -512,15 +509,31 @@ execAudioCmd(subcmd, paras){
     return False
 }
 
+; 播放音频文件，如果文件为空，朗读文字
 playAudio(file, subtitle, position)
 {
+    global action_spvoice
+
     pos_ := StrSplit(position, ",")
     xpos := pos_[1]
     ypos := pos_[2]
 
-    ToolTip , %subtitle%, %xpos%, %xpos%
-    SoundPlay, %file%, WAIT
-    ToolTip
+    if subtitle:
+        ; 如果有字幕则在指定位置显示之 
+        ToolTip , %subtitle%, %xpos%, %xpos%
+    if file {
+        ; 播放音频
+        SoundPlay, %file%, WAIT
+    } else {
+        if (not action_spvoice) {
+            ; 初次使用时启动
+            action_spvoice := ComObjCreate("sapi.spvoice")
+        }
+        ; 朗读文字
+        action_spvoice.Speak(subtitle)
+    }
+    if subtitle: 
+        ToolTip
 }
 
 
