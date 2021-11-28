@@ -51,6 +51,9 @@ HotlatexHandler(prefix)
 {
     ; 默认0(或未赋值): 对应latex助手模式;  0: 对应unicode模式 
     global latexMode
+    if (not latexMode){
+        latexMode := 0
+    }
 
     ; 如果已经加载im_switch模块，支持在中文输入状态下直接输入，会自动切换倒英文状态
     _getImState := "getImState"
@@ -186,9 +189,6 @@ HotlatexHandler(prefix)
     ; 唯一匹配（可能是完全匹配，也可能是不完全匹配）
     if (matches.Length() == 1)
     {
-        if (not latexMode){
-            latexMode := 0
-        }
         if flag and (not latexMode)
         {
             ; latex助手模式下的完全匹配， 只需要退1格复原
@@ -223,19 +223,20 @@ HotlatexHandler(prefix)
     Send, {bs}
 }
 
-MenuHandler:    ; 菜单选择处理
-global latexMode
-if (not latexMode){
-    latexMode := 0
+MenuHandler(){    ; 菜单选择处理
+    global latexMode
+    if (not latexMode){
+        latexMode := 0
+    }
+    ; 剔除序号前缀
+    idx := InStr(A_ThisMenuItem, ":")+2
+    value := SubStr(A_ThisMenuItem, idx)
+    ; unicdoe模式选择等号右边输出； latex助手模式选择等号左边输出
+    value := StrSplit(value, "=")[latexMode+1]
+    Send, %value%
+    Menu, HotMenu, DeleteAll
+    return
 }
-; 剔除序号前缀
-idx := InStr(A_ThisMenuItem, ":")+2
-value := SubStr(A_ThisMenuItem, idx)
-; unicdoe模式选择等号右边输出； latex助手模式选择等号左边输出
-value := StrSplit(value, "=")[latexMode+1]
-Send, %value%
-Menu, HotMenu, DeleteAll
-return
 
 ; ~ 表示触发热键时, 热键中按键原有的功能不会被屏蔽(对操作系统隐藏) 
 ~\::    ; latex命令热键
