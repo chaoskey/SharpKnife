@@ -64,6 +64,10 @@ autohotkey.exe latex2unicode.ahk
 
 ### 范例
 
+> 20211128 新增一批latex助手模式下的latex块（比如，矩阵，多行公式）的支持 ，比如`\matrix[tab]`(直接触发)或`\matri[tab]`(弹出菜单选择触发)
+>
+> 20211128 将`latex助手模式`设置为默认
+
 只支持单字符的LaTeX触发（目前支持如下6类）
 
 | 分类 | LaTeX | Unicode | 说明 |
