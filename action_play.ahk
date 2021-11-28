@@ -25,6 +25,10 @@ FileEncoding , UTF-8
 #Include %A_ScriptDir%\lib\Gdip_All.ahk
 #Include %A_ScriptDir%\lib\TokenGdip.ahk
 
+; 启动GDI+支持
+startupGdip()
+return ; 自动运行段结束
+
 ; 动作处理主流程
 doAction(){
     global action_cmds

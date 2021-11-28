@@ -9,6 +9,8 @@
 
 FileEncoding , UTF-8
 
+return ; 自动运行段结束
+
 ; 查看中英文状态信息
 imStateInfo()
 {
