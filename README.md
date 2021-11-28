@@ -23,29 +23,17 @@ git clone https://github.com/chaoskey/ahklib.git
 
 # 需要安装AutoHotkey
 autohotkey.exe im_switch.ahk
-# 或 所有脚本
-autohotkey.exe main.ahk
 ```
 
 ## 基于LaTeX的Unicode特殊字符触发
 
-> 用处1【unicode模式】: 代码中（比如: 注释，甚至变量）使用unicode特殊字符。 当然也可以在任何文本框输入。
+> 用处1【默认, latex助手模式】: 用于纯latex输入。 
 >
-> 用处2【latex助手模式】: 用于纯latex输入，只要想的起正确的局部片段即可。 
+> 用处2【unicode模式】: 代码中（比如: 注释，甚至变量）使用unicode特殊字符。
+>  
+> 也可以在任何文本框输入, 只要想的起正确的局部片段即可.
 >
-> 参考Katex，尽可能使用LaTeX触发出对应的Unicode字符，适用于任何文本框，只支持字符逐个输入。
->
-> https://katex.org/docs/supported.html
-
-### 假设 或 前置要求
-
-- 如果你想在代码中（比如: 注释，甚至变量）使用unicode特殊字符
-
-- 使用者熟练使用LaTeX语法
-
-- 如果不太熟练LaTeX，但能想起字符片段，可以用`\[片断字符串][TAB]`，可能会弹出菜单，然后选择输入
-
-- 建议本脚开机启动
+> 参考Katex:  https://katex.org/docs/supported.html
 
 ### 启动
 
@@ -54,19 +42,23 @@ autohotkey.exe main.ahk
 ```powershell
 git clone https://github.com/chaoskey/ahklib.git
 
-# 需要安装AutoHotkey
+# 需要先安装AutoHotkey
 autohotkey.exe latex2unicode.ahk
-# 或 所有脚本
-autohotkey.exe main.ahk
 ```
 
 ### 用法 
 
-1) 只对不方便键盘输入的字符进行latex[TAB]替换， 如果没有替换说明输入错误或不支持
+1）能想起字符片段，可以用`\[片断字符串][TAB]`，可能会弹出菜单，然后选择输入
 
-2) 非TAB终止符触发（比如: `[Space][Enter][Esc]`等等），表示放弃触发, 并且保持已输入的原样
+2）如果没有替换说明输入错误或不支持
 
-3) 用`Win + \`  进行 unicode模式 / latex助手模式 切换  【会有1s后消失的提示】
+3）非TAB终止符触发（比如: `[Space][Enter][Esc]`等等），表示放弃触发, 并且保持已输入的原样
+
+4）用`Win + \`  进行 unicode模式 / latex助手模式 切换  【会有1s后消失的提示】
+
+5）建议设置本脚开机启动
+
+6）注意: 启动后的第一次触发，需要加载数据，可能有1s的延迟。
 
 ![](images/ex1.png)
 
