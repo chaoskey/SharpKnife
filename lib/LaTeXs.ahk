@@ -11,7 +11,7 @@ getLaTeXHot(index){
     global latexHotstring
     loadHotlatex()
 
-    if (index < 0){
+    if (index < 1){
         index := 1
     } else if (index > latexHotstring.Length()){
         index := latexHotstring.Length()
@@ -22,7 +22,7 @@ getUnicode(index){
     global unicodestring 
     loadHotlatex()
 
-    if (index < 0){
+    if (index < 1){
         index := 1
     } else if (index > unicodestring.Length()){
         index := unicodestring.Length()
@@ -33,7 +33,7 @@ getLaTeXBlock(index){
     global latexblockstring 
     loadHotlatex()
 
-    if (index < 0){
+    if (index < 1){
         index := 1
     } else if (index > latexblockstring.Length()){
         index := latexblockstring.Length()
