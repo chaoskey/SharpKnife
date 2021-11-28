@@ -20,25 +20,10 @@
 ; 
 ;------------------------------------------------
 
-
 FileEncoding , UTF-8
 
-; 启动GDI+
 #Include %A_ScriptDir%\lib\Gdip_All.ahk
-If !pToken := Gdip_Startup()
-{
-	MsgBox "启动GDI+启动失败，请确保您的系统中存在GDI+"
-	ExitApp
-}
-OnExit("ExitFunc")
-
-ExitFunc(ExitReason, ExitCode)
-{
-   global
-   Gdip_Shutdown(pToken)
-}
-
-Return
+#Include %A_ScriptDir%\lib\TokenGdip.ahk
 
 ; 动作处理主流程
 doAction(){
@@ -392,6 +377,9 @@ drawImage(file, crop, position, alpha)
     hWND := WinExist()
     ; 记录窗口句柄，插入第一个位置
     action_images.InsertAt(1, hWND)
+
+    ; 确保GDI+ API可用
+    startupGdip()
 
     ; 从图片创建位图句柄
     pBitmap := Gdip_CreateBitmapFromFile(file)
