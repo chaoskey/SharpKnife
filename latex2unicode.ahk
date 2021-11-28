@@ -61,8 +61,9 @@ HotlatexHandler(prefix)
     _IMToolTip := "IMToolTip"
     if isFunc(_getImState) and (%_getImState%() = 1)
     {
-        Send ^{Space}{bs 2}{text}%prefix%
         %_setImState%(0)
+        ; 确保只在中文状态下动作
+        Send ^{Space}{bs 2}{text}%prefix%
         %_IMToolTip%()
     }
 

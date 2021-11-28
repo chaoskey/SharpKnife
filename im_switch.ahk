@@ -113,10 +113,11 @@ setImState(v)
 ::imstate::
 if (getImState() = 1)
 {
+    setImState(0)	; 记录并切换到英文状态 
+    ; 确保只在中文状态下动作
     Send ^{Space}	; 切换到英文状态
+    IMToolTip()
 }
-setImState(0)		; 记录并切换到英文状态  
-IMToolTip()
 imStateInfo()
 return
 
@@ -128,38 +129,37 @@ IMToolTip()
 return
 
 ; Markdown中准备编辑数学公式
-
-:*?:$::        		; 按下$立刻执行,  ?表示即使此热字串在另一个单词中也会被触发。
-if (getImState() = 1)
-{
-    Send ^{Space}	; 切换到英文状态
+; [英文$][中文￥]
+~+4::          		; 按下$(Shift + 4)
+if (getImState() = 1){
+    setImState(0)
+    ; 确保只在中文状态下动作
+    SendInput ^{Space}{bs}{Text}$
+    IMToolTip()
 }
-setImState(0)		; 记录并切换到英文状态   
-Send $			; 保留原始功能
-IMToolTip()
 return
 
 ; Vim中回到普通模式
 
 ~Esc::         		; Esc, 并且保留原始功能
-if (getImState() = 1)
-{
-    Send ^{Space}	; 切换到英文状态
+if (getImState() = 1){
+    setImState(0)
+    ; 确保只在中文状态下动作
+    Send ^{Space}
+    IMToolTip()
 }
-setImState(0)
-IMToolTip()
 return
 
 ; Vim进入命令行模式 【+;就是冒号:】
 
-+;::          		; 按下:(Shift + ;)
-if (getImState() = 1)
-{
-    Send ^{Space}
+; [中文：][英文:]
+~+;::          		; 按下:(Shift + ;)
+if (getImState() = 1){
+    setImState(0)
+    ; 确保只在中文状态下动作
+    SendInput ^{Space}{bs}{Text}:
+    IMToolTip()
 }
-setImState(0)
-Send {Text}:
-IMToolTip()
 return
 
 IMToolTip()
