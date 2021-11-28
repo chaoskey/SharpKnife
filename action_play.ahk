@@ -608,6 +608,17 @@ playVideo(file, position)
 
 
 ~F8::
+; 如果有im_switch.ahk的加持， 可确保在英文状态下执行脚本
+_getImState := "getImState"
+_setImState := "setImState"
+_IMToolTip := "IMToolTip"
+if isFunc(_getImState) and (%_getImState%() = 1)
+{
+    %_setImState%(0)
+    ; 确保只在中文状态下动作
+    Send ^{Space}
+    %_IMToolTip%()
+}
 oldKeyDelay := A_KeyDelay
 SetKeyDelay, 50
 doAction()
