@@ -7,17 +7,46 @@ getLaTeXHotstring(){
     loadHotlatex()
     return latexHotstring        
 }
-getUnicodeString(){
+getLaTeXHot(index){
+    global latexHotstring
+    loadHotlatex()
+
+    if (index < 0){
+        index := 1
+    } else if (index > latexHotstring.Length()){
+        index := latexHotstring.Length()
+    } 
+    return latexHotstring[index]         
+}
+getUnicode(index){
     global unicodestring 
     loadHotlatex()
-    return unicodestring         
+
+    if (index < 0){
+        index := 1
+    } else if (index > unicodestring.Length()){
+        index := unicodestring.Length()
+    }
+    return unicodestring[index]         
+}
+getLaTeXBlock(index){
+    global latexblockstring 
+    loadHotlatex()
+
+    if (index < 0){
+        index := 1
+    } else if (index > latexblockstring.Length()){
+        index := latexblockstring.Length()
+    }
+    return latexblockstring[index]         
 }
 
 ; 模仿热字串(Hotstring)，专门用来添加热latex(Hotlatex)
 ; 收集热latex串，并排序（方便快速定位）
-Hotlatex(key, value){
-    global latexHotstring
-    global unicodestring
+Hotlatex(key, value, block := ""){
+    global latexHotstring       ; LaTex热串
+    global unicodestring        ; Unicode符号 或 提示性描述
+    global latexblockstring     ; LaTex块结构
 
     ; 默认尾部插入
     idx := latexHotstring.Length() + 1
@@ -29,7 +58,8 @@ Hotlatex(key, value){
         }
     }
     latexHotstring.InsertAt(idx, key)
-    unicodestring.InsertAt(idx, Value)
+    unicodestring.InsertAt(idx, value)
+    latexblockstring.InsertAt(idx, block)
 }
 
 ; 字符串比较: ≤
@@ -46,13 +76,15 @@ leStr(str1, str2){
 
 ; 装载LaTeX热字符
 loadHotlatex(){
-    ; 热字符串列表 （由于关联数组的键不区分大小写，所以改用两个数组）
-    global latexHotstring
-    global unicodestring
+    ; 热字符串列表
+    global latexHotstring       ; LaTex热串
+    global unicodestring        ; Unicode符号 或 提示性描述
+    global latexblockstring     ; LaTex块结构
 
     if (not latexHotstring){
         latexHotstring := []
         unicodestring := []
+        latexblockstring := []
     }
 
     if (latexHotstring.Count() = 0){
@@ -1034,5 +1066,37 @@ loadHotlatex(){
         Hotlatex("\overset", "上标记 \overset{!}{=}")  
         Hotlatex("\underset", "下标记 \underset{!}{=}")  
         Hotlatex("\atop", "上下布局 a \atop b") 
+
+        ; Environments
+        ; https://katex.org/docs/supported.html#environments
+
+        Hotlatex("\array", "数组 \begin{array} ..."
+            ,"{Text}\begin{array}{cc} a & b \\ c & d \end{array}##{Left 25}")
+        Hotlatex("\subarray", "上下标数组 \begin{subarray}{l} ..."
+            ,"{Text}\begin{subarray}{l} i \\ j \end{subarray}##{Left 20}")
+        Hotlatex("\arraystretch", "表格数组 \def\arraystretch{1.5} ..."
+            ,"{Text}\def\arraystretch{1.5}\begin{array}{c:c:c} a & b & c \\ \hline d & e & f \\ \hdashline g & h & i \end{array}##{Left 64}")
+        Hotlatex("\matrix", "无定界矩阵 \begin{matrix} ..."
+            ,"{Text}\begin{matrix} a & b \\ c & d \end{matrix}##{Left 26}")
+        Hotlatex("\pmatrix", "圆括号矩阵 \begin{pmatrix} ..."
+            ,"{Text}\begin{pmatrix} a & b \\ c & d \end{pmatrix}##{Left 27}")
+        Hotlatex("\bmatrix", "方括号矩阵 \begin{bmatrix} ..."
+            ,"{Text}\begin{bmatrix} a & b \\ c & d \end{bmatrix}##{Left 27}")
+        Hotlatex("\vmatrix", "竖括号矩阵&行列式 \begin{vmatrix} ..."
+            ,"{Text}\begin{vmatrix} a & b \\ c & d \end{vmatrix}##{Left 27}")
+        Hotlatex("\Vmatrix", "双竖括号矩阵&行列式 \begin{Vmatrix} ..."
+            ,"{Text}\begin{Vmatrix} a & b \\ c & d \end{Vmatrix}##{Left 27}")
+        Hotlatex("\Bmatrix", "花括号矩阵 \begin{Bmatrix} ..."
+            ,"{Text}\begin{Bmatrix} a & b \\ c & d \end{Bmatrix}##{Left 27}")
+        Hotlatex("\cases", "左条件分支 \begin{cases} ..."
+            ,"{Text}\begin{cases} a &\text{if } b \\ c &\text{if } d \end{cases}##{Left 45}")
+        Hotlatex("\rcases", "右条件分支 begin{rcases} ..."
+            ,"{Text}\begin{rcases} a &\text{if } b \\ c &\text{if } d \end{rcases}##{Left 46}")
+        Hotlatex("\align", "对齐 begin{align} ..."
+            ,"{Text}\begin{align} a&=b+c \\ d+e&=f \end{align}##{Left 27}")
+        Hotlatex("\alignat", "紧凑对齐 begin{alignat} ..."
+            ,"{Text}\begin{alignat}{1} 10&x+&3&y=2\\ 3&x+&13&y=4 \end{alignat}##{Left 37}")
+        Hotlatex("\gather", "居中对齐 begin{gather} ..."
+            ,"{Text}\begin{gather} a=b \\ e=b+c \end{gather}##{Left 24}")  
     }
 }
