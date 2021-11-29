@@ -1,4 +1,6 @@
 
+FileEncoding , UTF-8
+
 ; 启动GDI+支持
 startupGdip()
 ; 加载热LaTeX
