@@ -22,6 +22,8 @@ FileEncoding , UTF-8
 
 ; 加载热LaTeX
 loadHotlatex()
+; 创建触发热键
+loadTriggerHotKey()
 return ; 自动运行段结束
 
 ;------------------------------------------------------------------------------------------------------
@@ -40,8 +42,10 @@ return ; 自动运行段结束
 ;       latex助手模式: 如果输入正确的或完全不正确，没有任何反应
 ;                     如果输入的正确的片段（不完全正确），会弹出菜单，选择输入，比如: \bigoplus
 ;------------------------------------------------------------------------------------------------------
-HotlatexHandler(prefix)
+HotlatexHandler()
 {
+    prefix := A_ThisHotkey
+
     ; 默认0(或未赋值): 对应latex助手模式;  1: 对应unicode模式 
     global unicodeMode
     if (not unicodeMode){
@@ -61,7 +65,7 @@ HotlatexHandler(prefix)
     }
 
     ;--------------------------------------------
-    ;        首先解决 _ \ ^  组合的相互干扰问题
+    ;        首先解决触发热键组合的相互干扰问题
     ;--------------------------------------------
 
     ; 按次序记录prefix 和 search，防止类似 “_\” 的组合相互干扰
@@ -102,11 +106,16 @@ HotlatexHandler(prefix)
     for index, value in searchs
         search := search "" value
 
+    ; 为后面的正则表达式准备
+    trigStr := ""
+    for i_, v_ in getTriggerFirstChar(){
+        trigStr := trigStr "\" v_
+    }
     ; 确定最后一个前缀-搜索对（一定会匹配）
-    regStr := "O)([_\^\\]+)([^_\^\\]*)$"
+    regStr := "O)([" trigStr "]+)([^" trigStr "]*)$"
     if (not unicodeMode)
-        ; latex助手模式下，禁用 _ \ ^  组合
-        regStr := "O)([_\^\\])([^_\^\\]*)$"
+        ; latex助手模式下，禁用组合触发
+        regStr := "O)([" trigStr "])([^" trigStr "]*)$"
     RegExMatch(search, regStr, SubPat)
     prefix := SubPat.Value(1)
     search := SubPat.Value(2)
@@ -258,16 +267,15 @@ MenuHandler(){    ; 菜单选择处理
     return
 }
 
-; ~ 表示触发热键时, 热键中按键原有的功能不会被屏蔽(对操作系统隐藏) 
-~\::    ; latex命令热键
-HotlatexHandler("\")
-return
-~+6::   ; 上标热键 Shift+6(+6 或 ^) 
-HotlatexHandler("^")
-return
-~+-::   ; 下标热键 Shift+-(+- 或 _) 
-HotlatexHandler("_")
-return
+loadTriggerHotKey()
+{
+    ; 动态创建触发热键
+    ; https://www.autoahk.com/help/autohotkey/zh-cn/docs/commands/Hotkey.htm
+    for i_ , v_ in getTriggerFirstChar() {
+        ; ~ 表示触发热键时, 热键中按键原有的功能不会被屏蔽(对操作系统隐藏)
+        Hotkey, ~%v_%, HotlatexHandler
+    }
+}
 
 ;-----------------------------------------------------------------------------
 ;    `Win + \`  进行 unicode模式 / latex助手模式 切换

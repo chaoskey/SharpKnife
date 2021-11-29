@@ -7,6 +7,11 @@ getLaTeXHotstring(){
     loadHotlatex()
     return latexHotstring        
 }
+getTriggerFirstChar(){
+    global triggerFirstChar
+    loadHotlatex()
+    return triggerFirstChar
+}
 getLaTeXHot(index){
     global latexHotstring
     loadHotlatex()
@@ -47,6 +52,18 @@ Hotlatex(key, value, block := ""){
     global latexHotstring       ; LaTex热串
     global unicodestring        ; Unicode符号 或 提示性描述
     global latexblockstring     ; LaTex块结构
+    global triggerFirstChar     ; 用作触发的首字符
+
+    ; 收集触发字符
+    firstChar := SubStr(key, 1 , 1)
+    newFirstChar := True
+    for i_, v_ in triggerFirstChar{
+        if (v_ == firstChar){
+            newFirstChar := False
+            Break
+        }
+    }
+    triggerFirstChar.Push(firstChar)
 
     ; 默认尾部插入
     idx := latexHotstring.Length() + 1
@@ -80,11 +97,13 @@ loadHotlatex(){
     global latexHotstring       ; LaTex热串
     global unicodestring        ; Unicode符号 或 提示性描述
     global latexblockstring     ; LaTex块结构
+    global triggerFirstChar     ; 用作触发的首字符
 
     if (not latexHotstring){
         latexHotstring := []
         unicodestring := []
         latexblockstring := []
+        triggerFirstChar := []
     }
 
     if (latexHotstring.Count() = 0){

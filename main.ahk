@@ -5,6 +5,8 @@ FileEncoding , UTF-8
 startupGdip()
 ; 加载热LaTeX
 loadHotlatex()
+; 创建触发热键
+loadTriggerHotKey()
 return ; 自动运行段结束
 
 ;---------------------------------------------------
