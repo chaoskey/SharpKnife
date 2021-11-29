@@ -70,7 +70,7 @@ Hotlatex(key, value, block := ""){
     ; 通过字符串比较，确定正确插入位置
     for i_, v_ in latexHotstring{
         if (key == v_){
-            MsgBox "热LaTeX : " key "出现重复，请检查数据！"
+            MsgBox % "热LaTeX : " key " 出现重复，请检查数据！"
             ExitApp
         }
         if leStr(key, v_){
