@@ -41,9 +41,11 @@ autohotkey.exe im_switch.ahk
 
 ```powershell
 git clone https://github.com/chaoskey/ahklib.git
-
 # 需要先安装AutoHotkey
-autohotkey.exe latex2unicode.ahk
+autohotkey.exe LaTeXHelper.ahk
+
+# 或者  下载 https://github.com/chaoskey/ahklib/releases/tag/2021.11.29
+直接运行：  LaTeXHelper.exe
 ```
 
 ### 用法 

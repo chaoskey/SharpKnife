@@ -16,9 +16,9 @@ return ; 自动运行段结束
 #include %A_ScriptDir%\im_switch.ahk
 
 ;---------------------------------------------------
-; Latex对应的Unicode （latex2unicode）
+; Latex对应的Unicode （LaTeXHelper）
 ; ----------------------------------------------
-#include %A_ScriptDir%\latex2unicode.ahk
+#include %A_ScriptDir%\LaTeXHelper.ahk
 
 ; -----------------------------------------------
 ; 动作播放（完善中...）
