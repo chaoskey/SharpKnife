@@ -1105,9 +1105,9 @@ loadHotlatex(){
             ,"{Text}\begin{pmatrix} a & b \\ c & d \end{pmatrix}##{Left 27}")
         Hotlatex("\bmatrix", "方括号矩阵 \begin{bmatrix} ..."
             ,"{Text}\begin{bmatrix} a & b \\ c & d \end{bmatrix}##{Left 27}")
-        Hotlatex("\vmatrix", "竖括号矩阵&行列式 \begin{vmatrix} ..."
+        Hotlatex("\vmatrix", "竖括号矩阵(行列式) \begin{vmatrix} ..."
             ,"{Text}\begin{vmatrix} a & b \\ c & d \end{vmatrix}##{Left 27}")
-        Hotlatex("\Vmatrix", "双竖括号矩阵&行列式 \begin{Vmatrix} ..."
+        Hotlatex("\Vmatrix", "双竖括号矩阵 \begin{Vmatrix} ..."
             ,"{Text}\begin{Vmatrix} a & b \\ c & d \end{Vmatrix}##{Left 27}")
         Hotlatex("\Bmatrix", "花括号矩阵 \begin{Bmatrix} ..."
             ,"{Text}\begin{Bmatrix} a & b \\ c & d \end{Bmatrix}##{Left 27}")
