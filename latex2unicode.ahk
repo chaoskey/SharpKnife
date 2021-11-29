@@ -60,7 +60,18 @@ HotlatexHandler()
     {
         %_setImState%(0)
         ; 确保只在中文状态下动作
-        Send ^{Space}{bs 2}{text}%prefix%
+        prefix := LTrim(prefix, "~")
+        ; _ 在微软中文下显示 ——(两个字符)
+        ; ^ 在微软中文下显示 ……(两个字符)
+        ; \ 在微软中文下显示 、(一个字符)
+        ; : 在微软中文下显示 ：(一个字符)
+        ; $ 在微软中文下显示 ￥(一个字符)
+        ; 所以，_和^有点特殊，需要退两格
+        nBS := 1
+        if (prefix == "_") or (prefix == "^") {
+            nBS := 2
+        }
+        Send ^{Space}{BS %nBS%}{text}%prefix%
         %_IMToolTip%()
     }
 
@@ -146,7 +157,7 @@ HotlatexHandler()
         flag := True
 
     ; 搜索匹配的索引
-    matches := []
+    global matches := []
     for index, value in latexHotstring
     {
         ; 前缀不匹配，直接跳过
@@ -227,7 +238,7 @@ HotlatexHandler()
         for index, value in matches
         {
             ; 通过添加后缀来表示热LaTeX索引,  Unicode剔除额外标记“:”
-            itemName := getLaTeXHot(value) "=" LTrim(getUnicode(value), ":") "|" value
+            itemName := getLaTeXHot(value) "=" LTrim(getUnicode(value), ":")
             Menu, HotMenu, Add, %itemName%, MenuHandler
         }
         Send, {bs %n%}
@@ -241,14 +252,11 @@ HotlatexHandler()
 }
 
 MenuHandler(){    ; 菜单选择处理
+    global matches
     global unicodeMode
-    if (not unicodeMode){
-        unicodeMode := 0
-    }
 
-    ; 从右向左搜索"|", 获取热LaTeX索引
-    idx := InStr(A_ThisMenuItem, "|" , , 0)
-    index := SubStr(A_ThisMenuItem, idx+1)
+    ; 获取对应菜单项相对热latex数组的索引
+    index := matches[A_ThisMenuItemPos]
     ; 热LaTeX LaTeX块 Unicode
     latex := getLaTeXHot(index)
     unicdoe := LTrim(getUnicode(index), ":")  ; 剔除额外标记“:”
@@ -257,6 +265,7 @@ MenuHandler(){    ; 菜单选择处理
     if unicodeMode {
         Send, %unicdoe%
     }else if latexBlock {
+        ; 通过“##”将{text}和非{text}分成不同部分，然后连续执行
         for i_, v_ in StrSplit(latexBlock, "##") {
             Send, %v_%
         }
