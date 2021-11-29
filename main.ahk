@@ -1,3 +1,4 @@
+#SingleInstance, force
 
 FileEncoding , UTF-8
 

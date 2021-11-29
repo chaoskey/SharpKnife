@@ -20,6 +20,8 @@
 ; 
 ;------------------------------------------------
 
+#SingleInstance, force
+
 FileEncoding , UTF-8
 
 #Include %A_ScriptDir%\lib\Gdip_All.ahk
