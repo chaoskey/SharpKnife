@@ -22,7 +22,7 @@
 
 #SingleInstance, force
 
-FileEncoding , UTF-8
+FileEncoding , UTF-8-RAW
 
 #Include lib\Gdip_All.ahk
 #Include lib\TokenGdip.ahk
@@ -618,12 +618,13 @@ playVideo(file, position)
 _getImState := "getImState"
 _setImState := "setImState"
 _IMToolTip := "IMToolTip"
-if isFunc(_getImState) and (%_getImState%() = 1)
-{
-    %_setImState%(0)
-    ; 确保只在中文状态下动作
-    Send ^{Space}
-    %_IMToolTip%()
+if isFunc(_getImState){
+    imState := %_getImState%()
+    if (imState = 1){
+        ; 确保只在中文状态下动作
+        Send ^{Space}
+        %_IMToolTip%(0)
+    }
 }
 oldKeyDelay := A_KeyDelay
 SetKeyDelay, 50

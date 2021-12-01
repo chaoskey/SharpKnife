@@ -27,7 +27,7 @@
 ; ----------------------------------------------
 #SingleInstance, force
 
-FileEncoding , UTF-8
+FileEncoding , UTF-8-RAW
 
 #Include lib\LaTeXs.ahk
 
@@ -67,23 +67,25 @@ HotlatexHandler()
     _getImState := "getImState"
     _setImState := "setImState"
     _IMToolTip := "IMToolTip"
-    if isFunc(_getImState) and (%_getImState%() = 1)
+    if isFunc(_getImState)
     {
-        %_setImState%(0)
-        ; 确保只在中文状态下动作
-        prefix := LTrim(prefix, "~")
-        ; _ 在微软中文下显示 ——(两个字符)
-        ; ^ 在微软中文下显示 ……(两个字符)
-        ; \ 在微软中文下显示 、(一个字符)
-        ; : 在微软中文下显示 ：(一个字符)
-        ; $ 在微软中文下显示 ￥(一个字符)
-        ; 所以，_和^有点特殊，需要退两格
-        nBS := 1
-        if (prefix == "_") or (prefix == "^") {
-            nBS := 2
+        imState := %_getImState%()
+        if (imState = 1){
+            ; 确保只在中文状态下动作
+            prefix := LTrim(prefix, "~")
+            ; _ 在微软中文下显示 ——(两个字符)
+            ; ^ 在微软中文下显示 ……(两个字符)
+            ; \ 在微软中文下显示 、(一个字符)
+            ; : 在微软中文下显示 ：(一个字符)
+            ; $ 在微软中文下显示 ￥(一个字符)
+            ; 所以，_和^有点特殊，需要退两格
+            nBS := 1
+            if (prefix == "_") or (prefix == "^") {
+                nBS := 2
+            }
+            Send ^{Space}{BS %nBS%}{text}%prefix%
+            %_IMToolTip%(0)
         }
-        Send ^{Space}{BS %nBS%}{text}%prefix%
-        %_IMToolTip%()
     }
 
     ;--------------------------------------------

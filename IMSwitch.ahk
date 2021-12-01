@@ -19,7 +19,7 @@
 
 #SingleInstance, force
 
-FileEncoding , UTF-8
+FileEncoding , UTF-8-RAW
 
 ; IMSwitch默认配置
 loadIMSwitchDefault()

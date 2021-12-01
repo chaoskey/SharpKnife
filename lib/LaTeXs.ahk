@@ -1,3 +1,5 @@
+FileEncoding , UTF-8-RAW
+
 ;-----------------------------------------------
 ;            LaTeX收集 
 ;-----------------------------------------------
@@ -48,11 +50,12 @@ getLaTeXBlock(index){
 
 ; 模仿热字串(Hotstring)，专门用来添加热latex(Hotlatex)
 ; 收集热latex串，并排序（方便快速定位）
-Hotlatex(key, value, block := ""){
+Hotlatex(key, value, block := "", writeCVS := True){
     global latexHotstring       ; LaTex热串
     global unicodestring        ; Unicode符号 或 提示性描述
     global latexblockstring     ; LaTex块结构
     global triggerFirstChar     ; 用作触发的首字符
+    global latexCvsPath
 
     ; 收集触发字符
     firstChar := SubStr(key, 1 , 1)
@@ -81,6 +84,15 @@ Hotlatex(key, value, block := ""){
     latexHotstring.InsertAt(idx, key)
     unicodestring.InsertAt(idx, value)
     latexblockstring.InsertAt(idx, block)
+
+    if writeCVS {
+        text_ := key "`t" value
+        if (block != ""){
+            text_ :=  text_ "`t" block            
+        }
+        text_ :=  text_ "`n"
+        FileAppend , %text_%, %latexCvsPath%
+    }
 }
 
 ; 字符串比较: ≤
@@ -102,6 +114,7 @@ loadHotlatex(){
     global unicodestring        ; Unicode符号 或 提示性描述
     global latexblockstring     ; LaTex块结构
     global triggerFirstChar     ; 用作触发的首字符
+    global latexCvsPath
 
     if (not latexHotstring){
         latexHotstring := []
@@ -111,7 +124,57 @@ loadHotlatex(){
     }
 
     if (latexHotstring.Count() = 0){
+
+        ; ini文件
+        iniPath := A_ScriptFullPath
+        if (idx := InStr(iniPath, "." , , 0) ){
+            iniPath := SubStr(iniPath, 1 , idx-1) 
+        }
+        iniPath := iniPath ".ini"
+        ; 读取cvs文件
+        IniRead, latexCvsPath, %iniPath%, LaTeXs, CVS
+        if (latexCvsPath == "ERROR"){
+            ; 设置默认路径
+            latexCvsPath := A_ScriptDir "\latexs.cvs"
+            IniWrite, 
+(
+; LaTeX热键触发表
+CVS=%latexCvsPath%
+), %iniPath%, LaTeXs
+        }
+        if FileExist(latexCvsPath){
+            ; 如果cvs文件存在，从文件中加载默认数据
+            Loop, read, %latexCvsPath% 
+            {
+                line := Trim(A_LoopReadLine)
+                if (line != "") and (SubStr(line, 1, 1) != ";"){
+                    feilds := StrSplit(line, A_Tab)
+                    if (feilds.Length() == 2){
+                        Hotlatex(feilds[1], feilds[2], , False)
+                    }else if(feilds.Length() == 3){
+                        Hotlatex(feilds[1], feilds[2], feilds[3], False)
+                    }
+                }
+            }
+            return
+        }
+
+        ; 否则, 加载默认数据 
+        ; 下面的代码原则上不再修改, 因为数据已经写到CVS文件
+        ; 如果有新的内容或要修改，请直接在CVS文件中修改或添加
+
+        FileAppend , % "; `t`t`t`tLaTeX热键触发表`n", %latexCvsPath%
+        FileAppend , % "`n", %latexCvsPath%
+        FileAppend , % "; 每行用Tab键，最多分出3个字段`n", %latexCvsPath%
+        FileAppend , % "; 第1个字段代表LaTex“键”`n", %latexCvsPath%
+        FileAppend , % "; 第2个字段代表LaTex对应“Unicode”或“文字描述”`n", %latexCvsPath%
+        FileAppend , % "; 第3个字段（如果存在的话）代表LaTex对应“LaTex块”`n", %latexCvsPath%
+        FileAppend , % "; 如果第2个字段以:开头，表明只适用于unicode模式. 【这种情况下禁止“第1个字段”在“第2个字段”中完整出现】`n", %latexCvsPath%
+        FileAppend , % "; “第1个字段”在“第2个字段”中完整出现，表明只适用于latex助手模式. 【这种情况下禁止如果第2个字段以:开头】`n", %latexCvsPath%
+        FileAppend , % "`n", %latexCvsPath%
+
         ; 下标和上标 【确保在希腊字母前面】 https://katex.org/docs/supported.html#line-breaks
+        FileAppend , % "`n`n; 下标和上标 https://katex.org/docs/supported.html#line-breaks`n`n", %latexCvsPath%
         
         Hotlatex("_0", ":₀") ; 如果"值"以:开头，表明只适用于unicode模式. 【禁止“键”在“值”中出现】
         Hotlatex("^0", ":⁰")
@@ -197,6 +260,7 @@ loadHotlatex(){
         Hotlatex("_\partial", ":ₔ")
 
         ; 分割符 https://katex.org/docs/supported.html#delimiters
+        FileAppend , % "`n`n; 分割符 https://katex.org/docs/supported.html#delimiters`n`n", %latexCvsPath%
 
         Hotlatex("\vert", "∣")
         Hotlatex("\Vert", "∥")
@@ -229,7 +293,10 @@ loadHotlatex(){
 
         ; 字母和unicode https://katex.org/docs/supported.html#letters-and-unicode
 
-        ; 希腊字母")
+        ; 希腊字母
+
+        FileAppend , % "`n`n; 希腊字母`n`n", %latexCvsPath%
+
         Hotlatex("\alpha", "α")
         Hotlatex("\Alpha", "Α")
         Hotlatex("\beta", "β")
@@ -303,6 +370,8 @@ loadHotlatex(){
 
         ; 其它字母
 
+        FileAppend , % "`n`n; 一些特殊符号`n`n", %latexCvsPath%
+
         Hotlatex("\Im", "ℑ")
         Hotlatex("\Reals", "ℝ")
         Hotlatex("\OE", "Œ")
@@ -354,6 +423,8 @@ loadHotlatex(){
 
         ; 逻辑和集合 https://katex.org/docs/supported.html#logic-and-set-theory
 
+        FileAppend , % "`n`n; 逻辑和集合`n`n", %latexCvsPath%
+
         Hotlatex("\forall", "∀")
         Hotlatex("\exists", "∃")
         Hotlatex("\exist", "∃")
@@ -376,6 +447,8 @@ loadHotlatex(){
         ; 运算符 https://katex.org/docs/supported.html#operators
 
         ; 大运算符 https://katex.org/docs/supported.html#big-operators
+        FileAppend , % "`n`n; 大运算符`n`n", %latexCvsPath%
+
         Hotlatex("\sum", "∑")
         Hotlatex("\prod", "∏")
         Hotlatex("\bigotimes", "⊗")
@@ -398,6 +471,7 @@ loadHotlatex(){
         Hotlatex("\bigsqcup", "⨆")
 
         ; 二元运算符 https://katex.org/docs/supported.html#binary-operators
+        FileAppend , % "`n`n; 二元运算符`n`n", %latexCvsPath%
 
         Hotlatex("\cdot", "⋅")
         Hotlatex("\cdotp", "⋅")
@@ -463,6 +537,8 @@ loadHotlatex(){
 
         ; 数学运算符 https://katex.org/docs/supported.html#fractions-and-binomials
         ; 大部分没必要实现")
+        FileAppend , % "`n`n; 一些特殊数学运算符`n`n", %latexCvsPath%
+
         Hotlatex("\sqrt", "√")
         Hotlatex("\frac", "分数 \frac{a}{b}")
         Hotlatex("\tfrac", "分数 \tfrac{a}{b}")
@@ -480,6 +556,8 @@ loadHotlatex(){
 
         ; 关系 https://katex.org/docs/supported.html#relations
         ;      https://katex.org/docs/supported.html#negated-relations
+
+        FileAppend , % "`n`n; 关系`n`n", %latexCvsPath%
 
         Hotlatex("\doteqdot", "≑")
         Hotlatex("\Doteq", "≑")
@@ -648,6 +726,7 @@ loadHotlatex(){
         Hotlatex("\varsupsetneqq", "⫌") ; 找不到完全一致unicode，只能用最接近的替代
 
         ; 箭头 https://katex.org/docs/supported.html#arrows
+        FileAppend , % "`n`n; 箭头 https://katex.org/docs/supported.html#arrows`n`n", %latexCvsPath%
 
         Hotlatex("\circlearrowleft", "↺")
         Hotlatex("\circlearrowright", "↻")
@@ -742,6 +821,7 @@ loadHotlatex(){
         Hotlatex("\upuparrows", "⇈")
 
         ; 其它常用符号 https://katex.org/docs/supported.html#symbols-and-punctuation
+        FileAppend , % "`n`n; 其它常用符号 https://katex.org/docs/supported.html#symbols-and-punctuation`n`n", %latexCvsPath%
 
         Hotlatex("\backprime", "‵")
         Hotlatex("\prime", "′")
@@ -820,6 +900,8 @@ loadHotlatex(){
         
         ; 重音符  https://katex.org/docs/supported.html#accents
         ; https://52unicode.com/combining-diacritical-marks-zifu
+
+        FileAppend , % "`n`n; 重音符  https://katex.org/docs/supported.html#accents`n`n", %latexCvsPath%
         
         Hotlatex("\hat", "̂")  ;   R\hat[Tab]  -> R̂
         ;Hotlatex("\^", "̂")  ;   R\^[Tab]  -> R̂    有冲突，不能用
@@ -869,6 +951,7 @@ loadHotlatex(){
 
         ; Unicode数学斜体符号
         ; 字体 https://katex.org/docs/supported.html#style-color-size-and-font
+        FileAppend , % "`n`n; Unicode数学斜体符号`n`n", %latexCvsPath%
 
         Hotlatex("\mathrm", "罗马正体 \mathrm{R}")
         Hotlatex("\mathbf", "正粗体 \mathbf{R}")
@@ -899,6 +982,8 @@ loadHotlatex(){
         Hotlatex("\mathscr", " 花体 \mathscr{R}")
 
         ; \mathbb{x}  用 \mathbbx 代替
+        FileAppend , % "`n`n; \mathbb{x}  用 \mathbbx 代替`n`n", %latexCvsPath%
+
         Hotlatex("\mathbb", "黑板粗体 ℝ \mathbb{R}") ; 如果“键”在“值”中出现，表明只适用于latex助手模式. 【禁止“值”以:开头】
         Hotlatex("\mathbba", ":𝕒") ; 如果"值"以:开头，表明只适用于unicode模式. 【禁止“键”在“值”中出现】
         Hotlatex("\mathbbA", ":𝔸")
@@ -965,6 +1050,8 @@ loadHotlatex(){
         Hotlatex("\mathbb9", ":𝟡")
 
         ; \mathfrak{x}  用 \mathfrakx 代替
+        FileAppend , % "`n`n; \mathfrak{x}  用 \mathfrakx 代替`n`n", %latexCvsPath%
+
         Hotlatex("\mathfrak", "哥特体 ℜ \mathfrak{R}") 
         Hotlatex("\mathfraka", ":𝔞")
         Hotlatex("\mathfrakA", ":𝔄")
@@ -1020,6 +1107,8 @@ loadHotlatex(){
         Hotlatex("\mathfrakZ", ":ℨ")
 
         ; \mathcal{x}  用 \mathcalx 代替
+        FileAppend , % "`n`n; \mathcal{x}  用 \mathcalx 代替`n`n", %latexCvsPath%
+
         Hotlatex("\mathcal", "手写体 𝓡 \mathcal{R}") 
         Hotlatex("\mathcala", ":𝓪")
         Hotlatex("\mathcalA", ":𝓐")
@@ -1075,6 +1164,8 @@ loadHotlatex(){
         Hotlatex("\mathcalZ", ":𝓩")  
 
         ; 批注
+        FileAppend , % "`n`n; 批注`n`n", %latexCvsPath%
+
         Hotlatex("\cancel", "右斜删除符 \cancel{5}")  
         Hotlatex("\bcancel", "左斜删除符 \bcancel{5}")  
         Hotlatex("\xcancel", "叉删除符 \xcancel{ABC}")  
@@ -1085,6 +1176,8 @@ loadHotlatex(){
         Hotlatex("\phase", "角度标记 \phase{-78^\circ}")  
 
         ; 垂直布局
+        FileAppend , % "`n`n; 垂直布局`n`n", %latexCvsPath%
+
         Hotlatex("\stackrel", "上标记 \stackrel{!}{=}")  
         Hotlatex("\overset", "上标记 \overset{!}{=}")  
         Hotlatex("\underset", "下标记 \underset{!}{=}")  
@@ -1092,6 +1185,11 @@ loadHotlatex(){
 
         ; Environments
         ; https://katex.org/docs/supported.html#environments
+
+        FileAppend , % "`n`n; 一些块结构`n", %latexCvsPath%
+        FileAppend , % "`n; ##将字符串分成多个部分，每个部分都可设置成不同的“特殊模式”`n", %latexCvsPath%
+        FileAppend , % "; 比如: 盲从模式{Blind} 【默认】；原始模式{Raw}； 文本模式{Text}`n", %latexCvsPath%
+        FileAppend , % "; https://www.autoahk.com/help/autohotkey/zh-cn/docs/commands/Send.htm#Special_modes`n`n", %latexCvsPath%
 
         Hotlatex("\array", "数组 \begin{array} ..."
             ,"{Text}\begin{array}{cc} a & b \\ c & d \end{array}##{Left 25}")
@@ -1121,5 +1219,7 @@ loadHotlatex(){
             ,"{Text}\begin{alignat}{1} 10&x+&3&y=2\\ 3&x+&13&y=4 \end{alignat}##{Left 37}")
         Hotlatex("\gather", "居中对齐 begin{gather} ..."
             ,"{Text}\begin{gather} a=b \\ e=b+c \end{gather}##{Left 24}")  
+        
+
     }
 }

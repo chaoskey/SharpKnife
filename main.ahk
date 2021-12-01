@@ -10,7 +10,7 @@
 
 #SingleInstance, force
 
-FileEncoding , UTF-8
+FileEncoding , UTF-8-RAW
 
 ; 启动GDI+支持
 startupGdip()
