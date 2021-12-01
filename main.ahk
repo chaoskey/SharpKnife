@@ -1,6 +1,6 @@
 ;@Ahk2Exe-SetProductName    Tab助手
 ;@Ahk2Exe-SetProductVersion 2021.12.01
-;@Ahk2Exe-SetDescription LaTex助手
+;@Ahk2Exe-SetDescription Tab助手
 ;@Ahk2Exe-SetFileVersion    2021.12.01
 ;@Ahk2Exe-SetCopyright @2021-2025
 ;@Ahk2Exe-SetLanguage 0x0804

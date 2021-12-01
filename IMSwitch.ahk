@@ -37,6 +37,9 @@ SwitchKeyHandler(){		; Ctl+空格，并且保留原始功能
 
 ; IMSwitch默认配置
 loadIMSwitchDefault(){
+    ; 托盘提示
+    Menu, Tray,Tip , 输入法助手
+
     iniPath := A_ScriptFullPath
     if (idx := InStr(iniPath, "." , , 0) ){
         iniPath := SubStr(iniPath, 1 , idx-1) 
@@ -50,15 +53,72 @@ loadIMSwitchDefault(){
 (
 ; 中英文切换快捷键
 SwitchKey=^Space
+;
 ; 英文状态截图
 EN=%A_ScriptDir%\EN.png
 ; 中文状态截图
 CH=%A_ScriptDir%\CH.png
+;
+; key部分以HotKey开头，表示热键
+; value中##前的部分：执行的动作，
+; value中##后的部分：1表示中文时执行切换，0表示英文时执行切换，-1表示不进行中英文切换
+; 确保下面的中英文切换快捷键^{Space}和前面SwitchKey的设置一致
+; 热键: 按下$(Shift + 4), 保留原始功能
+HotKey~+4=^{Space}{bs}{Text}$##1
+; 热键: 按下Esc, 保留原始功能
+HotKey~Esc=^{Space}##1
+; 热键: 按下:(Shift + ;), 保留原始功能
+HotKey~+;=^{Space}{bs}{Text}:##1
+;
+; key部分以HotStr开头，表示热字串，要求和前面的规则一致
+; 比如： 在英文环境下严格输入ToCH，先切换到中文状态，然后发送
+; 比如： 严格输入ShowCH, 不切换中英文状态，直接发送
+;HotStr:*C:ToCH=^{Space}中文##0
+;HotStr:*C:ShowCH=中文##-1
+; 
 ), %iniPath%, ImSwitch
 
     }else{
         Hotkey, ~%switchKey%, SwitchKeyHandler
     }
+    ; 根据配置，启动热键和热字串
+    IniRead, varSect, %iniPath%, ImSwitch
+    if varSect {
+        for i_ , v_ in StrSplit(varSect, "`n"){
+            v_ := Trim(v_)
+            if (InStr(v_, "HotKey")==1) or (InStr(v_, "HotStr")==1){
+                hot_ := SubStr(v_, 1, 6)
+                v_ := SubStr(v_, 7)
+                pos_ := InStr(v_, "=")
+                key_ := Trim(SubStr(v_, 1, pos_-1))
+                value_ := Trim(SubStr(v_, pos_+1))
+                fn := Func("imHotHandler").Bind(value_)
+                if (hot_ == "HotKey"){
+                    Hotkey, %key_% , % fn 
+                } else{
+                    Hotstring(key_ , fn)
+                }              
+            }
+        }
+    }
+}
+
+; 输入法切换之热键或热字串的处理
+imHotHandler(value_){ 
+    pos_ := InStr(value_, "##", ,0)  
+    state_ := Trim(SubStr(value_, pos_+2))       
+    value_ := Trim(SubStr(value_, 1, pos_-1))
+    if (state_ ==-1){
+        Send % value_
+        return
+    }
+    imState := getImState()
+    if (imState = state_){
+        ; 确保在指定状态下动作
+        Send % value_
+        IMToolTip(not state_)
+    }
+    return
 }
 
 ; 获取当前窗口的中英文状态
@@ -99,40 +159,6 @@ getImState()
     }
    return imState
 }
-
-; Markdown中准备编辑数学公式
-; [英文$][中文￥]
-~+4::          		; 按下$(Shift + 4)
-imState := getImState()
-if (imState = 1){
-    ; 确保只在中文状态下动作
-    SendInput ^{Space}{bs}{Text}$
-    IMToolTip(0)
-}
-return
-
-; Vim中回到普通模式
-
-~Esc::         		; Esc, 并且保留原始功能
-imState := getImState()
-if (imState = 1){
-    ; 确保只在中文状态下动作
-    Send ^{Space}
-    IMToolTip(0)
-}
-return
-
-; Vim进入命令行模式 【+;就是冒号:】
-
-; [中文：][英文:]
-~+;::          		; 按下:(Shift + ;)
-imState := getImState()
-if (imState = 1){
-    ; 确保只在中文状态下动作
-    SendInput ^{Space}{bs}{Text}:
-    IMToolTip(0)
-}
-return
 
 IMToolTip(imState)
 {

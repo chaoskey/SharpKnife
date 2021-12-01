@@ -35,6 +35,39 @@ autohotkey.exe IMSwitch.ahk
 IMSwitch.exe
 ```
 
+### 配置
+
+默认情况下，程序启动后，会在程序或脚本目录下生成同名ini配置文件。 配置文件一旦生成，将以配置文件为准（可以手工修改指定）。
+
+```ini
+[ImSwitch]
+; 中英文切换快捷键
+SwitchKey=^Space
+;
+; 英文状态截图
+EN=E:\Work\GitHub\ahklib\EN.png
+; 中文状态截图
+CH=E:\Work\GitHub\ahklib\CH.png
+;
+; key部分以HotKey开头，表示热键
+; value中##前的部分：执行的动作，
+; value中##后的部分：1表示中文时执行切换，0表示英文时执行切换，-1表示不进行中英文切换
+; 确保下面的中英文切换快捷键^{Space}和前面SwitchKey的设置一致
+; 热键: 按下$(Shift + 4), 保留原始功能
+HotKey~+4=^{Space}{bs}{Text}$##1
+; 热键: 按下Esc, 保留原始功能
+HotKey~Esc=^{Space}##1
+; 热键: 按下:(Shift + ;), 保留原始功能
+HotKey~+;=^{Space}{bs}{Text}:##1
+;
+; key部分以HotStr开头，表示热字串，要求和前面的规则一致
+; 比如： 在英文环境下严格输入ToCH，先切换到中文状态，然后发送
+; 比如： 严格输入ShowCH, 不切换中英文状态，直接发送
+;HotStr:*C:ToCH=^{Space}中文##0
+;HotStr:*C:ShowCH=中文##-1
+;
+```
+
 ## 基于LaTeX的Unicode特殊字符触发
 
 > 用处1【默认, latex助手模式】: 用于纯latex输入。 
@@ -57,6 +90,19 @@ autohotkey.exe LaTeXHelper.ahk
 # 或者  下载 https://github.com/chaoskey/ahklib/releases/tag/2021.12.01
 LaTeXHelper.exe
 ```
+
+### 配置
+
+默认情况下，程序启动后，会在程序或脚本目录下生成同名ini配置文件。 配置文件一旦生成，将以配置文件为准（可以手工修改指定）。
+
+```ini
+[LaTeXs]
+; LaTeX热键触发表
+CVS=E:\Work\GitHub\ahklib\latexs.cvs
+
+```
+
+其中，latexs.cvs，如果不存在，也会自动生成，同样一旦生成将以该文件提供的数据为准（可以手工添加修改）。
 
 ### 用法 
 
