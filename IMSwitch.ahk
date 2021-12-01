@@ -46,9 +46,16 @@ loadIMSwitchDefault(){
     if (switchKey == "ERROR"){
         ; 默认用Ctrl+空格切换中英文
         Hotkey, ~^Space, SwitchKeyHandler
-        IniWrite, ^Space, %iniPath%, ImSwitch, SwitchKey
-        IniWrite, %A_ScriptDir%\EN.png, %iniPath%, ImSwitch, EN
-        IniWrite, %A_ScriptDir%\CH.png, %iniPath%, ImSwitch, CH
+        IniWrite, 
+(
+; 中英文切换快捷键
+SwitchKey=^Space
+; 英文状态截图
+EN=%A_ScriptDir%\EN.png
+; 中文状态截图
+CH=%A_ScriptDir%\CH.png
+), %iniPath%, ImSwitch
+
     }else{
         Hotkey, ~%switchKey%, SwitchKeyHandler
     }
