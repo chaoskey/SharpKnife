@@ -1,7 +1,7 @@
 ;@Ahk2Exe-SetProductName    LaTex助手
-;@Ahk2Exe-SetProductVersion 2021.11.29
+;@Ahk2Exe-SetProductVersion 2021.12.01
 ;@Ahk2Exe-SetDescription LaTex助手
-;@Ahk2Exe-SetFileVersion    2021.11.29
+;@Ahk2Exe-SetFileVersion    2021.12.01
 ;@Ahk2Exe-SetCopyright @2021-2025
 ;@Ahk2Exe-SetLanguage 0x0804
 ;@Ahk2Exe-SetOrigFilename LaTexHelper
@@ -29,7 +29,7 @@
 
 FileEncoding , UTF-8
 
-#Include %A_ScriptDir%\lib\LaTeXs.ahk
+#Include lib\LaTeXs.ahk
 
 ; 加载热LaTeX
 loadHotlatex()
@@ -289,6 +289,9 @@ MenuHandler(){    ; 菜单选择处理
 
 loadTriggerHotKey()
 {
+    ; 托盘提示
+    Menu, Tray,Tip , LaTeX助手
+
     ; 动态创建触发热键
     ; https://www.autoahk.com/help/autohotkey/zh-cn/docs/commands/Hotkey.htm
     for i_ , v_ in getTriggerFirstChar() {

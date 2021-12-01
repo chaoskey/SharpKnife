@@ -8,8 +8,8 @@
    version="1.1"
    id="svg5"
    inkscape:version="1.1 (c68e22c387, 2021-05-23)"
-   sodipodi:docname="tab.svg"
-   inkscape:export-filename="E:\Work\GitHub\ahklib\images\tab.png"
+   sodipodi:docname="im.svg"
+   inkscape:export-filename="E:\Work\GitHub\ahklib\images\im.png"
    inkscape:export-xdpi="96"
    inkscape:export-ydpi="96"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
@@ -27,14 +27,14 @@
      inkscape:document-units="mm"
      showgrid="true"
      inkscape:zoom="0.46235269"
-     inkscape:cx="887.85036"
+     inkscape:cx="639.12248"
      inkscape:cy="441.22161"
      inkscape:window-width="1366"
      inkscape:window-height="705"
      inkscape:window-x="-8"
      inkscape:window-y="-8"
      inkscape:window-maximized="1"
-     inkscape:current-layer="layer1"
+     inkscape:current-layer="layer2"
      fit-margin-top="0"
      fit-margin-left="0"
      fit-margin-right="0"
@@ -68,7 +68,7 @@
      style="display:inline"
      transform="translate(15.133769,13.201334)">
     <path
-       style="fill:#d57307;fill-opacity:1;stroke:#000000;stroke-width:0.264583px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
+       style="fill:#000080;fill-opacity:1;stroke:#000000;stroke-width:0.264583px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
        d="M -5.5208449,-8.4462973 C 0.65292499,-10.210239 11.236255,-10.21024 20.055792,-9.3282396 c 8.819538,0.8820004 15.874952,2.6458539 29.10407,1.7638521 13.229118,-0.8820017 32.631498,-4.4097045 48.506869,-5.2916265 15.875369,-0.881922 28.222099,0.881897 33.513709,7.0557153 5.2916,6.1738184 3.52775,16.7569357 7.05564,29.1042147 3.5279,12.347279 12.34716,26.458095 17.63885,42.333404 5.29169,15.875309 7.05551,33.513498 4.40958,49.38872 -2.64593,15.87522 -9.70119,29.98576 -16.75674,37.04141 -7.05554,7.05565 -14.11096,7.05564 -21.16651,7.05564 -7.05556,0 -14.11097,1e-5 -20.2847,1e-5 -6.173735,0 -11.465191,0 -16.756963,0 -5.291772,0 -10.583334,0 -17.638888,0 -7.055554,0 -15.874823,0 -25.576389,-0.88194 -9.701565,-0.88194 -20.284476,-2.64575 -26.458309,-6.17347 C 9.4721781,148.53997 7.708319,143.2484 5.9443988,134.42895 4.1804786,125.6095 2.4166278,113.26253 0.65271361,102.67899 -1.1112006,92.095445 -2.8750187,83.276355 -4.6389585,70.928878 -6.4028982,58.581401 -8.166719,42.707034 -9.9306075,32.123502 -11.694496,21.53997 -13.45835,16.248409 -14.340347,11.838625 c -0.881997,-4.4097836 -0.881997,-7.9374909 -6e-5,-11.46538249 0.881936,-3.52789161 2.645792,-7.05559821 8.8195621,-8.81953981 z"
        id="path30560"
        inkscape:path-effect="#path-effect30562"
@@ -84,14 +84,13 @@
     <text
        xml:space="preserve"
        style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:128.055px;line-height:1.25;font-family:'Comic Sans MS';-inkscape-font-specification:'Comic Sans MS, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:8;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
-       x="-7.7106075"
-       y="98.432373"
+       x="17.172972"
+       y="96.853142"
        id="text26152"
-       transform="scale(0.68991804,1.4494475)"><tspan
+       transform="scale(0.68991805,1.4494475)"><tspan
          sodipodi:role="line"
-         id="tspan26150"
-         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:128.055px;font-family:'Comic Sans MS';-inkscape-font-specification:'Comic Sans MS, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#ffffff;stroke:#ffffff;stroke-width:8;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
-         x="-7.7106075"
-         y="98.432373">Tab</tspan></text>
+         id="tspan1736"
+         x="17.172972"
+         y="96.853142">IM</tspan></text>
   </g>
 </svg>

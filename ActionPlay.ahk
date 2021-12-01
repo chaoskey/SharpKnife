@@ -24,8 +24,8 @@
 
 FileEncoding , UTF-8
 
-#Include %A_ScriptDir%\lib\Gdip_All.ahk
-#Include %A_ScriptDir%\lib\TokenGdip.ahk
+#Include lib\Gdip_All.ahk
+#Include lib\TokenGdip.ahk
 
 ; 启动GDI+支持
 startupGdip()
@@ -614,7 +614,7 @@ playVideo(file, position)
 
 
 ~F8::
-; 如果有im_switch.ahk的加持， 可确保在英文状态下执行脚本
+; 如果有IMSwitch.ahk的加持， 可确保在英文状态下执行脚本
 _getImState := "getImState"
 _setImState := "setImState"
 _IMToolTip := "IMToolTip"

@@ -2,7 +2,7 @@
 ;            GDI+令牌:  global token_gdip 
 ;-----------------------------------------------
 
-#Include %A_ScriptDir%\lib\Gdip_All.ahk
+#Include lib\Gdip_All.ahk
 
 startupGdip(){
     global token_gdip

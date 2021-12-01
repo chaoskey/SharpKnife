@@ -2,17 +2,25 @@
 
 > 效率脚本库，根据需要逐步添加
 
-## 微软输入中英文切换辅助
+## 中英文切换辅助
 
-> 微软拼音输入法中英文状态同步记录，为每一个活动过的窗口记录中英文状态， 据此进行中文切换
+> 关于当前上下文的特定输入法的内部中英文状态，现状是不存在可用的API获取方法。
+> 
+> 上一个版本，通过主动拦截记录中英文状态。缺点是有时存在记录中英文状态和实际的中英文状态不同步。
+> 
+> 最新版本，分别对中英文两种状态进行截图，然后根据屏幕搜图的方法获取当前上下文的中英文状态
+>
+> 优点是，通用性极强，适用于任意输入法内部中英文切换，也适用于两个输入法的切换（比如中文键盘和英文键盘间的切换）。
+>
+> 缺点是，第一次切换前需要截图，如果截图不正确，会提示重新截图。
 
 ### 假设 或 前置要求
 
-- 输入法采用微软拼音并且默认为英文, 配置 `Ctrl+Space` 进行中英文切换
+- 假设中英文状态，必须在屏幕上可见（因为本功能依赖屏幕搜图）
 
-- 建议本脚开机启动
+- 中英文状态的截图必须能明确区分中英文状态
 
-- 管住手，禁止鼠标点击切换中英文 【除非提示和系统显示不一样】
+- 本功能默认 `Ctrl+Space` 进行中英文切换，当然你可以通过ini配置文件修改成您需要的切换快捷键
 
 ### 启动
 
@@ -21,8 +29,10 @@
 ```powershell
 git clone https://github.com/chaoskey/ahklib.git
 
-# 需要安装AutoHotkey
-autohotkey.exe im_switch.ahk
+# 需要先安装AutoHotkey
+autohotkey.exe IMSwitch.ahk
+# 或者  下载 https://github.com/chaoskey/ahklib/releases/tag/2021.12.01
+IMSwitch.exe
 ```
 
 ## 基于LaTeX的Unicode特殊字符触发
@@ -44,8 +54,8 @@ git clone https://github.com/chaoskey/ahklib.git
 # 需要先安装AutoHotkey
 autohotkey.exe LaTeXHelper.ahk
 
-# 或者  下载 https://github.com/chaoskey/ahklib/releases/tag/2021.11.29
-直接运行：  LaTeXHelper.exe
+# 或者  下载 https://github.com/chaoskey/ahklib/releases/tag/2021.12.01
+LaTeXHelper.exe
 ```
 
 ### 用法 
