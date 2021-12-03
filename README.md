@@ -41,7 +41,6 @@ IMSwitch.exe
 
 ```ini
 [ImSwitch]
-[ImSwitch]
 ; 中英文切换快捷键
 SwitchKey=^Space
 ;
