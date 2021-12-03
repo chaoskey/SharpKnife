@@ -41,13 +41,18 @@ IMSwitch.exe
 
 ```ini
 [ImSwitch]
+[ImSwitch]
 ; 中英文切换快捷键
 SwitchKey=^Space
 ;
+; *50 表示每个像素颜色红/绿/蓝通道强度在每个方向上允许的渐变值
+; 更多设置，参考ImageSearch方法的参数ImageFile说明
+; https://www.autoahk.com/help/autohotkey/zh-cn/docs/commands/ImageSearch.htm
+;
 ; 英文状态截图
-EN=E:\Work\GitHub\ahklib\EN.png
+EN=*50 E:\Work\GitHub\ahklib\EN.png
 ; 中文状态截图
-CH=E:\Work\GitHub\ahklib\CH.png
+CH=*50 E:\Work\GitHub\ahklib\CH.png
 ;
 ; key部分以HotKey开头，表示热键
 ; value中##前的部分：执行的动作，
