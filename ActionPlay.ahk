@@ -24,7 +24,6 @@
 
 FileEncoding , UTF-8-RAW
 
-#Include lib\Gdip_All.ahk
 #Include lib\TokenGdip.ahk
 
 ; 启动GDI+支持
@@ -383,9 +382,6 @@ drawImage(file, crop, position, alpha)
     hWND := WinExist()
     ; 记录窗口句柄，插入第一个位置
     action_images.InsertAt(1, hWND)
-
-    ; 确保GDI+ API可用
-    startupGdip()
 
     ; 从图片创建位图句柄
     pBitmap := Gdip_CreateBitmapFromFile(file)

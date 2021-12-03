@@ -21,6 +21,9 @@
 
 FileEncoding , UTF-8-RAW
 
+#Include lib\TokenGdip.ahk
+; 启动GDI+支持
+startupGdip()
 ; IMSwitch默认配置
 loadIMSwitchDefault()
 return ; 自动运行段结束
@@ -29,35 +32,30 @@ return ; 自动运行段结束
 
 SwitchKeyHandler(){		; Ctl+空格，并且保留原始功能
     ; 确保状态切换后提示
-    ; 因为仅仅是提示，所以Sleep时间故意设置长点，无关紧要
-    Sleep, 100
+    Sleep, 50
     IMToolTip(getImState())
     return
 }
 
-; IMSwitch默认配置
-loadIMSwitchDefault(){
-    ; 托盘提示
-    Menu, Tray,Tip , 输入法助手
-
+writeIMSwitchIni(){
     iniPath := A_ScriptFullPath
     if (idx := InStr(iniPath, "." , , 0) ){
-        iniPath := SubStr(iniPath, 1 , idx-1) 
+        iniPath := SubStr(iniPath, 1 , idx-1)  
     }
     iniPath := iniPath ".ini"
-    IniRead, switchKey, %iniPath%, ImSwitch, SwitchKey
-    if (switchKey == "ERROR"){
-        ; 默认用Ctrl+空格切换中英文
-        Hotkey, ~^Space, SwitchKeyHandler
-        IniWrite, 
+    IniWrite, 
 (
 ; 中英文切换快捷键
 SwitchKey=^Space
 ;
+; *50 表示每个像素颜色红/绿/蓝通道强度在每个方向上允许的渐变值
+; 更多设置，参考ImageSearch方法的参数ImageFile说明
+; https://www.autoahk.com/help/autohotkey/zh-cn/docs/commands/ImageSearch.htm
+; 
 ; 英文状态截图
-EN=%A_ScriptDir%\EN.png
+EN=*50 %A_ScriptDir%\EN.png
 ; 中文状态截图
-CH=%A_ScriptDir%\CH.png
+CH=*50 %A_ScriptDir%\CH.png
 ;
 ; key部分以HotKey开头，表示热键
 ; value中##前的部分：执行的动作，
@@ -78,6 +76,23 @@ HotKey~+;=^{Space}{bs}{Text}:##1
 ; 
 ), %iniPath%, ImSwitch
 
+}
+
+; IMSwitch默认配置
+loadIMSwitchDefault(){
+    ; 托盘提示
+    Menu, Tray,Tip , 输入法助手
+
+    iniPath := A_ScriptFullPath
+    if (idx := InStr(iniPath, "." , , 0) ){
+        iniPath := SubStr(iniPath, 1 , idx-1)  
+    }
+    iniPath := iniPath ".ini"
+    IniRead, switchKey, %iniPath%, ImSwitch, SwitchKey
+    if (switchKey == "ERROR"){
+        ; 默认用Ctrl+空格切换中英文
+        Hotkey, ~^Space, SwitchKeyHandler
+        writeIMSwitchIni()
     }else{
         Hotkey, ~%switchKey%, SwitchKeyHandler
     }
@@ -125,37 +140,122 @@ imHotHandler(value_){
 ; 确保输入法的中英文状态在屏幕上显示可见
 getImState()
 {
+    global imStateSearchRegion ; 中英文状态搜图区域
     global imStateEN
     global imStateCH
-    if (not imStateEN) or (not imStateCH) {
-        iniPath := A_ScriptFullPath
-        if (idx := InStr(iniPath, "." , , 0) ){
-            iniPath := SubStr(iniPath, 1 , idx-1) 
-        }
-        iniPath := iniPath ".ini"
-        IniRead, imStateEN, %iniPath%, ImSwitch, EN
-        IniRead, imStateCH, %iniPath%, ImSwitch, CH
-        if (imStateEN == "ERROR") or (imStateCH == "ERROR"){
-            MsgBox 中英文状态截图不正确！截图配置在同名ini文件中。`n确保对应的图片（比如:CH.png和EN.png）存在且正确!`n`n点击“确认”后，程序将退出，请准备好后重新手工启动。
-            ExitApp
-        }
-    }
 
+    ; 如果成功获取状态，跳出循环
     imState := -1
-    CoordMode Pixel
-    ImageSearch, X, Y, 0, 0, A_ScreenWidth, A_ScreenHeight, %imStateEN%
-    if (ErrorLevel == 0) {
-        imState := 0
-    } else{
-        ImageSearch, X, Y, 0, 0, A_ScreenWidth, A_ScreenHeight, %imStateCH%
-        if (ErrorLevel == 0){
-            imState := 1
+    Loop{
+
+        if (not imStateEN) or (not imStateCH) {
+            ; 获取截图路径（可能含额外选项）
+            iniPath := A_ScriptFullPath
+            if (idx := InStr(iniPath, "." , , 0) ){
+                iniPath := SubStr(iniPath, 1 , idx-1) 
+            }
+            iniPath := iniPath ".ini"            
+        
+            IniRead, imStateEN, %iniPath%, ImSwitch, EN
+            IniRead, imStateCH, %iniPath%, ImSwitch, CH
+            if (imStateEN == "ERROR") or (imStateCH == "ERROR"){
+                writeIMSwitchIni()
+                ; 英文状态截图
+                imStateEN := "*50 " A_ScriptDir "\EN.png"
+                ; 中文状态截图
+                imStateCH := "*50 " A_ScriptDir "\CH.png"
+            }
         }
+
+        ; 为了加快搜图速度，尽可能在特定小区域中搜索
+        if (not imStateSearchRegion){
+            ; 默认全屏幕搜索，也就是说第一次获取中英文状态会稍微慢些
+            imStateSearchRegion := [0,0,A_ScreenWidth, A_ScreenHeight]
+        }
+
+        ; 搜图
+        CoordMode Pixel
+        ; 0, 0, A_ScreenWidth, A_ScreenHeight
+        ImageSearch, X, Y, % imStateSearchRegion[1]
+                    , % imStateSearchRegion[2]
+                    , % imStateSearchRegion[3]
+                    , % imStateSearchRegion[4], %imStateEN%
+        if (ErrorLevel == 0) {
+            imState := 0
+        } else{
+            ImageSearch, X, Y
+                    , % imStateSearchRegion[1]
+                    , % imStateSearchRegion[2]
+                    , % imStateSearchRegion[3]
+                    , % imStateSearchRegion[4], %imStateCH%
+            if (ErrorLevel == 0){
+                imState := 1
+            }
+        }
+
+        ; imState == -1 的情况:  ErrorLevel = 2 无法进行搜索 或 ErrorLevel = 1 在屏幕上找不到图标
+        if (imState == -1){
+            ; 如果搜图不成功，说明截图配置有问题
+            MsgBox, 
+(
+屏幕上的中英文状态可能被遮挡，不要隐藏任务栏
+或者，中英文状态截图不正确，先截图然后在同名ini文件中配置。
+确保对应的图片（比如:CH.png和EN.png）存在且正确!`n
+如果满足这三点要求，可点“确认”，否则会反复弹出。
+)
+            imStateEN := False
+            imStateCH := False
+            imStateSearchRegion := False
+            Continue
+        }
+
+        ; 搜图成功（意味着获取状态成功）
+        break
     }
-    ; imState == -1 的情况:  ErrorLevel = 2 无法进行搜索 或 ErrorLevel = 1 在屏幕上找不到图标
-    if (imState == -1){
-        MsgBox 中英文状态截图不正确！截图配置在同名ini文件中。`n确保对应的图片（比如:CH.png和EN.png）存在且正确!`n`n点击“确认”后，程序将退出，请准备好后重新手工启动。
-        ExitApp
+    
+    ; 搜图成功, 可尽可能缩小搜索范围，加快以后的搜图速度
+    ; 可合理假设中英文状态不可能出现屏幕左上角
+    if (imStateSearchRegion[1]==0) and (imStateSearchRegion[2]==0){
+        ; 定位文件路径起始位置（注意:全路径中可能会有空格）
+        idx_ :=  InStr(imStateEN, "\")
+        if (idx_ == 0){
+            idx_ :=  InStr(imStateEN, "/")
+        }
+        if (idx_ > 0){
+            tmp_ := SubStr(imStateEN, 1 , idx_)
+            idx1_ := InStr(tmp_, A_Space , , 0)
+            idx2_ := InStr(tmp_, A_Tab , , 0)
+            idx_ := Max(1, idx1_, idx2_)
+        }
+        ; 从图片创建位图句柄
+        pBitmap := Gdip_CreateBitmapFromFile(Trim(SubStr(imStateEN , idx_)))
+        ; 获取位图的长宽
+        Width := Gdip_GetImageWidth(pBitmap)
+        Height := Gdip_GetImageHeight(pBitmap)
+        ; 删除位图GID对象（pBitmap）
+        Gdip_DisposeImage(pBitmap)
+
+        idx_ :=  InStr(imStateCH, "\")
+        if (idx_ == 0){
+            idx_ :=  InStr(imStateCH, "/")
+        }
+        if (idx_ > 0){
+            tmp_ := SubStr(imStateCH, 1 , idx_)
+            idx1_ := InStr(tmp_, A_Space , , 0)
+            idx2_ := InStr(tmp_, A_Tab , , 0)
+            idx_ := Max(1, idx1_, idx2_)
+        }
+        pBitmap := Gdip_CreateBitmapFromFile(Trim(SubStr(imStateCH , idx)))
+        Width := Max(Width , Gdip_GetImageWidth(pBitmap))
+        Height := Max(Height , Gdip_GetImageHeight(pBitmap))
+        Gdip_DisposeImage(pBitmap)
+
+        imStateSearchRegion := [X, Y, X + Width, Y + Height]
+        ; 下面是容错性处理: 将搜索区域扩大到中英文状态区域的2倍
+        imStateSearchRegion := [Max(0,imStateSearchRegion[1]-(Width//2))
+                                , Max(0,imStateSearchRegion[2]-(Height//2))
+                                , Min(A_ScreenWidth,imStateSearchRegion[3]+(Width//2))
+                                , Min(A_ScreenHeight,imStateSearchRegion[4]+(Height//2))]
     }
    return imState
 }
