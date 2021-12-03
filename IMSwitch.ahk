@@ -62,18 +62,13 @@ CH=*50 %A_ScriptDir%\CH.png
 ; value中##前的部分：执行的动作，
 ; value中##后的部分：1表示中文时执行切换，0表示英文时执行切换，-1表示不进行中英文切换
 ; 确保下面的中英文切换快捷键^{Space}和前面SwitchKey的设置一致
-; 热键: 按下$(Shift + 4), 保留原始功能
 HotKey~+4=^{Space}{bs}{Text}$##1
-; 热键: 按下Esc, 保留原始功能
 HotKey~Esc=^{Space}##1
-; 热键: 按下:(Shift + ;), 保留原始功能
 HotKey~+;=^{Space}{bs}{Text}:##1
 ;
 ; key部分以HotStr开头，表示热字串，要求和前面的规则一致
-; 比如： 在英文环境下严格输入ToCH，先切换到中文状态，然后发送
-; 比如： 严格输入ShowCH, 不切换中英文状态，直接发送
-;HotStr:*C:ToCH=^{Space}中文##0
-;HotStr:*C:ShowCH=中文##-1
+HotStr:*?:;zh=^{Space}##0
+HotStr:*?:;en=^{Space}##1
 ; 
 ), %iniPath%, ImSwitch
 
