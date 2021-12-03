@@ -31,7 +31,7 @@ git clone https://github.com/chaoskey/ahklib.git
 
 # 需要先安装AutoHotkey
 autohotkey.exe IMSwitch.ahk
-# 或者  下载 https://github.com/chaoskey/ahklib/releases/tag/2021.12.01
+# 或者  下载 https://github.com/chaoskey/ahklib/releases
 IMSwitch.exe
 ```
 
@@ -91,7 +91,7 @@ git clone https://github.com/chaoskey/ahklib.git
 # 需要先安装AutoHotkey
 autohotkey.exe LaTeXHelper.ahk
 
-# 或者  下载 https://github.com/chaoskey/ahklib/releases/tag/2021.12.01
+# 或者  下载 https://github.com/chaoskey/ahklib/releases
 LaTeXHelper.exe
 ```
 
