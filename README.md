@@ -224,3 +224,13 @@ latex助手模式: 如果输入正确的或完全不正确，没有任何反应�
 - `Ctrl + c[a|s|d|f]*c  = Ctrl + cc`
 
 - `Ctrl + v[a|s|d|f]*v  = Ctrl + vv`
+
+### 启动
+
+> 建议配置成开机启动
+
+```powershell
+git clone https://github.com/chaoskey/ahklib.git
+# 需要先安装AutoHotkey
+autohotkey.exe CtrlRich.ahk
+```
