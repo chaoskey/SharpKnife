@@ -20,6 +20,8 @@ loadIMSwitchDefault()
 loadHotlatex()
 ; 创建触发热键
 loadTriggerHotKey()
+; 启动“Ctrl+命令”死循环
+startCtrlCmdLoop()
 return ; 自动运行段结束
 
 ;---------------------------------------------------
@@ -31,6 +33,11 @@ return ; 自动运行段结束
 ; Latex对应的Unicode （LaTeXHelper）
 ; ----------------------------------------------
 #include LaTeXHelper.ahk
+
+; -----------------------------------------------
+; Ctrl功能增强（CtrlRich）
+;------------------------------------------------
+#include CtrlRich.ahk
 
 ; -----------------------------------------------
 ; 动作播放（完善中...）

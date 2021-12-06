@@ -189,3 +189,38 @@ latex助手模式: 如果输入正确的或完全不正确，没有任何反应�
 
 ![](images/ex2.png)
 
+## Ctrl功能增强
+
+首先，保证系统原生Ctrl功能不变（Ctrl未松开执行的命令）
+
+- 【系统复制】`Ctrl + c`
+
+- 【系统粘贴】`Ctrl + v`
+
+- 【系统剪切】`Ctrl + x`
+
+其次，新增截图的复制粘贴功能（Ctrl未松开执行的命令）
+
+- 【截图复制】`Ctrl + cc`    鼠标选择屏幕上任何矩形区域（先Ctrl+cc，后选择）
+
+- 【图片粘贴】`Ctrl + vv`    鼠标选择粘贴屏幕任意位置，也可以将复制文本作为图片粘贴  （先Ctrl+cc，后选择）
+
+最后，增加 Clipboard浏览管理（Ctrl未松开执行的命令）
+
+- 【下一个clip浏览】  `Ctrl + vs`
+
+- 【上一个clip浏览】  `Ctrl + vf`
+
+- 【删除当前clip】       `Ctrl + vd`
+
+- 【删除全部】           `Ctrl + va`
+
+组合命令（Ctrl松开）
+
+- `Ctrl + c[a|s|d|f]*  = Ctrl + c`      
+
+- `Ctrl + v[a|s|d|f]*  = Ctrl + v`
+
+- `Ctrl + c[a|s|d|f]*c  = Ctrl + cc`
+
+- `Ctrl + v[a|s|d|f]*v  = Ctrl + vv`

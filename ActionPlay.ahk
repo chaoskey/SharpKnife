@@ -25,6 +25,7 @@
 FileEncoding , UTF-8-RAW
 
 #Include lib\TokenGdip.ahk
+#Include lib\util.ahk
 
 ; 启动GDI+支持
 startupGdip()
@@ -369,81 +370,13 @@ drawImage(file, crop, position, alpha)
     if (not action_images) {
         action_images := []
     }
-
-    ; http://yfvb.com/help/gdiplus/index.htm
-    ; https://www.autoahk.com/archives/34920
-
-    Gui, New ; 必须开新窗口，才能开新图
-    ; E0x80000  WS_EX_LAYERED   分层窗口 https://docs.microsoft.com/en-us/windows/win32/winmsg/extended-window-styles
-    ; 创建一个分层窗口（+E0x80000 ：UpdateLayeredWindow必须用这个才能工作！）它总是在顶部（+AlwaysOnTop），没有任务栏条目或标题
-    Gui, -Caption +E0x80000 +LastFound +AlwaysOnTop +ToolWindow +OwnDialogs
-    Gui, Show
-    ; 获取窗口句柄
-    hWND := WinExist()
-    ; 记录窗口句柄，插入第一个位置
-    action_images.InsertAt(1, hWND)
-
     ; 从图片创建位图句柄
     pBitmap := Gdip_CreateBitmapFromFile(file)
-    ; 获取位图的长宽
-    Width := Gdip_GetImageWidth(pBitmap)
-    Height := Gdip_GetImageHeight(pBitmap)
-    sx := 0, sy := 0, sw := Width, sh := Height ; 位图指定区域的位置尺寸（相对位图），默认位图
-    dx := 0, dy := 0, dw := Width, dh := Height ; 画布指定区域的位置尺寸（相对画布），默认画布
-    if crop {
-        crops := StrSplit(crop, ",")
-        if (crops.Length() == 4) {
-            sx := crops[1], sy := crops[2], sw := crops[3], sh := crops[4]
-            dw := crops[3], dh := crops[4]
-        }
-    }
-
-    ; DC :  设备上下文
-    ; GDI : 图形设备接口
-    ; DIB : 设备无关位图
-
-    ; 获取DC（hdc）
-    hdc := CreateCompatibleDC()
-    ; 创建GDI对象（hbm）
-    ; 这里具体为DIB，并设置画布尺寸
-    hbm := CreateDIBSection(dw, dh)
-    ; 将GDI对象（hbm）写入DC（hdc）
-    ; 返回hdc老的对象obm
-    obm := SelectObject(hdc, hbm)
-    ; 从DC（hdc）创建画布（G）
-    G := Gdip_GraphicsFromHDC(hdc)
-
-    ; 设置图像对象G的插值模式。插值模式确定当图像缩放或旋转时使用的算法。
-    ; 7:  高品质双三次
-    Gdip_SetInterpolationMode(G, 7)
-    ; 将位图GID对象（pBitmap）的指定部分绘制到画布（G）
-    Gdip_DrawImage(G, pBitmap, dx, dy, dw, dh, sx, sy, sw, sh)
+    hWND := pasteImageToScreen(pBitmap, crop, position, alpha)
+    ; 记录窗口句柄，插入第一个位置
+    action_images.InsertAt(1, hWND)
     ; 删除位图GID对象（pBitmap）
     Gdip_DisposeImage(pBitmap) 
-    ; 将图像对象G的世界变换矩阵设置为单位矩阵。
-    ; 如果图像对象的世界变换矩阵是单位矩阵，则不会将世界变换应用于由图像对象绘制的项目。
-    Gdip_ResetWorldTransform(G)
-    ; ---------------------------
-    ; 使用GDI位图的设备上下文句柄hdc更新分层窗口hwnd1 
-    xpos := (A_ScreenWidth-dw)//2
-    ypos := (A_ScreenHeight-dh)//2
-    if position{
-        pos_ := StrSplit(position, ",")
-        if (pos_.Length() == 2) {
-            xpos := pos_[1]
-            ypos := pos_[2]
-        }
-    } 
-    UpdateLayeredWindow(hwnd, hdc, xpos, ypos, dw, dh, alpha)
-
-    ; 删除画布（G）
-    Gdip_DeleteGraphics(G)
-    ; 恢复DC（hdc）原来的GDI对象（obm）
-    SelectObject(hdc, obm)
-    ; 释放删除创建的GDI对象（hbm）
-    DeleteObject(hbm)
-    ; 释放删除DC（hdc）
-    DeleteDC(hdc)
 }
 
 ; 执行声音子命令
