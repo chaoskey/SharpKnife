@@ -8,7 +8,7 @@
 >
 > 参考Katex:  https://katex.org/docs/supported.html
 >
-> 本工具是[SharpKnife(利刃)](..\README.md)效率工具库的成员
+> 本工具是[SharpKnife(利刃)](../README.md)效率工具库的成员
 
 ## 启动
 
@@ -30,7 +30,7 @@ LaTeXHelper.exe
 ```ini
 [LaTeXs]
 ; LaTeX热键触发表
-CVS=E:\Work\GitHub\ahklib\latexs.cvs
+CVS=E:\Work\GitHub\SharpKnife\latexs.cvs
 
 ```
 
@@ -50,7 +50,7 @@ CVS=E:\Work\GitHub\ahklib\latexs.cvs
 
 6）注意: 启动后的第一次触发，需要加载数据，可能有1s的延迟。
 
-![](images/ex1.png)
+![](../images/ex1.png)
 
 ## 范例
 
@@ -118,4 +118,4 @@ latex助手模式: 如果输入正确的或完全不正确，没有任何反应�
 
 如果您遇到了编码问题，请看下图的解决方案。
 
-![](images/ex2.png)
+![](../images/ex2.png)

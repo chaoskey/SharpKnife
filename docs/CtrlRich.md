@@ -1,6 +1,6 @@
 ## Ctrl功能增强
 
-> 本工具是[SharpKnife(利刃)](..\README.md)效率工具库的成员
+> 本工具是[SharpKnife(利刃)](../README.md)效率工具库的成员
 
 保证系统原生Ctrl功能不变（Ctrl松开执行的命令）
 

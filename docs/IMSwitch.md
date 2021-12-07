@@ -10,9 +10,9 @@
 >
 > 缺点是，第一次切换前需要截图，如果截图不正确，会提示重新截图。
 >
-> 本工具是[SharpKnife(利刃)](..\README.md)效率工具库的成员
+> 本工具是[SharpKnife(利刃)](../README.md)效率工具库的成员
 
-![](images/ex3.png)
+![](../images/ex3.png)
 
 ## 假设 或 前置要求
 
@@ -49,9 +49,9 @@ SwitchKey=^Space
 ; https://www.autoahk.com/help/autohotkey/zh-cn/docs/commands/ImageSearch.htm
 ; 
 ; 英文状态截图
-EN=*50 E:\Work\GitHub\ahklib\EN.png
+EN=*50 E:\Work\GitHub\SharpKnife\EN.png
 ; 中文状态截图
-CH=*50 E:\Work\GitHub\ahklib\CH.png
+CH=*50 E:\Work\GitHub\SharpKnife\CH.png
 ;
 ; key部分以HotKey开头，表示热键
 ; value中##前的部分：执行的动作，
