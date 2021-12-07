@@ -6,11 +6,11 @@
 
 ## 已集成功能
 
-- [输入法助手](docs\IMSwitch.md)（中英文状态切换辅助）
+- [输入法助手](docs/IMSwitch.md)（中英文状态切换辅助）
 
-- [LaTeX助手](docs\LaTeXHelper.md)（`\[命令|搜索]Tab`）
+- [LaTeX助手](docs/LaTeXHelper.md)（`\[命令|搜索]Tab`）
 
-- [Ctrl功能增强](docs\CtrlRich.md)（保留系统功能+剪切板浏览管理+截贴图及其管理）
+- [Ctrl功能增强](docs/CtrlRich.md)（保留系统功能+剪切板浏览管理+截贴图及其管理）
 
 - 动作播放（不完善打磨中...）
 
