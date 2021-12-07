@@ -20,12 +20,18 @@ return ; 自动运行段结束
         鼠标选择粘贴屏幕任意位置，也可以将复制文本作为图片粘贴  （先Ctrl+cc，后选择）
 
 Clipboard浏览管理（Ctrl未松开执行的命令）
-    【下一个clip浏览】  Ctrl + vs
-    【上一个clip浏览】  Ctrl + vf
-    【删除当前clip】       Ctrl + vd
-    【删除全部】           Ctrl + va
+    【下一个clip浏览】  Ctrl + vs(x)    如果以x结尾，则表示松开后也不执行（下同）
+    【上一个clip浏览】  Ctrl + vf(x)
+    【删除当前clip】       Ctrl + vd(x)
+    【删除全部】           Ctrl + va(x)
 
-组合命令（Ctrl松开）
+贴图管理（Ctrl未松开执行的命令）
+    【下一个贴图】  Ctrl + vvs(x)
+    【上一个贴图】  Ctrl + vvf(x)
+    【删除当前贴图】   Ctrl + vvd(x)
+    【删除全部贴图】   Ctrl + vva(x)
+
+组合命令（Ctrl松开后）
     Ctrl + c[a|s|d|f]*  = Ctrl + c      
     Ctrl + v[a|s|d|f]*  = Ctrl + v
     Ctrl + c[a|s|d|f]*c  = Ctrl + cc
@@ -57,9 +63,14 @@ CtrlHandler(){
 */
 startCtrlCmdLoop(){
     global ctrlCmd := "" ; Ctrl+命令
+    global activepaste := 0
+    global screenPastes := [] ; 用于临时存储屏幕贴图的句柄列表
+    global activeclip := 0
 
     ; 初始索引
     indexClip()
+    ; 恢复上次运行时Clipboard
+    readClip()
 
     working := False
     loop{
@@ -81,6 +92,7 @@ startCtrlCmdLoop(){
             ; 工作完成，状态复原
             ctrlCmd := ""
             working := False
+            activepaste := 0
         }
     }
 }
@@ -92,9 +104,8 @@ execCtrlDownCmd(){
     global ctrlCmd
     global cliparray
     global activeclip
-    if (not activeclip) {
-        activeclip := 1
-    }
+    global activepaste
+    global screenPastes ; 用于临时存储屏幕贴图的句柄列表
 
     if (ctrlCmd = "vs"){
         ; 复原
@@ -118,16 +129,48 @@ execCtrlDownCmd(){
         ctrlCmd := "v"
         ; 删除当前索引位置的clip
         deleteClipAll()
+    }else if (ctrlCmd = "vvs"){
+        ctrlCmd := "vv"
+        if (screenPastes.Length() > 1){
+            activepaste := activepaste + 1
+            if (activepaste > screenPastes.Length()){
+                activepaste := 1
+            }
+            hWND := screenPastes[activepaste]
+            fn := Func("RemoveToolTipFlash").Bind(hWND)
+            SetTimer, % fn , -1
+        }
+    }else if (ctrlCmd = "vvf"){
+        ctrlCmd := "vv"
+        if (screenPastes.Length() > 1){
+            activepaste := activepaste - 1
+            if (activepaste < 1){
+                activepaste := screenPastes.Length()
+            }
+            hWND := screenPastes[activepaste]
+            fn := Func("RemoveToolTipFlash").Bind(hWND)
+            SetTimer, % fn , -1
+        }
+    }else if (ctrlCmd = "vvd"){
+        ctrlCmd := "vv"
+        hWND := screenPastes[activepaste]
+        deletScreenPaste(hWND)
+    }else if (ctrlCmd = "vva"){
+        ctrlCmd := "vv"
+        clearScreenPastes()
     }
+
 }
 
 /*  
-    Ctrl+命令 （Ctrl松开） 
+    Ctrl+命令 （Ctrl松开）
+ 
 */
 execCtrlDownUPCmd(){
     global ctrlCmd
     global activeclip
     global cliparray
+    global activepaste
 
     if (ctrlCmd = "cc"){
         ; Ctrl+cc 截图复制（会出现跟随鼠标的坐标提示，鼠标左键“按下-移动-松开”完成截图复制）
@@ -145,7 +188,7 @@ execCtrlDownUPCmd(){
         ; 保证拦截的“Ctrl+单字符命令”的系统原生功能不变
         Send, ^%ctrlCmd%
         if (ctrlCmd = "c")  or (ctrlCmd = "x") {
-            ClipWait  ; 等待剪贴板中出现文本.
+            ClipWait, , 1  ; 等待剪贴板中出现数据.
             clip2 := ClipboardAll
             IF clip1 <> %clip2%
             {
@@ -157,6 +200,7 @@ execCtrlDownUPCmd(){
     }
     ; 复位
     activeclip := 0
+    activepaste := 0
 
     ; 其它的情况无动作
 }
@@ -203,8 +247,13 @@ showClip(){
 
     if (activeclip > 0) {
         ; 将当前clip读入到Clipboard
-        readClip()
-        toolTipClip(Clipboard)
+        readClip() 
+        pBitmap := Gdip_CreateBitmapFromClipboard()
+        if (pBitmap < 0) {
+            toolTipClip(Clipboard)
+        }else{
+            toolTipImage(pBitmap)
+        }
     }
 }
 
@@ -319,11 +368,42 @@ indexClip(){
 */
 toolTipClip(tooltip_){
     ToolTip, %tooltip_%
-    SetTimer,RemoveToolTipClip,900
+    SetTimer,RemoveToolTipClip,-900
 }
 RemoveToolTipClip:
 ToolTip
 return
+
+/*
+    （图片）clip浏览提示
+*/
+toolTipImage(pBitmap){
+    global _hWND_
+    ; 贴图
+    CoordMode, Mouse, Screen
+    MouseGetPos, X, Y
+    scale := "h" A_ScreenHeight*0.2
+    hWND := pasteImageToScreen(pBitmap, , X "," Y, , scale)
+    Gdip_DisposeImage(pBitmap)
+    fn := Func("RemoveToolTipImage").Bind(hWND)
+    SetTimer, % fn , -900
+}
+RemoveToolTipImage(_hWND_){
+    Gui, %_hWND_%:Destroy
+}
+
+/*
+    桌面贴图闪动提示
+*/
+RemoveToolTipFlash(_hWND_){
+    Loop 3
+    {
+        Gui, %_hWND_%:Hide
+        Sleep 300
+        Gui, %_hWND_%:Show
+        Sleep 300
+    }
+}
 
 /*
     截图复制
@@ -345,9 +425,6 @@ screenShot(){
 */
 screenPaste(){
     global screenPastes ; 用于临时存储屏幕贴图的句柄列表
-    if (not screenPastes){
-        screenPastes := []
-    }
 
     ; 从Clipboard获取位图
     pBitmap := Gdip_CreateBitmapFromClipboard()
@@ -382,6 +459,7 @@ screenPaste(){
 */
 clearScreenPastes(){
     global screenPastes
+    global activepaste := 0
 
     if (not (not screenPastes)){
         for idx_, value_ in screenPastes {
@@ -396,6 +474,7 @@ clearScreenPastes(){
 */
 deletScreenPaste(hWND){
     global screenPastes
+    global activepaste
     if (not (not screenPastes)){
         for idx_, value_ in screenPastes {
             if (value_ == hWND){
@@ -405,7 +484,11 @@ deletScreenPaste(hWND){
             }
         }
     }
-    screenPastes := []
+    if (screenPaste.Length()==0){
+        activepaste := 0
+    }else if (activepaste > screenPaste.Length()){
+        activepaste := 1
+    }
 }
 
 ; 选择保存文件

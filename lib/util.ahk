@@ -93,8 +93,10 @@ SelectRegionFromScreen(button_){
 需要GDI+的支持
 #Include lib\TokenGdip.ahk
 startupGdip()
+
+scale 可能是 1(缩放比) w100（固定宽） h100（固定高）
 */
-pasteImageToScreen(pBitmap, crop := False, position := False, alpha := 255){
+pasteImageToScreen(pBitmap, crop := False, position := False, alpha := 255, scale := 1){
     ; http://yfvb.com/help/gdiplus/index.htm
     ; https://www.autoahk.com/archives/34920
 
@@ -118,6 +120,14 @@ pasteImageToScreen(pBitmap, crop := False, position := False, alpha := 255){
             dw := crops[3], dh := crops[4]
         }
     }
+
+    if (SubStr(scale, 1 , 1) = "w"){
+        scale := SubStr(scale, 2)/dw
+    }else if (SubStr(scale, 1 , 1) = "h"){
+        scale := SubStr(scale, 2)/dh
+    }
+    dw := dw*scale
+    dh := dh*scale
 
     ; DC :  设备上下文
     ; GDI : 图形设备接口
