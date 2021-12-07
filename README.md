@@ -1,4 +1,4 @@
-# SharpKnife(利刃) - 基于AutoHotkey的效率效率工具
+# SharpKnife(利刃) - 基于AutoHotkey的效率工具
 
 > 计划将我常用效率工具全部集成到`SharpKnife`(利刃)这个工具中, 根据需要逐步添加。
 > 
@@ -6,11 +6,11 @@
 
 ## 已集成功能
 
-- 1. [输入法助手](docs\IMSwitch.md)（中英文状态切换辅助）
+- [输入法助手](docs\IMSwitch.md)（中英文状态切换辅助）
 
-- 2. [LaTeX助手](docs\LaTeXHelper.md)（`\[命令|搜索]Tab`）
+- [LaTeX助手](docs\LaTeXHelper.md)（`\[命令|搜索]Tab`）
 
-- 3. [Ctrl功能增强](docs\CtrlRich.md)（保留系统功能+剪切板浏览管理+截贴图及其管理）
+- [Ctrl功能增强](docs\CtrlRich.md)（保留系统功能+剪切板浏览管理+截贴图及其管理）
 
 - 动作播放（不完善打磨中...）
 
