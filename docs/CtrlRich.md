@@ -2,6 +2,8 @@
 
 > 本工具是[SharpKnife(利刃)](../README.md)效率工具库的成员
 
+![](../images/CtrlRich.jpg)
+
 保证系统原生Ctrl功能不变（Ctrl松开执行的命令）
 
 - 【系统复制】`Ctrl + c`
