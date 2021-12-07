@@ -7,6 +7,7 @@
 ;@Ahk2Exe-SetOrigFilename IMSwitch
 ;@Ahk2Exe-SetLegalTrademarks chaoskey
 ;@Ahk2Exe-SetCompanyName chaoskey
+;@Ahk2Exe-SetMainIcon images\im.ico
 
 ; -----------------------------------------------
 ; 中英文切换辅助
@@ -23,6 +24,14 @@
 FileEncoding , UTF-8-RAW
 
 #Include lib\TokenGdip.ahk
+
+; 托盘提示
+Menu, Tray,Tip , 输入法助手
+if FileExist("images\im.ico"){
+    Menu, Tray, Icon, images\im.ico
+}
+
+
 ; 启动GDI+支持
 startupGdip()
 ; IMSwitch默认配置
@@ -76,9 +85,6 @@ HotStr:*?:;en=^{Space}##1
 
 ; IMSwitch默认配置
 loadIMSwitchDefault(){
-    ; 托盘提示
-    Menu, Tray,Tip , 输入法助手
-
     iniPath := A_ScriptFullPath
     if (idx := InStr(iniPath, "." , , 0) ){
         iniPath := SubStr(iniPath, 1 , idx-1)  

@@ -7,6 +7,7 @@
 ;@Ahk2Exe-SetOrigFilename LaTexHelper
 ;@Ahk2Exe-SetLegalTrademarks chaoskey
 ;@Ahk2Exe-SetCompanyName chaoskey
+;@Ahk2Exe-SetMainIcon images\tab.ico
 
 ; ----------------------------------------------
 ; 参考Katex，尽可能使用latex触发出对应的unicode字符
@@ -30,6 +31,12 @@
 FileEncoding , UTF-8-RAW
 
 #Include lib\LaTeXs.ahk
+
+; 托盘提示
+Menu, Tray,Tip , LaTeX助手
+if FileExist("images\tab.ico"){
+    Menu, Tray, Icon, images\tab.ico
+}
 
 ; 加载热LaTeX
 loadHotlatex()
@@ -291,9 +298,6 @@ MenuHandler(){    ; 菜单选择处理
 
 loadTriggerHotKey()
 {
-    ; 托盘提示
-    Menu, Tray,Tip , LaTeX助手
-
     ; 动态创建触发热键
     ; https://www.autoahk.com/help/autohotkey/zh-cn/docs/commands/Hotkey.htm
     for i_ , v_ in getTriggerFirstChar() {
