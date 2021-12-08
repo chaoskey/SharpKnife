@@ -214,8 +214,9 @@ ShowSuggestionsGui(_suggList_, _actionFun_, maxSize_ := "200,20"){
     GuiControl,, suggMatchedID, `n%_suggList_%
     GuiControl, Choose, suggMatchedID, 1
     GuiControl, Move, suggMatchedID, w%maxWidth% h%maxHeight% ;设置控件宽高
-    posX := (A_CaretX != "" ? A_CaretX : 0) - 8
-    posY := (A_CaretY != "" ? A_CaretY : 0) + 10
+    CoordMode, Caret, Screen
+    posX := (A_CaretX != "" ? A_CaretX : 0) 
+    posY := (A_CaretY != "" ? A_CaretY : 0) + 20
     if (posX + maxWidth > A_ScreenWidth) {
         posX := posX - maxWidth
     }
