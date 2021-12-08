@@ -31,6 +31,7 @@
 FileEncoding , UTF-8-RAW
 
 #Include lib\LaTeXs.ahk
+#Include lib\util.ahk
 
 ; 托盘提示
 Menu, Tray,Tip , LaTeX助手
@@ -254,16 +255,23 @@ HotlatexHandler()
     ; 不唯一匹配（肯定是不完全匹配，需要弹出菜单，通过选择进行替换）
     if (matches.Length() > 1)
     {
-        ; 弹出菜单
+        Send, {bs %n%}
+        Sleep 30 ; 延迟30毫秒，确保弹出提示窗口前退格完成（似乎没有同步发送的API，只能这样）
+        ; 准备列表数据，并计算提示窗口的长宽
+        maxWidth := 100
+        maxHeight := Min(Max(Ceil(20*matches.Length()),40),200)
+        suggList := ""
         for index, value in matches
         {
             ; 通过添加后缀来表示热LaTeX索引,  Unicode剔除额外标记“:”
             itemName := getLaTeXHot(value) "=" LTrim(getUnicode(value), ":")
-            Menu, HotMenu, Add, %itemName%, MenuHandler
+            maxWidth := Max(Ceil(10*StrLen(itemName)),maxWidth)
+            suggList := suggList itemName "`n"
         }
-        Send, {bs %n%}
-        Sleep 30 ; 延迟30毫秒，确保弹出窗口前退格完成（似乎没有同步发送的API，只能这样）
-        Menu, HotMenu, Show
+        maxWidth := Min(maxWidth,500)
+        maxWH := maxWidth "," maxHeight
+        ; 弹出提示窗口
+        ShowSuggestionsGui(suggList, "SelectHandler", maxWH)
         return
     }
 
@@ -271,12 +279,13 @@ HotlatexHandler()
     Send, {bs}
 }
 
-MenuHandler(){    ; 菜单选择处理
+SelectHandler(index){    ; 菜单选择处理
+    ; index 提示列表选择的索引
     global matches
     global unicodeMode
 
     ; 获取对应菜单项相对热latex数组的索引
-    index := matches[A_ThisMenuItemPos]
+    index := matches[index]
     ; 热LaTeX LaTeX块 Unicode
     latex := getLaTeXHot(index)
     unicdoe := LTrim(getUnicode(index), ":")  ; 剔除额外标记“:”
@@ -292,7 +301,6 @@ MenuHandler(){    ; 菜单选择处理
     }else{
         Send, %latex%
     }
-    Menu, HotMenu, DeleteAll
     return
 }
 

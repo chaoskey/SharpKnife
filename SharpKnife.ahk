@@ -3,7 +3,7 @@
 FileEncoding , UTF-8-RAW
 
 ; 托盘提示
-Menu, Tray,Tip , 利刃
+Menu, Tray,Tip , SharpKnife（利刃）
 if FileExist("images\knife.ico"){
     Menu, Tray, Icon, images\knife.ico
 }

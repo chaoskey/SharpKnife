@@ -1,3 +1,5 @@
+#Include lib\Gdip_All.ahk
+
 ;-----------------------------------------------
 ;            通用的一些函数
 ;-----------------------------------------------
@@ -179,3 +181,117 @@ pasteImageToScreen(pBitmap, crop := False, position := False, alpha := 255, scal
 	return hWND
 }
 
+
+/*
+    基于简单列表的跟随提示
+    
+用到此函数族的功能块： LaTeXHelper.ahk CtrlRich.ahk
+下面这族函数，用户只需要调用ShowSuggestionsGui(...)
+*/
+
+; 显示列表提示窗口
+ShowSuggestionsGui(_suggList_, _actionFun_, maxSize_ := "200,20"){ 
+    ; _suggList_   ; 提示列表数据（用`n分割的字符串）
+    ; _actionFun_(index) ; 实际触发的动作函数，index是已选项的索引
+
+    global suggMatchedID ; 提示窗口匹配项的控件ID
+    global suggActionFun := _actionFun_
+    global suggHWND         ; 提示窗口句柄
+
+    ; 创建显示列表提示窗口(如果已创建，则利用已创建的窗口)
+    SetupSuggestionsGui()
+
+    Gui, Suggestions:Default
+    if (_suggList_ = ""){
+        Gui, Suggestions:Hide
+        return
+    }
+
+    
+    maxSize_ := StrSplit(maxSize_, ",")
+    maxWidth := maxSize_[1]
+    maxHeight := maxSize_[2] 
+    GuiControl,, suggMatchedID, `n%_suggList_%
+    GuiControl, Choose, suggMatchedID, 1
+    GuiControl, Move, suggMatchedID, w%maxWidth% h%maxHeight% ;设置控件宽高
+    posX := (A_CaretX != "" ? A_CaretX : 0) - 8
+    posY := (A_CaretY != "" ? A_CaretY : 0) + 10
+    if (posX + maxWidth > A_ScreenWidth) {
+        posX := posX - maxWidth
+    }
+    if (posY + maxHeight > A_ScreenHeight) {
+        posY := posY - maxHeight
+    }
+    Gui, Show, x%posX% y%posY% w%maxWidth% h%maxHeight% NoActivate
+}
+
+; 创建显示列表提示窗口
+SetupSuggestionsGui(){
+
+    global suggMatchedID    ; 提示窗口匹配项的控件ID
+    global suggHWND         ; 提示窗口句柄
+
+    if (not suggHWND) {
+        ; 设置建议窗口
+        Gui, Suggestions:Default
+        Gui, Font, s10, Courier New
+        Gui, +Delimiter`n
+        Gui, Add, ListBox, x0 y0 h165 0x100 vsuggMatchedID gSuggCompleteAction AltSubmit
+        Gui, -Caption +ToolWindow +AlwaysOnTop +LastFound
+        suggHWND := WinExist()
+        Gui, Show, h165 Hide, SuggCompleteWin
+        Gui, Suggestions:Hide
+
+        ; 提示窗口热键处理
+        Hotkey, IfWinExist, SuggCompleteWin ahk_class AutoHotkeyGUI
+        Hotkey, ~LButton, SuggLButtonHandler
+        Hotkey, Up, SuggUpHanler
+        Hotkey, Down, SuggDownHanler
+        Hotkey, Tab, SuggCompleteAction
+        Hotkey, Enter, SuggCompleteAction
+        Hotkey, IfWinExist
+    }
+}
+
+; 根据提示窗口选择完成
+SuggCompleteAction(){ 
+    Critical
+
+    global suggMatchedID    ; 提示窗口匹配项的控件ID
+    global suggActionFun    ; suggActionFun(index), 实际触发的动作函数，index是已选项的索引
+
+    ; {enter} {tab}   或 双击匹配项  触发粘贴
+    If (A_GuiEvent != "" && A_GuiEvent != "DoubleClick")
+        Return
+
+    Gui, Suggestions:Default
+    Gui, Suggestions:Hide
+
+    ; 发送选择的内容
+    GuiControlGet, index,, suggMatchedID
+    ; 触发的动作函数
+    %suggActionFun%(index)
+    Gui, Suggestions:Hide
+}
+
+SuggUpHanler(){
+    Gui, Suggestions:Default
+    GuiControlGet, Temp1,, suggMatchedID
+    if (Temp1 > 1) { ;ensure value is in range
+        GuiControl, Choose, suggMatchedID, % Temp1 - 1    
+    }
+}
+
+SuggDownHanler(){
+    Gui, Suggestions:Default
+    GuiControlGet, Temp1,, suggMatchedID
+    GuiControl, Choose, suggMatchedID, % Temp1 + 1
+}
+
+SuggLButtonHandler(){
+    global suggHWND
+    MouseGetPos,,, Temp1
+    if (Temp1 != suggHWND){
+        Gui, Suggestions:Hide
+    }
+}
