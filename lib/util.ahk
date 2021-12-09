@@ -278,7 +278,7 @@ SuggCompleteAction(){
 SuggUpHanler(){
     Gui, Suggestions:Default
     GuiControlGet, Temp1,, suggMatchedID
-    if (Temp1 > 1) { ;ensure value is in range
+    if (Temp1 > 1) {
         GuiControl, Choose, suggMatchedID, % Temp1 - 1    
     }
 }

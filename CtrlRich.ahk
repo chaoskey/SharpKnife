@@ -461,7 +461,16 @@ indexClip(renumber := False){
     （文本）clip浏览提示
 */
 toolTipClip(tooltip_){
-    ToolTip, %tooltip_%
+    ; 当前光标或鼠标位置
+    CoordMode, Caret, Screen
+    if (A_CaretX = ){
+        CoordMode, Mouse, Screen
+        MouseGetPos, posX, posY
+    }else {
+        posX := A_CaretX + 10
+        posY := A_CaretY + 30
+    }
+    ToolTip, %tooltip_%, %posX%, %posY%
     SetTimer,RemoveToolTipClip,-900
 }
 RemoveToolTipClip:
@@ -473,11 +482,18 @@ return
 */
 toolTipImage(pBitmap){
     global _hWND_
+    ; 当前光标或鼠标位置
+    CoordMode, Caret, Screen
+    if (A_CaretX = ){
+        CoordMode, Mouse, Screen
+        MouseGetPos, posX, posY
+    }else {
+        posX := A_CaretX + 10
+        posY := A_CaretY + 30
+    }
     ; 贴图
-    CoordMode, Mouse, Screen
-    MouseGetPos, X, Y
     scale := "h" A_ScreenHeight*0.2
-    hWND := pasteImageToScreen(pBitmap, , X "," Y, , scale)
+    hWND := pasteImageToScreen(pBitmap, , posX "," posY, , scale)
     Gdip_DisposeImage(pBitmap)
     fn := Func("RemoveToolTipImage").Bind(hWND)
     SetTimer, % fn , -900
@@ -674,15 +690,4 @@ SearchPasteHandler(index){
     ; 将选择的clip移到最新
     moveClip()
 }
-
-; 选择保存文件
-;FileSelectFile, saveFile, S, , 保存截图, PNG图片 (*.png)
-;if saveFile {
-;    SplitPath, saveFile , , , outExt
-;    if (not outExt){
-;        saveFile := saveFile ".png"
-;    }
-;    ; 保存到文件
-;    Gdip_SaveBitmapToFile(pBitmap, saveFile)
-;}
 
