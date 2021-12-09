@@ -92,20 +92,9 @@ startCtrlCmdLoop(){
     global activeclip := 0
     ; 标记的clip文件名（保持和文件.clip/clip.tag内容同步）
     ; 注意： 
-    ; 1) tagcliparray则用"`n"分割并作为开头结尾
-    ; 2) 但是， .clip/clip.tag的内容不包括开头和结尾的"`n"
+    ; 1) tagcliparray用"`n"分割并作为开头结尾
+    ; 2) 但是， .clip/clip.tag的内容不包括开头的"`n"
     global tagcliparray := "`n" 
-
-    ; 如果tagcliparray没数据，尝试从.clip/clip.tag读取
-    if (tagcliparray = "`n") and FileExist(".clip\clip.tag") {  
-        Loop, read, .clip\clip.tag 
-        {
-            line := Trim(A_LoopReadLine)
-            if (line != "") {
-                tagcliparray := tagcliparray line "`n"
-            }
-        }
-    }
 
     ; 初始索引
     indexClip()
@@ -413,6 +402,17 @@ indexClip(renumber := False){
     global activeclip := 0 ; 当前clip文件名索引
     global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
 
+    ; 如果tagcliparray没数据，尝试从.clip/clip.tag读取
+    if (tagcliparray = "`n") and FileExist(".clip\clip.tag") {  
+        Loop, read, .clip\clip.tag 
+        {
+            line := Trim(A_LoopReadLine)
+            if (line != "") {
+                tagcliparray := tagcliparray line "`n"
+            }
+        }
+    }
+
     ; 收集clip文件名
     filelist := ""
     Loop, Files, .clip\*.clip
@@ -586,12 +586,14 @@ deletScreenPaste(hWND){
 }
 
 ; 进入搜索粘贴模式
-; 只搜索剪切板中的文本内容
-; 凡是搜索过的内容，都不会被“全部删除命令a”删除
+; 只搜索单行文本剪切板内容，因为常用需要粘贴都是单行的
+; 凡是搜索过的内容，都不会被“全部删除命令a”删除，但可以被“删除命令d”删除
 searchTextClipForPaste(){
-    global cliparray
+    global cliparray ; clip文件名列表
     global matchedSingleLineClip := [] ; 匹配到的所有单行文本
     global matchedSingleLineClipIndex := [] ; 匹配到的所有单行文本在cliparray中的索引
+    global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
+
     ; 输入搜索关键词，然后tab确认
     ; 等候输入
     Input, search, V C , {tab}{space}{enter}{esc}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}{Up}{Down}{Home}{End}{PgUp}{PgDn}{CapsLock}{NumLock}{PrintScreen}{Pause}
@@ -614,8 +616,14 @@ searchTextClipForPaste(){
             }
             ; 单行匹配收集
             if InStr(clip, search){
-                matchedSingleLineClip.Push(clip)
-                matchedSingleLineClipIndex.Push(i_)
+                if InStr(tagcliparray, "`n" v_ "`n"){
+                    ; 特殊标记clip靠前
+                    matchedSingleLineClip.InsertAt(1, clip)
+                    matchedSingleLineClipIndex.InsertAt(1, i_)
+                }else{
+                    matchedSingleLineClip.Push(clip)
+                    matchedSingleLineClipIndex.Push(i_)
+                }
             }
         }       
     }
@@ -644,6 +652,8 @@ searchTextClipForPaste(){
 
 ; 搜索后选择后的粘贴处理
 SearchPasteHandler(index){
+    ; index 提示列表栏选择的序号
+
     global cliparray ; clip文件名列表
     global activeclip ; 当前clip文件名索引
     global matchedSingleLineClip ; 匹配到的所有单行文本
