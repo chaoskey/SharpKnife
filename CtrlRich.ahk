@@ -72,7 +72,7 @@ return
     Ctrl+命令 拦截
 */
 CtrlHandler(){
-    global ctrlCmd
+    global ctrlCmd ; Ctrl+命令
     if (not ctlCmd){
         ctlCmd := ""
     }
@@ -83,19 +83,27 @@ CtrlHandler(){
     “Ctrl+命令”处理之死循环
 */
 startCtrlCmdLoop(){
-    global ctrlCmd := "" ; Ctrl+命令
+    ; Ctrl+命令
+    global ctrlCmd := ""
+    ; 桌面贴图及其索引 
+    global screenPastes := []
     global activepaste := 0
-    global screenPastes := [] ; 用于临时存储屏幕贴图的句柄列表
+    ; 当前clip文件名索引
     global activeclip := 0
-    global tagcliparray := ""
+    ; 标记的clip文件名（保持和文件.clip/clip.tag内容同步）
+    ; 注意： 
+    ; 1) tagcliparray则用"`n"分割并作为开头结尾
+    ; 2) 但是， .clip/clip.tag的内容不包括开头和结尾的"`n"
+    global tagcliparray := "`n" 
 
-    ; 读取tagclip
-    tagClipPath := ".clip\tagClip.txt"
-    if (tagcliparray = "") and FileExist(tagClipPath) { 
-        tagcliparray := "`n"  
-        Loop, read, %tagClipPath% 
+    ; 如果tagcliparray没数据，尝试从.clip/clip.tag读取
+    if (tagcliparray = "`n") and FileExist(".clip\clip.tag") {  
+        Loop, read, .clip\clip.tag 
         {
-            tagcliparray := tagcliparray (Trim(A_LoopReadLine)) "`n"
+            line := Trim(A_LoopReadLine)
+            if (line != "") {
+                tagcliparray := tagcliparray line "`n"
+            }
         }
     }
 
@@ -131,10 +139,10 @@ startCtrlCmdLoop(){
     Ctrl+命令 （Ctrl未松开）
 */
 execCtrlDownCmd(){
-    global ctrlCmd
-    global activeclip
-    global activepaste
-    global screenPastes ; 用于临时存储屏幕贴图的句柄列表
+    global ctrlCmd ; Ctrl+命令
+    global activeclip ; 当前clip文件名索引
+    global screenPastes ; 桌面贴图列表
+    global activepaste ; 当前桌面贴图索引
 
     if (ctrlCmd = "vs"){
         ; 复原
@@ -196,9 +204,9 @@ execCtrlDownCmd(){
  
 */
 execCtrlDownUPCmd(){
-    global ctrlCmd
-    global activeclip
-    global activepaste
+    global ctrlCmd ; Ctrl+命令
+    global activeclip ; 当前clip文件名索引
+    global activepaste ; 当前桌面贴图索引
 
     if (ctrlCmd = "ss"){
         ; 进入搜索粘贴模式
@@ -242,8 +250,8 @@ execCtrlDownUPCmd(){
     将当前clip读入Clipboard【同步操作】
 */
 readClip(){
-    global activeclip ; 当前索引位置
-    global cliparray ; Clipboar缓存文件索引cliparray
+    global cliparray ; clip文件名列表
+    global activeclip ; 当前clip文件名索引
 
     if (cliparray.Length() = 0){
         activeclip := 0
@@ -264,9 +272,9 @@ readClip(){
     将当前clip变成最近clip
 */
 moveClip(){
-    global activeclip ; 当前索引位置
-    global cliparray ; clip缓存文件名
-    global tagcliparray ; 标记clip文件名（用"`n"分割的字符串）
+    global cliparray ; clip文件名列表
+    global activeclip ; 当前clip文件名索引
+    global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
 
     if (activeclip > 1) {
         ; 当前粘贴内容对应的clip文件名
@@ -274,10 +282,11 @@ moveClip(){
         newclip := cliparray[1] + 1
         ; 将当前clip文件变成最近文件 
         FileMove, .clip\%oldclip%.clip, .clip\%newclip%.clip , 1
+        ; 同步修改 .clip\clip.tag
         if InStr(tagcliparray, "`n" oldclip "`n") {
             tagcliparray := StrReplace(tagcliparray, "`n" oldclip "`n" , "`n" newclip "`n")
-            FileDelete, .clip\tagClip.txt
-            FileAppend , %tagcliparray%, .clip\tagClip.txt
+            FileDelete, .clip\clip.tag
+            FileAppend , %  SubStr(tagcliparray, 2) , .clip\clip.tag
         }
         ; 重新索引
         indexClip()
@@ -300,8 +309,8 @@ showClip(){
     下一个clip【保证同步】
 */
 nextClip(){
-    global activeclip ; 当前索引位置
-    global cliparray ; Clipboar缓存文件索引cliparray
+    global cliparray ; clip文件名列表
+    global activeclip ; 当前clip文件名索引
 
     if (cliparray.Length() > 1) {
         ; 下一个位置
@@ -317,8 +326,8 @@ nextClip(){
     上一个clip【保证同步】
 */
 prevClip(){
-    global activeclip ; 当前索引位置
-    global cliparray ; Clipboar缓存文件索引cliparray
+    global cliparray ; clip文件名列表
+    global activeclip ; 当前clip文件名索引
 
     if (cliparray.Length() > 1) {
         ; 上一个位置
@@ -335,16 +344,16 @@ prevClip(){
     删除所有clip【保证同步】
 */
 deleteClipAll(){
-    global activeclip := 0 ; 当前索引位置
-    global cliparray ; Clipboar缓存文件索引cliparray
-    global tagcliparray  ; 保证不被删除
+    global cliparray ; clip文件名列表
+    global activeclip :=0 ; 当前clip文件名索引
+    global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
 
     for i_, v_ in cliparray {
         if (InStr(tagcliparray, "`n" v_ "`n") == 0){
             Filedelete,.clip\%v_%.clip ; 清空clip文件
         }
     }
-    cliparray := StrSplit(SubStr(tagcliparray, 2 , -1), "`n")
+    cliparray := StrSplit(Trim(tagcliparray, " `t`n"), "`n")
     if (cliparray.Length() = 0){
         clipboard := "" ; 清空剪贴板
     }else{
@@ -357,9 +366,9 @@ deleteClipAll(){
     删除当前clip【保证同步】
 */
 deleteClip(){
-    global activeclip ; 当前索引位置
-    global cliparray ; Clipboar缓存文件索引cliparray
-    global tagcliparray  ; 保证同步删除
+    global cliparray ; clip文件名列表
+    global activeclip ; 当前clip文件名索引
+    global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
 
     if (activeclip > 0) {
         ; 删除当前索引位置的clip
@@ -367,8 +376,8 @@ deleteClip(){
         Filedelete, .clip\%currclip%.clip
         if InStr(tagcliparray, "`n" currclip "`n") {
             tagcliparray := StrReplace(tagcliparray, "`n" currclip "`n" , "`n")
-            FileDelete, .clip\tagClip.txt
-            FileAppend , % SubStr(tagcliparray, 1) , .clip\tagClip.txt
+            FileDelete, .clip\clip.tag
+            FileAppend , % SubStr(tagcliparray, 2) , .clip\clip.tag
         }
         ; 重新索引
         indexClip()
@@ -398,9 +407,13 @@ addClip(){
     clip索引（逆序排列）【保证同步】
 */
 indexClip(renumber := False){
-    global cliparray := []
-    global activeclip := 0
+    ; renumber 默认情况下不重新编号，只在tagcliparray非空且全部删除时启用
 
+    global cliparray := [] ; clip文件名列表
+    global activeclip := 0 ; 当前clip文件名索引
+    global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
+
+    ; 收集clip文件名
     filelist := ""
     Loop, Files, .clip\*.clip
     {
@@ -408,12 +421,14 @@ indexClip(renumber := False){
         filelist := filelist filename "`n"
     }
     if (filelist != ""){
-        filelist := SubStr(filelist, 1, -1)
-        if renumber {
-            ; 重新从1开始编号
+        filelist := Trim(filelist, " `t`n")
+        if renumber and (tagcliparray  != "`n") {
+            ; 正序排列
             Sort,filelist,N
+            ; filelist的列表形式，及其"`n"分割的字符串副本
             _filelist_ := StrSplit(filelist, "`n")
-            filelist := "`n" filelist
+            filelist := "`n" filelist "`n"
+            ; 批量文件改名，并保证和tagcliparray一致（重新从1开始编号）
             newIndex := 0
             for i_, v_ in _filelist_
             {
@@ -423,20 +438,21 @@ indexClip(renumber := False){
                     FileMove, .clip\%v_%.clip, .clip\%newIndex%.clip , 1
                 }
             }
-            filelist := SubStr(filelist, 2)
+            ; 逆序排列
+            filelist := Trim(filelist, " `t`n")
             Sort,filelist,N R
-
-            tagcliparray := filelist "`n"
-            FileDelete, .clip\tagClip.txt
-            FileAppend , %tagcliparray%, .clip\tagClip.txt
-            tagcliparray := "`n"  tagcliparray
+            ; 写入.clip\clip.tag，并保持和tagcliparray一致
+            tagcliparray := "`n" filelist "`n"
+            FileDelete, .clip\clip.tag
+            FileAppend , % SubStr(tagcliparray, 2), .clip\clip.tag
         }else {
+            ; 逆序排列
             Sort,filelist,N R
         }
-
+        ; 索引后的结果
         cliparray := StrSplit(filelist, "`n")
-        
         activeclip := 1
+        ; 保证和剪切板同步
         readClip()
     }
 }
@@ -536,8 +552,8 @@ screenPaste(){
     清空所有屏幕贴图
 */
 clearScreenPastes(){
-    global screenPastes
-    global activepaste := 0
+    global screenPastes ; 桌面贴图列表
+    global activepaste :=0 ; 当前桌面贴图索引
 
     if (not (not screenPastes)){
         for idx_, value_ in screenPastes {
@@ -551,8 +567,8 @@ clearScreenPastes(){
     删除指定屏幕贴图
 */
 deletScreenPaste(hWND){
-    global screenPastes
-    global activepaste
+    global screenPastes ; 桌面贴图列表
+    global activepaste ; 当前桌面贴图索引
     if (not (not screenPastes)){
         for idx_, value_ in screenPastes {
             if (value_ == hWND){
@@ -574,8 +590,8 @@ deletScreenPaste(hWND){
 ; 凡是搜索过的内容，都不会被“全部删除命令a”删除
 searchTextClipForPaste(){
     global cliparray
-    global matchedClipText := []
-    global matchedTextClipIndex := []
+    global matchedSingleLineClip := [] ; 匹配到的所有单行文本
+    global matchedSingleLineClipIndex := [] ; 匹配到的所有单行文本在cliparray中的索引
     ; 输入搜索关键词，然后tab确认
     ; 等候输入
     Input, search, V C , {tab}{space}{enter}{esc}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}{Up}{Down}{Home}{End}{PgUp}{PgDn}{CapsLock}{NumLock}{PrintScreen}{Pause}
@@ -587,33 +603,33 @@ searchTextClipForPaste(){
     for i_ , v_ in cliparray{
         if FileExist(".clip\" v_ ".clip"){
             FileRead,Clipboard,*c .clip\%v_%.clip
-            clip := StrSplit(Clipboard, "`r`n")
-            ; 确保只处理文本
-            if (clip.Length() > 1) or (clip.Length() = 0)  or (Trim(clip[1]) = "") {
-                break
+            clip := StrSplit(Trim(Clipboard, " `t`r`n"), "`r`n")
+            ; 确保只处理单行文本
+            if (clip.Length() != 1) {
+                Continue
             }
-            clip := clip[1]
+            clip := Trim(clip[1])
+            if (clip = "") {
+                Continue
+            }
+            ; 单行匹配收集
             if InStr(clip, search){
-                matchedClipText.Push(clip)
-                matchedTextClipIndex.Push(i_)
+                matchedSingleLineClip.Push(clip)
+                matchedSingleLineClipIndex.Push(i_)
             }
         }       
     }
     ; 弹出建议窗口
-    if (matchedClipText.Length() == 1){
-        n_ := StrLen(search)+1
-        Send, {bs %n_%}
-        PasteHandler(1)
-    } else if (matchedClipText.Length() > 1)
+    if (matchedSingleLineClip.Length() > 0)
     {
         n_ := StrLen(search)+1
         Send, {bs %n_%}
         Sleep 30 ; 延迟30毫秒，确保弹出提示窗口前退格完成（似乎没有同步发送的API，只能这样）
         ; 准备列表数据，并计算提示窗口的长宽
         maxWidth := 100
-        maxHeight := Min(Max(Ceil(20*matchedClipText.Length()),40),200)
+        maxHeight := Min(Max(Ceil(20*matchedSingleLineClip.Length()),40),200)
         suggList := ""
-        for index, value in matchedClipText
+        for index, value in matchedSingleLineClip
         {
             maxWidth := Max(Ceil(10*StrLen(value)),maxWidth)
             suggList := suggList value "`n"
@@ -621,31 +637,31 @@ searchTextClipForPaste(){
         maxWidth := Min(maxWidth,500)
         maxWH := maxWidth "," maxHeight
         ; 弹出提示窗口
-        ShowSuggestionsGui(suggList, "PasteHandler", maxWH)
+        ShowSuggestionsGui(suggList, "SearchPasteHandler", maxWH)
         return
     }
 }
 
-PasteHandler(index){
-    global matchedClipText
-    global matchedTextClipIndex 
-    global tagcliparray ; 标记clip文件名（用"`n"分割的字符串）
-    global activeclip
-    global cliparray
+; 搜索后选择后的粘贴处理
+SearchPasteHandler(index){
+    global cliparray ; clip文件名列表
+    global activeclip ; 当前clip文件名索引
+    global matchedSingleLineClip ; 匹配到的所有单行文本
+    global matchedSingleLineClipIndex ; 匹配到的所有单行文本在cliparray中的索引 
+    global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
 
-    Send, % matchedClipText[index]
-    ; 凡是搜索选择过的内容，都认为是比较重要的
-    ; 所以要确保不能被“全部删除的命令”删除
-    ; 只能被选择删除
-    ; 将这些文件名信息单独保存到 
-    tagClipPath := ".clip\tagClip.txt"
-    activeclip := matchedTextClipIndex[index]
-    currIndex := cliparray[activeclip]
+    ; 选择粘贴
+    Send, % matchedSingleLineClip[index]
 
-    if (tagcliparray = "") or (0 = InStr(tagcliparray, "\n"currIndex "\n")) {
-        FileAppend , % currIndex "`n", %tagClipPath%
-        tagcliparray := tagcliparray currIndex "`n"
+    ; 凡是搜索选择过的内容，都认为是比较重要的，所以特别添加到.clip\clip.tag中标记之 
+    activeclip := matchedSingleLineClipIndex[index]
+    currclip := cliparray[activeclip]
+    if (tagcliparray = "`n") or (0 = InStr(tagcliparray, "\n"currclip "\n")) {
+        FileAppend , % currclip "`n", .clip\clip.tag
+        tagcliparray := tagcliparray currclip "`n"
     }
+
+    ; 将选择的clip移到最新
     moveClip()
 }
 
