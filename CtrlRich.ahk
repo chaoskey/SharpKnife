@@ -95,6 +95,11 @@ startCtrlCmdLoop(){
     ; 1) tagcliparray用"`n"分割并作为开头结尾
     ; 2) 但是， .clip/clip.tag的内容不包括开头的"`n"
     global tagcliparray := "`n" 
+    ; 跟随提示位置坐标(X,Y)（Ctrl按下和松开之间保持不变）
+    global tooltipPosX
+    global tooltipPosY
+    ; 用于跟随提示的显示位图的句柄
+    global hWNDToolTip := 0 
 
     ; 初始索引
     indexClip()
@@ -113,13 +118,23 @@ startCtrlCmdLoop(){
             ; Ctrl+命令 （Ctrl未松开）
             execCtrlDownCmd()
         }else if working {
+            ; 消除提示信息
+            if hWNDToolTip {
+                Gui, %hWNDToolTip%:Destroy
+                hWNDToolTip := 0
+            }
+            ToolTip
+
             ; Ctrl+命令 （Ctrl松开）
             execCtrlDownUPCmd()
 
             ; 工作完成，状态复原
             ctrlCmd := ""
             working := False
+            activeclip := 0
             activepaste := 0
+            tooltipPosX := 
+            tooltipPosY :=
         }
     }
 }
@@ -163,8 +178,7 @@ execCtrlDownCmd(){
                 activepaste := 1
             }
             hWND := screenPastes[activepaste]
-            fn := Func("RemoveToolTipFlash").Bind(hWND)
-            SetTimer, % fn , -1
+            RemoveToolTipFlash(hWND)
         }
     }else if (ctrlCmd = "vvf"){
         ctrlCmd := "vv"
@@ -174,8 +188,7 @@ execCtrlDownCmd(){
                 activepaste := screenPastes.Length()
             }
             hWND := screenPastes[activepaste]
-            fn := Func("RemoveToolTipFlash").Bind(hWND)
-            SetTimer, % fn , -1
+            RemoveToolTipFlash(hWND)
         }
     }else if (ctrlCmd = "vvd"){
         ctrlCmd := "vv"
@@ -228,9 +241,6 @@ execCtrlDownUPCmd(){
             moveClip()       
         }
     }
-    ; 复位
-    activeclip := 0
-    activepaste := 0
 
     ; 其它的情况无动作
 }
@@ -461,45 +471,58 @@ indexClip(renumber := False){
     （文本）clip浏览提示
 */
 toolTipClip(tooltip_){
-    ; 当前光标或鼠标位置
-    CoordMode, Caret, Screen
-    if (A_CaretX = ){
-        CoordMode, Mouse, Screen
-        MouseGetPos, posX, posY
-    }else {
-        posX := A_CaretX + 10
-        posY := A_CaretY + 30
+    global tooltipPosX ; 跟随提示位置坐标X（Ctrl按下和松开之间保持不变）
+    global tooltipPosY ; 跟随提示位置坐标Y（Ctrl按下和松开之间保持不变）
+    global hWNDToolTip ; 用于跟随提示的显示位图的句柄
+    if hWNDToolTip {
+        Gui, %hWNDToolTip%:Destroy
+        hWNDToolTip := 0
     }
-    ToolTip, %tooltip_%, %posX%, %posY%
-    SetTimer,RemoveToolTipClip,-900
+    ToolTip
+
+    if (not tooltipPosX){
+        ; 当前光标或鼠标位置
+        CoordMode, Caret, Screen
+        if (not A_CaretX){
+            CoordMode, Mouse, Screen
+            MouseGetPos, tooltipPosX, tooltipPosY
+        }else {
+            tooltipPosX := A_CaretX
+            tooltipPosY := A_CaretY + 20
+        }
+    }
+    CoordMode, ToolTip, Screen
+    ToolTip, %tooltip_%, %tooltipPosX%, %tooltipPosY%
 }
-RemoveToolTipClip:
-ToolTip
-return
 
 /*
     （图片）clip浏览提示
 */
 toolTipImage(pBitmap){
-    global _hWND_
-    ; 当前光标或鼠标位置
-    CoordMode, Caret, Screen
-    if (A_CaretX = ){
-        CoordMode, Mouse, Screen
-        MouseGetPos, posX, posY
-    }else {
-        posX := A_CaretX + 10
-        posY := A_CaretY + 30
+    global tooltipPosX ; 跟随提示位置坐标X（Ctrl按下和松开之间保持不变）
+    global tooltipPosY ; 跟随提示位置坐标Y（Ctrl按下和松开之间保持不变）
+    global hWNDToolTip ; 用于跟随提示的显示位图的句柄
+    if hWNDToolTip {
+        Gui, %hWNDToolTip%:Destroy
+        hWNDToolTip := 0
+    }
+    ToolTip
+
+    if (not tooltipPosX){
+        ; 当前光标或鼠标位置
+        CoordMode, Caret, Screen
+        if (not A_CaretX){
+            CoordMode, Mouse, Screen
+            MouseGetPos, tooltipPosX, tooltipPosY
+        }else {
+            tooltipPosX := A_CaretX
+            tooltipPosY := A_CaretY + 20
+        }
     }
     ; 贴图
-    scale := "h" A_ScreenHeight*0.2
-    hWND := pasteImageToScreen(pBitmap, , posX "," posY, , scale)
+    ;scale := "h" A_ScreenHeight*0.2
+    hWNDToolTip := pasteImageToScreen(pBitmap, , tooltipPosX "," tooltipPosY) ;, , scale)
     Gdip_DisposeImage(pBitmap)
-    fn := Func("RemoveToolTipImage").Bind(hWND)
-    SetTimer, % fn , -900
-}
-RemoveToolTipImage(_hWND_){
-    Gui, %_hWND_%:Destroy
 }
 
 /*
@@ -509,9 +532,9 @@ RemoveToolTipFlash(_hWND_){
     Loop 3
     {
         Gui, %_hWND_%:Hide
-        Sleep 300
+        Sleep 50
         Gui, %_hWND_%:Show
-        Sleep 300
+        Sleep 50
     }
 }
 
