@@ -219,6 +219,7 @@ ShowSuggestionsGui(_suggList_, _actionFun_, maxSize_ := "200,20"){
     if (not A_CaretX){
         CoordMode, Mouse, Screen
         MouseGetPos, posX, posY
+        posX := posX + 10
     }else {
         posX := A_CaretX
         posY := A_CaretY + 20

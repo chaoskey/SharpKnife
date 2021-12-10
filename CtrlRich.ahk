@@ -118,16 +118,10 @@ startCtrlCmdLoop(){
             ; Ctrl+命令 （Ctrl未松开）
             execCtrlDownCmd()
         }else if working {
-            ; 消除提示信息
-            if hWNDToolTip {
-                Gui, %hWNDToolTip%:Destroy
-                hWNDToolTip := 0
-            }
-            ToolTip
-
+            ; 消除已有提示信息
+            clearToolTip()
             ; Ctrl+命令 （Ctrl松开）
             execCtrlDownUPCmd()
-
             ; 工作完成，状态复原
             ctrlCmd := ""
             working := False
@@ -151,27 +145,34 @@ execCtrlDownCmd(){
     if (ctrlCmd = "vs"){
         ; 复原
         ctrlCmd := "v"
+        clearToolTip()
         ; 显示下一个索引位置的clip
         nextClip()
         showClip()
     }if (ctrlCmd = "vf"){
         ; 复原
         ctrlCmd := "v"
+        clearToolTip()
         ; 显示上一个索引位置的clip
         prevClip()
         showClip()
     }else if (ctrlCmd = "vd"){
         ; 复原
         ctrlCmd := "v"
+        clearToolTip()
         ; 删除当前索引位置的clip
         deleteClip()
     }else if (ctrlCmd = "va"){
         ; 复原
         ctrlCmd := "v"
+        clearToolTip()
         ; 删除当前索引位置的clip
         deleteClipAll()
     }else if (ctrlCmd = "vvs"){
+        ; 复原
         ctrlCmd := "vv"
+        clearToolTip()
+        ; 闪烁下一张桌面贴图
         if (screenPastes.Length() > 1){
             activepaste := activepaste + 1
             if (activepaste > screenPastes.Length()){
@@ -181,7 +182,10 @@ execCtrlDownCmd(){
             RemoveToolTipFlash(hWND)
         }
     }else if (ctrlCmd = "vvf"){
+        ; 复原
         ctrlCmd := "vv"
+        clearToolTip()
+        ; 闪烁上一张桌面贴图
         if (screenPastes.Length() > 1){
             activepaste := activepaste - 1
             if (activepaste < 1){
@@ -191,11 +195,17 @@ execCtrlDownCmd(){
             RemoveToolTipFlash(hWND)
         }
     }else if (ctrlCmd = "vvd"){
+        ; 复原
         ctrlCmd := "vv"
+        clearToolTip()
+        ; 删除当前桌面贴图
         hWND := screenPastes[activepaste]
         deletScreenPaste(hWND)
     }else if (ctrlCmd = "vva"){
+        ; 复原
         ctrlCmd := "vv"
+        clearToolTip()
+        ; 清空所有桌面贴图
         clearScreenPastes()
     }
 
@@ -290,6 +300,18 @@ moveClip(){
         ; 重新索引
         indexClip()
     }
+}
+
+/* 
+清空已有提示 
+*/
+clearToolTip(){
+    global hWNDToolTip ; 用于跟随提示的显示位图的句柄
+    if hWNDToolTip {
+        Gui, %hWNDToolTip%:Destroy
+        hWNDToolTip := 0
+    }
+    ToolTip
 }
 
 /*
@@ -473,12 +495,6 @@ indexClip(renumber := False){
 toolTipClip(tooltip_){
     global tooltipPosX ; 跟随提示位置坐标X（Ctrl按下和松开之间保持不变）
     global tooltipPosY ; 跟随提示位置坐标Y（Ctrl按下和松开之间保持不变）
-    global hWNDToolTip ; 用于跟随提示的显示位图的句柄
-    if hWNDToolTip {
-        Gui, %hWNDToolTip%:Destroy
-        hWNDToolTip := 0
-    }
-    ToolTip
 
     if (not tooltipPosX){
         ; 当前光标或鼠标位置
@@ -486,6 +502,7 @@ toolTipClip(tooltip_){
         if (not A_CaretX){
             CoordMode, Mouse, Screen
             MouseGetPos, tooltipPosX, tooltipPosY
+            tooltipPosX := tooltipPosX + 10
         }else {
             tooltipPosX := A_CaretX
             tooltipPosY := A_CaretY + 20
@@ -502,11 +519,6 @@ toolTipImage(pBitmap){
     global tooltipPosX ; 跟随提示位置坐标X（Ctrl按下和松开之间保持不变）
     global tooltipPosY ; 跟随提示位置坐标Y（Ctrl按下和松开之间保持不变）
     global hWNDToolTip ; 用于跟随提示的显示位图的句柄
-    if hWNDToolTip {
-        Gui, %hWNDToolTip%:Destroy
-        hWNDToolTip := 0
-    }
-    ToolTip
 
     if (not tooltipPosX){
         ; 当前光标或鼠标位置
@@ -514,6 +526,7 @@ toolTipImage(pBitmap){
         if (not A_CaretX){
             CoordMode, Mouse, Screen
             MouseGetPos, tooltipPosX, tooltipPosY
+            tooltipPosX := tooltipPosX + 10
         }else {
             tooltipPosX := A_CaretX
             tooltipPosY := A_CaretY + 20
