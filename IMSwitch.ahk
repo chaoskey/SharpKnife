@@ -146,74 +146,73 @@ getImState()
     global imStateEN
     global imStateCH
 
-    ; 如果成功获取状态，跳出循环
-    imState := -1
-    Loop{
-
-        if (not imStateEN) or (not imStateCH) {
-            ; 获取截图路径（可能含额外选项）
-            iniPath := A_ScriptFullPath
-            if (idx := InStr(iniPath, "." , , 0) ){
-                iniPath := SubStr(iniPath, 1 , idx-1) 
-            }
-            iniPath := iniPath ".ini"            
-        
-            IniRead, imStateEN, %iniPath%, ImSwitch, EN
-            IniRead, imStateCH, %iniPath%, ImSwitch, CH
-            if (imStateEN == "ERROR") or (imStateCH == "ERROR"){
-                writeIMSwitchIni()
-                ; 英文状态截图
-                imStateEN := "*50 " A_ScriptDir "\EN.png"
-                ; 中文状态截图
-                imStateCH := "*50 " A_ScriptDir "\CH.png"
-            }
+    if (not imStateEN) or (not imStateCH) {
+        ; 获取截图路径（可能含额外选项）
+        iniPath := A_ScriptFullPath
+        if (idx := InStr(iniPath, "." , , 0) ){
+            iniPath := SubStr(iniPath, 1 , idx-1) 
         }
-
-        ; 为了加快搜图速度，尽可能在特定小区域中搜索
-        if (not imStateSearchRegion){
-            ; 默认全屏幕搜索，也就是说第一次获取中英文状态会稍微慢些
-            imStateSearchRegion := [0,0,A_ScreenWidth, A_ScreenHeight]
+        iniPath := iniPath ".ini"            
+    
+        IniRead, imStateEN, %iniPath%, ImSwitch, EN
+        IniRead, imStateCH, %iniPath%, ImSwitch, CH
+        if (imStateEN == "ERROR") or (imStateCH == "ERROR"){
+            writeIMSwitchIni()
+            ; 英文状态截图
+            imStateEN := "*50 " A_ScriptDir "\EN.png"
+            ; 中文状态截图
+            imStateCH := "*50 " A_ScriptDir "\CH.png"
         }
-
-        ; 搜图
-        CoordMode Pixel
-        ; 0, 0, A_ScreenWidth, A_ScreenHeight
-        ImageSearch, X, Y, % imStateSearchRegion[1]
-                    , % imStateSearchRegion[2]
-                    , % imStateSearchRegion[3]
-                    , % imStateSearchRegion[4], %imStateEN%
-        if (ErrorLevel == 0) {
-            imState := 0
-        } else{
-            ImageSearch, X, Y
-                    , % imStateSearchRegion[1]
-                    , % imStateSearchRegion[2]
-                    , % imStateSearchRegion[3]
-                    , % imStateSearchRegion[4], %imStateCH%
-            if (ErrorLevel == 0){
-                imState := 1
-            }
-        }
-
-        ; imState == -1 的情况:  ErrorLevel = 2 无法进行搜索 或 ErrorLevel = 1 在屏幕上找不到图标
-        if (imState == -1){
-            ; 如果搜图不成功，说明截图配置有问题
-            MsgBox, 
-(
-屏幕上的中英文状态可能被遮挡，不要隐藏任务栏
-或者，中英文状态截图不正确，先截图然后在同名ini文件中配置。
-确保对应的图片（比如:CH.png和EN.png）存在且正确!`n
-如果满足这三点要求，可点“确认”，否则会反复弹出。
-)
-            imStateEN := False
-            imStateCH := False
-            imStateSearchRegion := False
-            Continue
-        }
-
-        ; 搜图成功（意味着获取状态成功）
-        break
     }
+
+    ; 为了加快搜图速度，尽可能在特定小区域中搜索
+    if (not imStateSearchRegion){
+        ; 默认全屏幕搜索，也就是说第一次获取中英文状态会稍微慢些
+        imStateSearchRegion := [0,0,A_ScreenWidth, A_ScreenHeight]
+    }
+
+    ; 搜图
+    CoordMode Pixel
+    ; 0, 0, A_ScreenWidth, A_ScreenHeight
+    ImageSearch, X, Y, % imStateSearchRegion[1]
+                , % imStateSearchRegion[2]
+                , % imStateSearchRegion[3]
+                , % imStateSearchRegion[4], %imStateEN%
+    ; 中英文状态，-1表示无法获状态，将退出程序
+    imState := -1
+    if (ErrorLevel == 0) {
+        imState := 0
+    } else{
+        ImageSearch, X, Y
+                , % imStateSearchRegion[1]
+                , % imStateSearchRegion[2]
+                , % imStateSearchRegion[3]
+                , % imStateSearchRegion[4], %imStateCH%
+        if (ErrorLevel == 0){
+            imState := 1
+        }
+    }
+
+    ; imState == -1 的情况:  ErrorLevel = 2 无法进行搜索 或 ErrorLevel = 1 在屏幕上找不到图标
+    if (imState == -1){
+        ; 如果搜图不成功，说明截图配置有问题，将退出程序
+        iniName := A_ScriptName
+        if (idx := InStr(iniName, "." , , 0) ){
+            iniName := SubStr(iniName, 1 , idx-1)  
+        }
+        iniName := iniName ".ini"
+        MsgBox, 
+(
+配置文件（%iniName%）已存在，点击“确认”，将退出程序！`n
+--------------------------------------------------------------`n
+检查中英文状态是否被遮挡，不要隐藏任务栏；`n
+检查配置文件（%iniName%）的中英文状态图的路径和内容是否正确；`n
+初次使用务必仔细看配置文件（%iniName%）内容，确保和实际情况一致!`n
+--------------------------------------------------------------
+)
+        ExitApp, [ ExitCode]
+    }
+
     
     ; 搜图成功, 可尽可能缩小搜索范围，加快以后的搜图速度
     ; 可合理假设中英文状态不可能出现屏幕左上角
@@ -264,10 +263,21 @@ getImState()
 
 IMToolTip(imState)
 {
+    ; 当前光标或鼠标位置
+    CoordMode, Caret, Screen
+    if (not A_CaretX){
+        CoordMode, Mouse, Screen
+        MouseGetPos, posX, posY
+        posX := posX + 10
+    }else {
+        posX := A_CaretX
+        posY := A_CaretY + 20
+    }
+    CoordMode, ToolTip, Screen
     if (imState = 1)
-        ToolTip, 中
+        ToolTip, 中, %posX%, %posY%
     else
-        ToolTip, EN
+        ToolTip, EN, %posX%, %posY%
     SetTimer, RemoveIMToolTip, -1000
 }
 

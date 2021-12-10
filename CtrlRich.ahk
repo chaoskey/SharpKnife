@@ -118,8 +118,6 @@ startCtrlCmdLoop(){
             ; Ctrl+命令 （Ctrl未松开）
             execCtrlDownCmd()
         }else if working {
-            ; 消除已有提示信息
-            clearToolTip()
             ; Ctrl+命令 （Ctrl松开）
             execCtrlDownUPCmd()
             ; 工作完成，状态复原
@@ -221,15 +219,21 @@ execCtrlDownUPCmd(){
     global activepaste ; 当前桌面贴图索引
 
     if (ctrlCmd = "ss"){
+        ; 消除已有提示信息
+        clearToolTip()
         ; 进入搜索粘贴模式
         ; 只搜索剪切板中的文本内容
         ; 凡是搜索过的内容，都不会被“全部删除命令a”删除
         searchTextClipForPaste()
     } else if (ctrlCmd = "cc"){
+        ; 消除已有提示信息
+        clearToolTip()
         ; Ctrl+cc 截图复制（会出现跟随鼠标的坐标提示，鼠标左键“按下-移动-松开”完成截图复制）
         screenShot()
         addClip()
     } else if (ctrlCmd = "vv"){
+        ; 消除已有提示信息
+        clearToolTip()
         ; Ctrl+vv 粘贴到屏幕(待贴图的内容会跟随鼠标移动，点击鼠标左键完成屏幕贴图)
         screenPaste() 
         moveClip() 
@@ -248,6 +252,8 @@ execCtrlDownUPCmd(){
                 addClip()
             }
         }else if (ctrlCmd = "v"){
+            ; 消除已有提示信息
+            clearToolTip()
             moveClip()       
         }
     }
