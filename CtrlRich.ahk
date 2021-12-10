@@ -646,11 +646,12 @@ searchTextClipForPaste(){
     global matchedSingleLineClipIndex := [] ; 匹配到的所有单行文本在cliparray中的索引
     global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
 
-    ; 输入搜索关键词，然后tab确认
+    ; 输入搜索关键词，然后空格确认
     ; 等候输入
-    Input, search, V C , {tab}{space}{enter}{esc}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}{Up}{Down}{Home}{End}{PgUp}{PgDn}{CapsLock}{NumLock}{PrintScreen}{Pause}
-    ; 非tab终止符触发，表示放弃
-    if (ErrorLevel != "EndKey:tab"){
+    Input, search, V C , {space}{tab}{enter}{esc}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}{Up}{Down}{Home}{End}{PgUp}{PgDn}{CapsLock}{NumLock}{PrintScreen}{Pause}
+    ; 非space终止符触发，表示放弃
+    ; 有些环境tab具有自动补全功能，为了避免冲突，特意改用空格(Space)作为输入终止符
+    if (ErrorLevel != "EndKey:space"){
         return
     }
     ; 搜索
