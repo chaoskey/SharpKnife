@@ -38,7 +38,9 @@ return ; 自动运行段结束
 ; -----------------------------------------------
 ; 动作播放（完善中...）
 ;------------------------------------------------
+;@Ahk2Exe-IgnoreBegin
 #include ActionPlay.ahk
+;@Ahk2Exe-IgnoreEnd
 
 ;@Ahk2Exe-SetProductName    SharpKnife(利刃) 
 ;@Ahk2Exe-SetProductVersion 2021.12.07
