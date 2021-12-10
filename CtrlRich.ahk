@@ -699,8 +699,8 @@ SearchPasteHandler(index){
     global matchedSingleLineClipIndex ; 匹配到的所有单行文本在cliparray中的索引 
     global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
 
-    ; 选择粘贴
-    Send, % matchedSingleLineClip[index]
+    ; 选择粘贴(只作文本发送)
+    Send, % "{Text}" matchedSingleLineClip[index]
 
     ; 凡是搜索选择过的内容，都认为是比较重要的，所以特别添加到.clip\clip.tag中标记之 
     activeclip := matchedSingleLineClipIndex[index]

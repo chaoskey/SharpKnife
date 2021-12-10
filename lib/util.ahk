@@ -196,7 +196,6 @@ ShowSuggestionsGui(_suggList_, _actionFun_, maxSize_ := "200,20"){
 
     global suggMatchedID ; 提示窗口匹配项的控件ID
     global suggActionFun := _actionFun_
-    global suggHWND         ; 提示窗口句柄
 
     ; 创建显示列表提示窗口(如果已创建，则利用已创建的窗口)
     SetupSuggestionsGui()
