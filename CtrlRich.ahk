@@ -435,13 +435,17 @@ indexClip(renumber := False){
     global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
 
     ; 如果tagcliparray没数据，尝试从.clip/clip.tag读取
-    if (tagcliparray = "`n") and FileExist(".clip\clip.tag") {  
-        Loop, read, .clip\clip.tag 
-        {
-            line := Trim(A_LoopReadLine)
-            if (line != "") {
-                tagcliparray := tagcliparray line "`n"
+    if (tagcliparray = "`n") {
+        if FileExist(".clip\clip.tag") {  
+            Loop, read, .clip\clip.tag 
+            {
+                line := Trim(A_LoopReadLine)
+                if (line != "") {
+                    tagcliparray := tagcliparray line "`n"
+                }
             }
+        }else{
+            FileCreateDir, .clip
         }
     }
 
