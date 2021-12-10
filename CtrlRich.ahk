@@ -499,6 +499,12 @@ indexClip(renumber := False){
 toolTipClip(tooltip_){
     global tooltipPosX ; 跟随提示位置坐标X（Ctrl按下和松开之间保持不变）
     global tooltipPosY ; 跟随提示位置坐标Y（Ctrl按下和松开之间保持不变）
+    global cliparray ; clip文件名列表
+    global activeclip ; 当前clip文件名索引
+    global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
+    if (activeclip > 0) and InStr(tagcliparray, "`n" cliparray[activeclip] "`n") {
+        tooltip_ := "[★]" tooltip_
+    }
 
     if (not tooltipPosX){
         ; 当前光标或鼠标位置
@@ -675,7 +681,7 @@ searchTextClipForPaste(){
             if InStr(clip, search){
                 if InStr(tagcliparray, "`n" v_ "`n"){
                     ; 特殊标记clip靠前
-                    matchedSingleLineClip.InsertAt(1, clip)
+                    matchedSingleLineClip.InsertAt(1, "[★]" clip )
                     matchedSingleLineClipIndex.InsertAt(1, i_)
                 }else{
                     matchedSingleLineClip.Push(clip)
@@ -718,8 +724,11 @@ SearchPasteHandler(index){
     global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
 
     ; 选择粘贴(只作文本发送)
-    Send, % "{Text}" matchedSingleLineClip[index]
-
+    clip := Trim(matchedSingleLineClip[index])
+    if (InStr(clip, "[★]")){
+        clip := Trim(SubStr(clip, 4))
+    }
+    Send, % "{Text}" clip
     ; 凡是搜索选择过的内容，都认为是比较重要的，所以特别添加到.clip\clip.tag中标记之 
     activeclip := matchedSingleLineClipIndex[index]
     currclip := cliparray[activeclip]
