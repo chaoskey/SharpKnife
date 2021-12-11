@@ -350,11 +350,11 @@ SetupSearchBoxGui(){
         ; 设置搜索框
         Gui, FollowSearchBoxWin:Default
         Gui, Font, s10, Courier New
-        Gui, Add, Edit, x0 y0 w100 vsearchBoxText gupdateSearchBoxWidth  
+        Gui, Add, Edit, x0 y0 w50 vsearchBoxText gupdateSearchBoxWidth
         Gui, -Caption +ToolWindow +AlwaysOnTop +LastFound
         searchBoxHWND := WinExist()
-        GuiControlGet, tmp , Pos, searchBoxText
-        Gui, Show, w%tmpW% h%tmpH% Hide, FollowSearchBoxWin
+        GuiControlGet, tmp, Pos , searchBoxText
+        Gui, Show, w50 h%tmpH% Hide, FollowSearchBoxWin
         ; 搜索框热键处理
         Hotkey, IfWinExist, FollowSearchBoxWin ahk_class AutoHotkeyGUI
         Hotkey, ~LButton, SearchBoxLButtonHandler
@@ -363,13 +363,60 @@ SetupSearchBoxGui(){
     }
 }
 
+; 字符实际占宽与字节数的比值（以字体大小10为标准）
+; 其它字体大小可以按比例换算之
+; 注意: 本质是估算
+getRatioS10StrWidthAndBtyeLen(){
+    global ratioS10StrWidthAndBtyeLen
+    if (not ratioS10StrWidthAndBtyeLen) {
+        ; 如果没有被计算过，则返回一个经验值
+        return 8.0
+    }else {
+        ; 曾经被计算过，直接返回即可
+        return ratioS10StrWidthAndBtyeLen
+    }
+}
+; 字符实际占高与字符行数的比值（以字体大小10为标准）
+; 其它字体大小可以按比例换算之
+; 注意: 本质是估算
+getRatioS10StrHeightAndStrRow(){
+    global ratioS10StrHeightAndStrRow
+    if (not ratioS10StrHeightAndStrRow) {
+        ; 如果没有被计算过，则返回一个经验值
+        return 20.
+    }else {
+        ; 曾经被计算过，直接返回即可
+        return ratioS10StrHeightAndStrRow
+    }
+}
+
 ; 动态更新搜索框的长度
 updateSearchBoxWidth(){
     global searchBoxText  ; 搜索框文本内容的关联变量
+    global xMaxISearchBox ; 搜索框中光标相对搜索框窗口左端最大距离
+    global xMinISearchBox ; 搜索框中光标相对搜索框窗口左端最小距离
+    ; 字符实际占宽与字节数的比值（以字体大小10为标准）
+    ; 其它字体大小可以按比例换算之
+    ; 此比例作为全局变量不清空，可被其它程序使用
+    global ratioS10StrWidthAndBtyeLen 
 
+    ; 相对当前活动窗口的光标坐标模式
+    CoordMode, Caret, Relative
+    ; 光标最大x坐标和最小x坐标初始化
+    if (not xMaxISearchBox) {
+        xMaxISearchBox := A_CaretX
+        xMinISearchBox := A_CaretX
+    }
+    ; 输入内容的字节个数（不是字符长度）
     GuiControlGet, searchBoxText
-    width := Max(Ceil(10*StrLen(searchBoxText)),100)
-    if (width > 100){
+    btyeSize_ := StrPut(searchBoxText, "UTF-8")
+    ; 计算字符实际占宽与字符长度的比值
+    if (btyeSize_ > 0) and  (A_CaretX > xMaxISearchBox){
+        xMaxISearchBox := A_CaretX
+        ratioS10StrWidthAndBtyeLen := (xMaxISearchBox - xMinISearchBox) / btyeSize_
+    }
+    ; 计算输入字符的实际占宽
+    if (btyeSize_ > 0) and ((width := Ceil(ratioS10StrWidthAndBtyeLen * btyeSize_) + 25 ) > 50) and (width < 200){
         GuiControl, Move, searchBoxText, w%width% ;设置搜索框控件宽
         Gui, Show, w%width%
     }
@@ -382,9 +429,12 @@ SearchBoxEnterHandler(){
     global searchBoxText   ; 搜索框文本内容的关联变量
     ; searchBoxActionFun(searchText) : 实际触发的动作函数，searchText是已输入的搜索关键词
     global searchBoxActionFun
+    global xMaxISearchBox := 0 ; 搜索框中光标相对搜索框窗口左端最大距离
+    global xMinISearchBox := 0 ; 搜索框中光标相对搜索框窗口左端最小距离
+    global ratioS10StrWidthAndBtyeLen 
 
     Gui, FollowSearchBoxWin:Submit
-    Gui, Hide
+    Gui, FollowSearchBoxWin:Hide
 
     ; 触发的动作函数
     if (StrLen(Trim(searchBoxText)) > 0) {
@@ -394,7 +444,10 @@ SearchBoxEnterHandler(){
 
 ; 搜索框窗口外鼠标点击关闭窗口
 SearchBoxLButtonHandler(){
+    global xMaxISearchBox := 0 ; 搜索框中光标相对搜索框窗口左端最大距离
+    global xMinISearchBox := 0 ; 搜索框中光标相对搜索框窗口左端最小距离
     global searchBoxHWND ; 搜索框窗口句柄
+
     MouseGetPos,,, Temp1
     if (Temp1 != searchBoxHWND){
         Gui, FollowSearchBoxWin:Hide

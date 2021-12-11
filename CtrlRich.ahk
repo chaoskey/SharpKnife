@@ -676,17 +676,48 @@ searchTextClipForPaste(search){
     for i_ , v_ in cliparray{
         if FileExist(".clip\" v_ ".clip"){
             FileRead,Clipboard,*c .clip\%v_%.clip
-            clip := StrSplit(Trim(Clipboard, " `t`r`n"), "`r`n")
-            ; 确保只处理单行文本
-            if (clip.Length() != 1) {
-                Continue
-            }
-            clip := Trim(clip[1])
+            ; 只标记文本clip
+            clip := Trim(Clipboard)
             if (clip = "") {
                 Continue
             }
-            ; 单行匹配收集
-            if InStr(clip, search){
+            ; 大段内容概览(大于70个字符)，简单内容全部显示
+            if (searchIdx := InStr(clip, search)){
+                if (StrLen(clip) > 70) {
+                    ; 内容概览裁剪
+
+                    clip_end := InStr(clip, "`r`n" , , searchIdx)
+                    if clip_end {
+                        clip := SubStr(clip, 1 , clip_end - 1)
+                    }
+                    clip_start := InStr(clip, "`r`n" , , 0)
+                    if clip_start {
+                        clip := SubStr(clip, clip_start + 2)
+                    }
+                    clip := Trim(clip)
+                    if ((L__ := StrLen(clip)) > 62){
+                        searchIdx := InStr(clip, search)
+                        l_ := StrLen(search)
+                        L1__ := searchIdx - 1
+                        L2__ := L__ - l_ - L1__
+                        l1_ := (62 - l_)//2
+                        l2_ := 62 - l_ - l1_
+                        if (L1__ < l1_){
+                            l1_ := L1__
+                            l2_ := 62 - l_ - l1_
+                        }else if (L2__ < l2_){
+                            l2_ := L2__
+                            l1_ := 62 - l_ - l2_
+                        }
+                        clip := SubStr(clip, searchIdx - l1_ , 62)
+                        if (l1_ < L1__){
+                            clip := "... " clip
+                        }
+                        if (l2_ < L2__){
+                            clip := clip " ..."
+                        }
+                    }
+                }
                 if InStr(tagcliparray, "`n" v_ "`n"){
                     ; 特殊标记clip靠前
                     matchedSingleLineClip.InsertAt(1, "[★]" clip )
@@ -703,11 +734,13 @@ searchTextClipForPaste(search){
     {
         ; 准备列表数据，并计算提示窗口的长宽
         maxWidth := 100
-        maxHeight := Min(Max(Ceil(20*matchedSingleLineClip.Length()),40),200)
+        maxHeight := Min(Max(Ceil(getRatioS10StrHeightAndStrRow()*matchedSingleLineClip.Length()),40),200)
         suggList := ""
         for index, value in matchedSingleLineClip
         {
-            maxWidth := Max(Ceil(10*StrLen(value)),maxWidth)
+            ; 计算字节数（而非字符数）
+            btyeSize_ := StrPut(value, "UTF-8")
+            maxWidth := Max(Ceil(getRatioS10StrWidthAndBtyeLen()*btyeSize_),maxWidth)
             suggList := suggList value "`n"
         }
         maxWidth := Min(maxWidth,500)
@@ -734,9 +767,11 @@ SearchPasteHandler(index){
         FileAppend , % currclip "`n", .clip\clip.tag
         tagcliparray := tagcliparray currclip "`n"
     }
-    ; 将选择的clip移到最新(并且读入到剪切板)
-    moveClip()
+    ; 读入到剪切板
+    readClip()
     ; 主动将剪切板的内容粘贴
     Send, ^v
+    ; 将选择的clip移到最新(并且读入到剪切板)
+    moveClip()
 }
 
