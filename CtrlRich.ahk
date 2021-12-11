@@ -724,25 +724,19 @@ SearchPasteHandler(index){
 
     global cliparray ; clip文件名列表
     global activeclip ; 当前clip文件名索引
-    global matchedSingleLineClip ; 匹配到的所有单行文本
     global matchedSingleLineClipIndex ; 匹配到的所有单行文本在cliparray中的索引 
     global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
 
-    ; 选择粘贴(只作文本发送)
-    clip := Trim(matchedSingleLineClip[index])
-    if (InStr(clip, "[★]")){
-        clip := Trim(SubStr(clip, 4))
-    }
-    Send, % "{Text}" clip
     ; 凡是搜索选择过的内容，都认为是比较重要的，所以特别添加到.clip\clip.tag中标记之 
     activeclip := matchedSingleLineClipIndex[index]
     currclip := cliparray[activeclip]
-    if (tagcliparray = "`n") or (0 = InStr(tagcliparray, "\n"currclip "\n")) {
+    if (tagcliparray = "`n") or (0 = InStr(tagcliparray, "`n" currclip "`n")) {
         FileAppend , % currclip "`n", .clip\clip.tag
         tagcliparray := tagcliparray currclip "`n"
     }
-
-    ; 将选择的clip移到最新
+    ; 将选择的clip移到最新(并且读入到剪切板)
     moveClip()
+    ; 主动将剪切板的内容粘贴
+    Send, ^v
 }
 
