@@ -206,7 +206,6 @@ ShowSuggestionsGui(_suggList_, _actionFun_, maxSize_ := "200,20"){
         return
     }
 
-    
     maxSize_ := StrSplit(maxSize_, ",")
     maxWidth := maxSize_[1]
     maxHeight := maxSize_[2] 
@@ -248,7 +247,6 @@ SetupSuggestionsGui(){
         Gui, -Caption +ToolWindow +AlwaysOnTop +LastFound
         suggHWND := WinExist()
         Gui, Show, h165 Hide, SuggCompleteWin
-        Gui, Suggestions:Hide
 
         ; 提示窗口热键处理
         Hotkey, IfWinExist, SuggCompleteWin ahk_class AutoHotkeyGUI
@@ -301,5 +299,104 @@ SuggLButtonHandler(){
     MouseGetPos,,, Temp1
     if (Temp1 != suggHWND){
         Gui, Suggestions:Hide
+    }
+}
+
+
+/*
+    简单的跟随搜索框
+    
+用到此函数族的功能块： CtrlRich.ahk
+下面这族函数，用户只需要调用ShowFollowSearchBox(...)
+*/
+
+; 显示简单的跟随搜索框
+ShowFollowSearchBox(_actionFun_){ 
+    global searchBoxText  ; 搜索框文本内容的关联变量
+    ; searchBoxActionFun(searchText) : 实际触发的动作函数，searchText是已输入的搜索关键词
+    global searchBoxActionFun := _actionFun_
+
+    ; 创建搜索框(只创建一次)
+    SetupSearchBoxGui()
+    ; 编辑框清空
+    Gui, FollowSearchBoxWin:Default
+    GuiControl,, searchBoxText, % ""
+    ; 当前光标或鼠标位置
+    CoordMode, Caret, Screen
+    if (not A_CaretX){
+        CoordMode, Mouse, Screen
+        MouseGetPos, posX, posY
+        posX := posX + 10
+    }else {
+        posX := A_CaretX
+        posY := A_CaretY
+    }
+    if (posX + maxWidth > A_ScreenWidth) {
+        posX := posX - maxWidth
+    }
+    if (posY + maxHeight > A_ScreenHeight) {
+        posY := posY - maxHeight
+    }
+    ; 跟随光标显示搜索框
+    Gui, Show, x%posX% y%posY%
+}
+
+; 创建搜索框(只创建一次)
+SetupSearchBoxGui(){
+    global searchBoxText  ; 搜索框文本内容的关联变量
+    global searchBoxHWND  ; 搜索框窗口句柄
+
+    if (not searchBoxHWND) {
+        ; 设置搜索框
+        Gui, FollowSearchBoxWin:Default
+        Gui, Font, s10, Courier New
+        Gui, Add, Edit, x0 y0 w100 vsearchBoxText gupdateSearchBoxWidth  
+        Gui, -Caption +ToolWindow +AlwaysOnTop +LastFound
+        searchBoxHWND := WinExist()
+        GuiControlGet, tmp , Pos, searchBoxText
+        Gui, Show, w%tmpW% h%tmpH% Hide, FollowSearchBoxWin
+        ; 搜索框热键处理
+        Hotkey, IfWinExist, FollowSearchBoxWin ahk_class AutoHotkeyGUI
+        Hotkey, ~LButton, SearchBoxLButtonHandler
+        Hotkey, Enter, SearchBoxEnterHandler
+        Hotkey, IfWinExist
+    }
+}
+
+; 动态更新搜索框的长度
+updateSearchBoxWidth(){
+    global searchBoxText  ; 搜索框文本内容的关联变量
+
+    GuiControlGet, searchBoxText
+    width := Max(Ceil(10*StrLen(searchBoxText)),100)
+    if (width > 100){
+        GuiControl, Move, searchBoxText, w%width% ;设置搜索框控件宽
+        Gui, Show, w%width%
+    }
+}
+
+; 搜索框回车确认
+SearchBoxEnterHandler(){ 
+    Critical
+
+    global searchBoxText   ; 搜索框文本内容的关联变量
+    ; searchBoxActionFun(searchText) : 实际触发的动作函数，searchText是已输入的搜索关键词
+    global searchBoxActionFun
+
+    Gui, FollowSearchBoxWin:Submit
+    Gui, Hide
+
+    ; 触发的动作函数
+    if (StrLen(Trim(searchBoxText)) > 0) {
+        %searchBoxActionFun%(searchBoxText)
+    }
+}
+
+; 搜索框窗口外鼠标点击关闭窗口
+SearchBoxLButtonHandler(){
+    global searchBoxHWND ; 搜索框窗口句柄
+    MouseGetPos,,, Temp1
+    if (Temp1 != searchBoxHWND){
+        Gui, FollowSearchBoxWin:Hide
     }
 }

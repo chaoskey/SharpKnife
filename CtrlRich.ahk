@@ -224,7 +224,7 @@ execCtrlDownUPCmd(){
         ; 进入搜索粘贴模式
         ; 只搜索剪切板中的文本内容
         ; 凡是搜索过的内容，都不会被“全部删除命令a”删除
-        searchTextClipForPaste()
+        ShowFollowSearchBox("searchTextClipForPaste")
     } else if (ctrlCmd = "cc"){
         ; 消除已有提示信息
         clearToolTip()
@@ -656,20 +656,22 @@ deletScreenPaste(hWND){
 ; 进入搜索粘贴模式
 ; 只搜索单行文本剪切板内容，因为常用需要粘贴都是单行的
 ; 凡是搜索过的内容，都不会被“全部删除命令a”删除，但可以被“删除命令d”删除
-searchTextClipForPaste(){
+searchTextClipForPaste(search){
     global cliparray ; clip文件名列表
     global matchedSingleLineClip := [] ; 匹配到的所有单行文本
     global matchedSingleLineClipIndex := [] ; 匹配到的所有单行文本在cliparray中的索引
     global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
 
+    ; 【这种输入只支持英文字符（弃用），现在已改用文本编辑框】
     ; 输入搜索关键词，然后空格确认
     ; 等候输入
-    Input, search, V C , {space}{tab}{enter}{esc}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}{Up}{Down}{Home}{End}{PgUp}{PgDn}{CapsLock}{NumLock}{PrintScreen}{Pause}
+    ;Input, search, V C , {space}{tab}{enter}{esc}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}{Up}{Down}{Home}{End}{PgUp}{PgDn}{CapsLock}{NumLock}{PrintScreen}{Pause}
     ; 非space终止符触发，表示放弃
     ; 有些环境tab具有自动补全功能，为了避免冲突，特意改用空格(Space)作为输入终止符
-    if (ErrorLevel != "EndKey:space"){
-        return
-    }
+    ;if (ErrorLevel != "EndKey:space"){
+    ;    return
+    ;}
+
     ; 搜索
     for i_ , v_ in cliparray{
         if FileExist(".clip\" v_ ".clip"){
@@ -699,9 +701,6 @@ searchTextClipForPaste(){
     ; 弹出建议窗口
     if (matchedSingleLineClip.Length() > 0)
     {
-        n_ := StrLen(search)+1
-        Send, {bs %n_%}
-        Sleep 30 ; 延迟30毫秒，确保弹出提示窗口前退格完成（似乎没有同步发送的API，只能这样）
         ; 准备列表数据，并计算提示窗口的长宽
         maxWidth := 100
         maxHeight := Min(Max(Ceil(20*matchedSingleLineClip.Length()),40),200)
