@@ -1,7 +1,7 @@
 ;@Ahk2Exe-SetProductName    Ctrl增强 
-;@Ahk2Exe-SetProductVersion 2021.12.07
+;@Ahk2Exe-SetProductVersion 2021.12.13
 ;@Ahk2Exe-SetDescription Ctrl增强 
-;@Ahk2Exe-SetFileVersion    2021.12.07
+;@Ahk2Exe-SetFileVersion    2021.12.13
 ;@Ahk2Exe-SetCopyright @2021-2025
 ;@Ahk2Exe-SetLanguage 0x0804
 ;@Ahk2Exe-SetOrigFilename CtrlRich
@@ -64,6 +64,7 @@ $^s::
 $^d::
 $^a::
 $^f::
+$^e::
 CtrlHandler()
 return
 
@@ -217,7 +218,15 @@ execCtrlDownUPCmd(){
     global activeclip ; 当前clip文件名索引
     global activepaste ; 当前桌面贴图索引
 
-    if (ctrlCmd = "ss"){
+    if (ctrlCmd = "ve"){
+        ; 消除已有提示信息
+        clearToolTip()
+        clip := Trim(clipboard)
+        if (clip != "") {
+            ; 进入当前剪切板编辑(只对文本内容进行编辑)
+            ShowFollowEditBox(clip, "saveTextToClipAndPaste")
+        }
+    } else if (ctrlCmd = "ss"){
         ; 消除已有提示信息
         clearToolTip()
         ; 进入搜索粘贴模式
@@ -755,6 +764,37 @@ SearchPasteHandler(index){
     }
     ; 读入到剪切板
     readClip()
+    ; 主动将剪切板的内容粘贴
+    Send, ^v
+    ; 将选择的clip移到最新(并且读入到剪切板)
+    moveClip()
+}
+
+; 将文本内容保存到当前粘贴板，然后粘贴
+saveTextToClipAndPaste(saveText){
+    global cliparray ; clip文件名列表
+    global activeclip ; 当前clip文件名索引
+
+    ; 确保合法操作
+    if (activeclip = 0) and (cliparray.Length() > 0){
+        activeclip := 1
+    }
+    if (activeclip = 0) {
+        return
+    }
+    ; 如果是空文本，意味着删除当前clip
+    saveText := Trim(saveText)
+    if (saveText = "") {
+        deleteClip()
+        Clipboard := ""
+        return
+    }
+    ; 将修改后的内容保存到对应文件，并且写入剪切板
+    currclip := cliparray[activeclip]
+    IfExist,.clip\%currclip%.clip
+        FileDelete,.clip\%currclip%.clip
+    Clipboard := saveText
+    FileAppend,%ClipboardAll%,.clip\%currclip%.clip
     ; 主动将剪切板的内容粘贴
     Send, ^v
     ; 将选择的clip移到最新(并且读入到剪切板)

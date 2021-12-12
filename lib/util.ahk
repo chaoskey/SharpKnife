@@ -208,6 +208,55 @@ pasteImageToScreen(pBitmap, crop := False, position := False, alpha := 255, scal
 	return hWND
 }
 
+/*
+    文本像素长宽估算
+
+getTextsWidthHeight(texts, size_, ByRef width, ByRef height)  文本像素长宽估算
+getTextListWidthHeight(textList, size_, ByRef width, ByRef height, ByRef texts) 文本列表像素长宽估算
+*/
+
+
+; 字符实际占宽与字节数的比值（以字体大小10为标准）
+; 其它字体大小可以按比例换算之
+; 注意: 本质是估算
+getRatioS10StrWidthAndBtyeLen(){
+    global ratioS10StrWidthAndBtyeLen
+    if (not ratioS10StrWidthAndBtyeLen) {
+        ; 如果没有被计算过，则返回一个经验值
+        return 9.0
+    }else {
+        ; 曾经被计算过，直接返回即可
+        return ratioS10StrWidthAndBtyeLen
+    }
+}
+
+; 估算文本所占像素长宽
+; text_   多行文本
+; size_   字符大小
+getTextsWidthHeight(texts, size_, ByRef width, ByRef height){
+    rows := 0
+    maxBtyeSize := 0
+    Loop, parse, texts, `n, `r  ; 在 `r 之前指定 `n, 这样可以同时支持对 Windows 和 Unix 文件的解析.
+    {
+        rows := A_Index
+        maxBtyeSize := Max(StrPut(A_LoopField, "UTF-8") - 1, StrLen(A_LoopField), maxBtyeSize)
+    }
+    height := 2*size_*rows
+    width := Ceil(size_ * getRatioS10StrWidthAndBtyeLen() * maxBtyeSize /10) + 25
+}
+getTextListWidthHeight(textList, size_, ByRef width, ByRef height, ByRef texts){
+    rows := 0
+    maxBtyeSize := 0
+    texts := ""
+    for i_, v_ in textList{
+        rows := i_
+        maxBtyeSize := Max(StrPut(v_, "UTF-8") - 1, StrLen(v_), maxBtyeSize)
+        texts := texts v_ "`n"
+    }
+    texts := Trim(texts, " `t`r`n")
+    height := 2*size_*rows
+    width := Ceil(size_ * getRatioS10StrWidthAndBtyeLen() * maxBtyeSize /10) + 25
+}
 
 /*
     基于简单列表的跟随提示
@@ -225,32 +274,19 @@ ShowSuggestionsGui(_suggList_, _actionFun_){
     global suggActionFun := _actionFun_
 
     ; 准备列表数据，并计算提示窗口的长宽
-    maxWidth := 100
-    maxHeight := Min(Max(Ceil(getRatioS10StrHeightAndStrRow()*_suggList_.Length()),40),200)
-    suggList := ""
-    for index, value in _suggList_
-    {
-        ; 计算字节数（而非字符数）
-        btyeSize_ := Max(StrPut(value, "UTF-8") - 1, StrLen(value))
-        maxWidth := Max(Ceil(getRatioS10StrWidthAndBtyeLen()*btyeSize_),maxWidth)
-        suggList := suggList value "`n"
-    }
-    suggList := Trim(suggList)
-    maxWidth := Min(maxWidth,600)
-
+    getTextListWidthHeight(_suggList_, 10, width, height, suggList)
+    height := Min(Max(height,40),200)
+    width := Min(Max(width,100),600)
     ; 创建显示列表提示窗口(如果已创建，则利用已创建的窗口)
     SetupSuggestionsGui()
-
     Gui, Suggestions:Default
-    if (_suggList_ = ""){
+    if (suggList = ""){
         Gui, Suggestions:Hide
         return
     }
-
     GuiControl,, suggMatchedID, `n%suggList%
     GuiControl, Choose, suggMatchedID, 1
-    GuiControl, Move, suggMatchedID, w%maxWidth% h%maxHeight% ;设置控件宽高
-
+    GuiControl, Move, suggMatchedID, w%width% h%height% ;设置控件宽高
     ; 当前光标或鼠标位置
     CoordMode, Caret, Screen
     if (not A_CaretX){
@@ -261,13 +297,13 @@ ShowSuggestionsGui(_suggList_, _actionFun_){
         posX := A_CaretX
         posY := A_CaretY + 20
     }
-    if (posX + maxWidth > A_ScreenWidth) {
-        posX := posX - maxWidth
+    if (posX + width > A_ScreenWidth) {
+        posX := posX - width
     }
-    if (posY + maxHeight > A_ScreenHeight) {
-        posY := posY - maxHeight
+    if (posY + height > A_ScreenHeight) {
+        posY := posY - height
     }
-    Gui, Show, x%posX% y%posY% w%maxWidth% h%maxHeight% NoActivate
+    Gui, Show, x%posX% y%posY% w%width% h%height% NoActivate
 }
 
 ; 创建显示列表提示窗口
@@ -284,7 +320,8 @@ SetupSuggestionsGui(){
         Gui, Add, ListBox, x0 y0 0x100 vsuggMatchedID gSuggCompleteAction AltSubmit
         Gui, -Caption +ToolWindow +AlwaysOnTop +LastFound
         suggHWND := WinExist()
-        Gui, Show, Hide, SuggCompleteWin
+        GuiControlGet, tmp, Pos , suggMatchedID
+        Gui, Show, w%tmpW% h%tmpH% Hide, SuggCompleteWin
         Gui, Suggestions:Hide
         ; 提示窗口热键处理
         Hotkey, IfWinExist, SuggCompleteWin ahk_class AutoHotkeyGUI
@@ -404,33 +441,6 @@ SetupSearchBoxGui(){
     }
 }
 
-; 字符实际占宽与字节数的比值（以字体大小10为标准）
-; 其它字体大小可以按比例换算之
-; 注意: 本质是估算
-getRatioS10StrWidthAndBtyeLen(){
-    global ratioS10StrWidthAndBtyeLen
-    if (not ratioS10StrWidthAndBtyeLen) {
-        ; 如果没有被计算过，则返回一个经验值
-        return 9.0
-    }else {
-        ; 曾经被计算过，直接返回即可
-        return ratioS10StrWidthAndBtyeLen
-    }
-}
-; 字符实际占高与字符行数的比值（以字体大小10为标准）
-; 其它字体大小可以按比例换算之
-; 注意: 本质是估算
-getRatioS10StrHeightAndStrRow(){
-    global ratioS10StrHeightAndStrRow
-    if (not ratioS10StrHeightAndStrRow) {
-        ; 如果没有被计算过，则返回一个经验值
-        return 20.
-    }else {
-        ; 曾经被计算过，直接返回即可
-        return ratioS10StrHeightAndStrRow
-    }
-}
-
 ; 动态更新搜索框的长度
 updateSearchBoxWidth(){
     global searchBoxText  ; 搜索框文本内容的关联变量
@@ -479,7 +489,6 @@ SearchBoxEnterHandler(){
     global searchBoxActionFun
     global xMaxISearchBox := 0 ; 搜索框中光标相对搜索框窗口左端最大距离
     global xMinISearchBox := 0 ; 搜索框中光标相对搜索框窗口左端最小距离
-    global ratioS10StrWidthAndBtyeLen 
 
     Gui, FollowSearchBoxWin:Default
     Gui, FollowSearchBoxWin:Submit
@@ -502,3 +511,103 @@ SearchBoxLButtonHandler(){
         Gui, FollowSearchBoxWin:Hide
     }
 }
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+/*
+    简单的跟随编辑框
+
+用到此函数族的功能块： CtrlRich.ahk
+下面这族函数，用户只需要调用ShowFollowEditBox(...)
+*/
+
+; 显示简单的跟随编辑框
+ShowFollowEditBox(clip, _actionFun_){
+    global editBoxText  ; 编辑框文本内容的关联变量
+    ; editBoxActionFun(editText) : 实际触发的动作函数，editText是已输入的内容
+    global editBoxActionFun := _actionFun_
+
+    ; 数据所占像素长宽
+    getTextsWidthHeight(clip, 10, width, height)
+    height := Min(Max(height,20),200)
+    width := Min(Max(width + 25,100),600)
+    ; 创建编辑框(只创建一次)
+    SetupEditBoxGui()
+    ; 填写编辑框
+    Gui, FollowEditBoxWin:Default
+    GuiControl,, editBoxText, %clip%
+    ; 当前光标或鼠标位置
+    CoordMode, Caret, Screen
+    if (not A_CaretX){
+        CoordMode, Mouse, Screen
+        MouseGetPos, posX, posY
+        posX := posX + 10
+    }else {
+        posX := A_CaretX
+        posY := A_CaretY
+    }
+    if (posX + width > A_ScreenWidth) {
+        posX := posX - width
+        posY := posY + 20
+    }
+    if (posY + height > A_ScreenHeight) {
+        posY := posY - height
+    }
+    ; 跟随光标显示搜索框
+    GuiControl, Move, editBoxText, w%width% h%height% ;设置搜索框控件宽
+    Gui, Show, x%posX% y%posY% w%width% h%height%
+}
+
+; 创建搜索框(只创建一次)
+SetupEditBoxGui(){
+    global editBoxText  ; 搜索框文本内容的关联变量
+    global editBoxHWND  ; 搜索框窗口句柄
+
+    if (not editBoxHWND) {
+        ; 设置搜索框
+        Gui, FollowEditBoxWin:Default
+        Gui, Font, s10, Courier New
+        Gui, Add, Edit, x0 y0 r3 veditBoxText
+        Gui, -Caption +ToolWindow +AlwaysOnTop +LastFound
+        editBoxHWND := WinExist()
+        GuiControlGet, tmp, Pos , editBoxText
+        Gui, Show, w%tmpW% h%tmpH% Hide, FollowEditBoxWin
+        Gui, FollowEditBoxWin:Hide
+        ; 搜索框热键处理
+        Hotkey, IfWinExist, FollowEditBoxWin ahk_class AutoHotkeyGUI
+        Hotkey, ~LButton, editBoxLButtonHandler
+        Hotkey, ^s, editBoxCtrlSHandler
+        Hotkey, IfWinExist
+    }
+}
+
+; 搜索框回车确认
+editBoxCtrlSHandler(){
+    Critical
+
+    global editBoxText   ; 搜索框文本内容的关联变量
+    ; editBoxActionFun(saveText) : 实际触发的动作函数，saveText是已输入的内容
+    global editBoxActionFun
+    global xMaxIEditBox := 0 ; 搜索框中光标相对搜索框窗口左端最大距离
+    global xMinIEditBox := 0 ; 搜索框中光标相对搜索框窗口左端最小距离
+
+    Gui, FollowEditBoxWin:Default
+    Gui, FollowEditBoxWin:Submit
+    Gui, FollowEditBoxWin:Hide
+
+    ; 触发的动作函数
+    %editBoxActionFun%(editBoxText)
+}
+
+; 搜索框窗口外鼠标点击关闭窗口
+editBoxLButtonHandler(){
+    global xMaxIEditBox := 0 ; 搜索框中光标相对搜索框窗口左端最大距离
+    global xMinIEditBox := 0 ; 搜索框中光标相对搜索框窗口左端最小距离
+    global editBoxHWND ; 搜索框窗口句柄
+
+    MouseGetPos,,, Temp1
+    if (Temp1 != editBoxHWND){
+        Gui, FollowEditBoxWin:Hide
+    }
+}
+
