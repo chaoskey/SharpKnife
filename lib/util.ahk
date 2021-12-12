@@ -403,6 +403,9 @@ updateSearchBoxWidth(){
     ; 此比例作为全局变量不清空，可被其它程序使用
     global ratioS10StrWidthAndBtyeLen 
 
+    Gui, FollowSearchBoxWin:Default
+    Gui, FollowSearchBoxWin:Show
+
     ; 相对当前活动窗口的光标坐标模式
     CoordMode, Caret, Relative
     ; 光标最大x坐标和最小x坐标初始化
@@ -412,16 +415,19 @@ updateSearchBoxWidth(){
     }
     ; 输入内容的字节个数（不是字符长度）
     GuiControlGet, searchBoxText
-    btyeSize_ := StrPut(searchBoxText, "UTF-8")
+    btyeSize_ := StrPut(searchBoxText, "UTF-8") - 1
+    if (btyeSize_ = 0){
+        return
+    }
     ; 计算字符实际占宽与字符长度的比值
-    if (btyeSize_ > 0) and  (A_CaretX > xMaxISearchBox){
+    if  (A_CaretX > xMaxISearchBox){
         xMaxISearchBox := A_CaretX
         ratioS10StrWidthAndBtyeLen := (xMaxISearchBox - xMinISearchBox) / btyeSize_
     }
     ; 计算输入字符的实际占宽
-    if (btyeSize_ > 0) and ((width := Ceil(ratioS10StrWidthAndBtyeLen * btyeSize_) + 25 ) < 200){
+    if ((width := Ceil(ratioS10StrWidthAndBtyeLen * btyeSize_) + 25 ) < 200){
         GuiControl, Move, searchBoxText, w%width% ;设置搜索框控件宽
-        Gui, Show, w%width%
+        Gui, FollowSearchBoxWin:Show, w%width%
     }
 }
 
