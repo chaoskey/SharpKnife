@@ -247,7 +247,7 @@ SetupSuggestionsGui(){
         Gui, -Caption +ToolWindow +AlwaysOnTop +LastFound
         suggHWND := WinExist()
         Gui, Show, h165 Hide, SuggCompleteWin
-
+        Gui, Suggestions:Hide
         ; 提示窗口热键处理
         Hotkey, IfWinExist, SuggCompleteWin ahk_class AutoHotkeyGUI
         Hotkey, ~LButton, SuggLButtonHandler
@@ -331,14 +331,16 @@ ShowFollowSearchBox(_actionFun_){
         posX := A_CaretX
         posY := A_CaretY
     }
-    if (posX + maxWidth > A_ScreenWidth) {
-        posX := posX - maxWidth
+    GuiControlGet, tmp, Pos , searchBoxText
+    if (posX + tmpW > A_ScreenWidth) {
+        posX := posX - tmpW
+        posY := posY + 20
     }
-    if (posY + maxHeight > A_ScreenHeight) {
-        posY := posY - maxHeight
+    if (posY + tmpH > A_ScreenHeight) {
+        posY := posY - tmpH
     }
     ; 跟随光标显示搜索框
-    Gui, Show, x%posX% y%posY%
+    Gui, Show, x%posX% y%posY% NoActivate
 }
 
 ; 创建搜索框(只创建一次)
@@ -350,11 +352,12 @@ SetupSearchBoxGui(){
         ; 设置搜索框
         Gui, FollowSearchBoxWin:Default
         Gui, Font, s10, Courier New
-        Gui, Add, Edit, x0 y0 w50 vsearchBoxText gupdateSearchBoxWidth
+        Gui, Add, Edit, x0 y0 w25 vsearchBoxText gupdateSearchBoxWidth
         Gui, -Caption +ToolWindow +AlwaysOnTop +LastFound
         searchBoxHWND := WinExist()
         GuiControlGet, tmp, Pos , searchBoxText
-        Gui, Show, w50 h%tmpH% Hide, FollowSearchBoxWin
+        Gui, Show, w25 h%tmpH% Hide, FollowSearchBoxWin
+        Gui, FollowSearchBoxWin:Hide
         ; 搜索框热键处理
         Hotkey, IfWinExist, FollowSearchBoxWin ahk_class AutoHotkeyGUI
         Hotkey, ~LButton, SearchBoxLButtonHandler
@@ -416,7 +419,7 @@ updateSearchBoxWidth(){
         ratioS10StrWidthAndBtyeLen := (xMaxISearchBox - xMinISearchBox) / btyeSize_
     }
     ; 计算输入字符的实际占宽
-    if (btyeSize_ > 0) and ((width := Ceil(ratioS10StrWidthAndBtyeLen * btyeSize_) + 25 ) > 50) and (width < 200){
+    if (btyeSize_ > 0) and ((width := Ceil(ratioS10StrWidthAndBtyeLen * btyeSize_) + 25 ) < 200){
         GuiControl, Move, searchBoxText, w%width% ;设置搜索框控件宽
         Gui, Show, w%width%
     }
@@ -433,6 +436,7 @@ SearchBoxEnterHandler(){
     global xMinISearchBox := 0 ; 搜索框中光标相对搜索框窗口左端最小距离
     global ratioS10StrWidthAndBtyeLen 
 
+    Gui, FollowSearchBoxWin:Default
     Gui, FollowSearchBoxWin:Submit
     Gui, FollowSearchBoxWin:Hide
 
