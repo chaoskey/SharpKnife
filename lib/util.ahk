@@ -4,6 +4,33 @@
 ;            通用的一些函数
 ;-----------------------------------------------
 
+/*
+    GDI+令牌:  global token_gdip 
+*/
+
+startupGdip(){
+    global token_gdip
+    if (not token_gdip){
+        ; 启动GDI+
+        If !token_gdip := Gdip_Startup()
+        {
+            MsgBox "启动GDI+启动失败，请确保您的系统中存在GDI+"
+            ExitApp
+        }
+        OnExit("ExitFunc")
+    }
+    return token_gdip
+}
+
+ExitFunc(ExitReason, ExitCode)
+{
+    global token_gdip
+    if token_gdip {
+        Gdip_Shutdown(pToken)
+    }
+}
+
+
 
 /*    选择屏幕上的矩形区域   
 指定键 button_ 从“按下”到“松开”拉出的矩形区域（相对整个屏幕）

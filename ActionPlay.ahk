@@ -24,7 +24,6 @@
 
 FileEncoding , UTF-8-RAW
 
-#Include lib\TokenGdip.ahk
 #Include lib\util.ahk
 
 ; 托盘提示
