@@ -260,18 +260,16 @@ HotlatexHandler()
         ; 准备列表数据，并计算提示窗口的长宽
         maxWidth := 100
         maxHeight := Min(Max(Ceil(20*matches.Length()),40),200)
-        suggList := ""
+        suggList := []
         for index, value in matches
         {
             ; 通过添加后缀来表示热LaTeX索引,  Unicode剔除额外标记“:”
             itemName := getLaTeXHot(value) "=" LTrim(getUnicode(value), ":")
             maxWidth := Max(Ceil(10*StrLen(itemName)),maxWidth)
-            suggList := suggList itemName "`n"
+            suggList.Push(itemName)
         }
-        maxWidth := Min(maxWidth,500)
-        maxWH := maxWidth "," maxHeight
         ; 弹出提示窗口
-        ShowSuggestionsGui(suggList, "SelectHandler", maxWH)
+        ShowSuggestionsGui(suggList, "SelectHandler")
         return
     }
 

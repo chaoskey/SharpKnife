@@ -681,9 +681,10 @@ searchTextClipForPaste(search){
             if (clip = "") {
                 Continue
             }
-            ; 大段内容概览(大于70个字符)，简单内容全部显示
+            ; 大段内容概览(大于showWidth个字符)，简单内容全部显示
+            showWidth := 62   ; 适配提示窗口的最大显示宽度
             if (searchIdx := InStr(clip, search)){
-                if (StrLen(clip) > 70) {
+                if (StrLen(clip) > showWidth) {
                     ; 内容概览裁剪
 
                     clip_end := InStr(clip, "`r`n" , , searchIdx)
@@ -695,21 +696,21 @@ searchTextClipForPaste(search){
                         clip := SubStr(clip, clip_start + 2)
                     }
                     clip := Trim(clip)
-                    if ((L__ := StrLen(clip)) > 62){
+                    if ((L__ := StrLen(clip)) > showWidth - 8){
                         searchIdx := InStr(clip, search)
                         l_ := StrLen(search)
                         L1__ := searchIdx - 1
                         L2__ := L__ - l_ - L1__
-                        l1_ := (62 - l_)//2
-                        l2_ := 62 - l_ - l1_
+                        l1_ := (showWidth - 8 - l_)//2
+                        l2_ := showWidth - 8 - l_ - l1_
                         if (L1__ < l1_){
                             l1_ := L1__
-                            l2_ := 62 - l_ - l1_
+                            l2_ := showWidth - 8 - l_ - l1_
                         }else if (L2__ < l2_){
                             l2_ := L2__
-                            l1_ := 62 - l_ - l2_
+                            l1_ := showWidth - 8 - l_ - l2_
                         }
-                        clip := SubStr(clip, searchIdx - l1_ , 62)
+                        clip := SubStr(clip, searchIdx - l1_ , showWidth - 8)
                         if (l1_ < L1__){
                             clip := "... " clip
                         }
@@ -732,22 +733,8 @@ searchTextClipForPaste(search){
     ; 弹出建议窗口
     if (matchedSingleLineClip.Length() > 0)
     {
-        ; 准备列表数据，并计算提示窗口的长宽
-        maxWidth := 100
-        maxHeight := Min(Max(Ceil(getRatioS10StrHeightAndStrRow()*matchedSingleLineClip.Length()),40),200)
-        suggList := ""
-        for index, value in matchedSingleLineClip
-        {
-            ; 计算字节数（而非字符数）
-            btyeSize_ := StrPut(value, "UTF-8")
-            maxWidth := Max(Ceil(getRatioS10StrWidthAndBtyeLen()*btyeSize_),maxWidth)
-            suggList := suggList value "`n"
-        }
-        maxWidth := Min(maxWidth,500)
-        maxWH := maxWidth "," maxHeight
         ; 弹出提示窗口
-        ShowSuggestionsGui(suggList, "SearchPasteHandler", maxWH)
-        return
+        ShowSuggestionsGui(matchedSingleLineClip, "SearchPasteHandler")
     }
 }
 

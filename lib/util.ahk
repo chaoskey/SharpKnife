@@ -190,12 +190,26 @@ pasteImageToScreen(pBitmap, crop := False, position := False, alpha := 255, scal
 */
 
 ; 显示列表提示窗口
-ShowSuggestionsGui(_suggList_, _actionFun_, maxSize_ := "200,20"){ 
+ShowSuggestionsGui(_suggList_, _actionFun_){ 
     ; _suggList_   ; 提示列表数据（用`n分割的字符串）
     ; _actionFun_(index) ; 实际触发的动作函数，index是已选项的索引
 
     global suggMatchedID ; 提示窗口匹配项的控件ID
     global suggActionFun := _actionFun_
+
+    ; 准备列表数据，并计算提示窗口的长宽
+    maxWidth := 100
+    maxHeight := Min(Max(Ceil(getRatioS10StrHeightAndStrRow()*_suggList_.Length()),40),200)
+    suggList := ""
+    for index, value in _suggList_
+    {
+        ; 计算字节数（而非字符数）
+        btyeSize_ := Max(StrPut(value, "UTF-8") - 1, StrLen(value))
+        maxWidth := Max(Ceil(getRatioS10StrWidthAndBtyeLen()*btyeSize_),maxWidth)
+        suggList := suggList value "`n"
+    }
+    suggList := Trim(suggList)
+    maxWidth := Min(maxWidth,600)
 
     ; 创建显示列表提示窗口(如果已创建，则利用已创建的窗口)
     SetupSuggestionsGui()
@@ -206,10 +220,7 @@ ShowSuggestionsGui(_suggList_, _actionFun_, maxSize_ := "200,20"){
         return
     }
 
-    maxSize_ := StrSplit(maxSize_, ",")
-    maxWidth := maxSize_[1]
-    maxHeight := maxSize_[2] 
-    GuiControl,, suggMatchedID, `n%_suggList_%
+    GuiControl,, suggMatchedID, `n%suggList%
     GuiControl, Choose, suggMatchedID, 1
     GuiControl, Move, suggMatchedID, w%maxWidth% h%maxHeight% ;设置控件宽高
 
@@ -243,10 +254,10 @@ SetupSuggestionsGui(){
         Gui, Suggestions:Default
         Gui, Font, s10, Courier New
         Gui, +Delimiter`n
-        Gui, Add, ListBox, x0 y0 h165 0x100 vsuggMatchedID gSuggCompleteAction AltSubmit
+        Gui, Add, ListBox, x0 y0 0x100 vsuggMatchedID gSuggCompleteAction AltSubmit
         Gui, -Caption +ToolWindow +AlwaysOnTop +LastFound
         suggHWND := WinExist()
-        Gui, Show, h165 Hide, SuggCompleteWin
+        Gui, Show, Hide, SuggCompleteWin
         Gui, Suggestions:Hide
         ; 提示窗口热键处理
         Hotkey, IfWinExist, SuggCompleteWin ahk_class AutoHotkeyGUI
@@ -373,7 +384,7 @@ getRatioS10StrWidthAndBtyeLen(){
     global ratioS10StrWidthAndBtyeLen
     if (not ratioS10StrWidthAndBtyeLen) {
         ; 如果没有被计算过，则返回一个经验值
-        return 8.0
+        return 9.0
     }else {
         ; 曾经被计算过，直接返回即可
         return ratioS10StrWidthAndBtyeLen
@@ -415,7 +426,7 @@ updateSearchBoxWidth(){
     }
     ; 输入内容的字节个数（不是字符长度）
     GuiControlGet, searchBoxText
-    btyeSize_ := StrPut(searchBoxText, "UTF-8") - 1
+    btyeSize_ := Max(StrPut(searchBoxText, "UTF-8") - 1, StrLen(searchBoxText))
     if (btyeSize_ = 0){
         return
     }
@@ -425,7 +436,8 @@ updateSearchBoxWidth(){
         ratioS10StrWidthAndBtyeLen := (xMaxISearchBox - xMinISearchBox) / btyeSize_
     }
     ; 计算输入字符的实际占宽
-    if ((width := Ceil(ratioS10StrWidthAndBtyeLen * btyeSize_) + 25 ) < 200){
+    width := Ceil(ratioS10StrWidthAndBtyeLen * btyeSize_) + 25
+    if (width <= 200){
         GuiControl, Move, searchBoxText, w%width% ;设置搜索框控件宽
         Gui, FollowSearchBoxWin:Show, w%width%
     }
