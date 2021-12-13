@@ -504,6 +504,7 @@ indexClip(renumber := False){
         activeclip := 1
         ; 保证和剪切板同步
         readClip()
+        activeclip := 0
     }
 }
 
