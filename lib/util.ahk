@@ -262,6 +262,35 @@ getTextListWidthHeight(ByRef width, ByRef height, ByRef texts, textList , Option
 }
 
 /*
+    光标或鼠标跟随提示
+
+text_ 提示内容
+timeout(ms) 超时消失 ，如果 <=0 表示不消失
+*/
+FollowToolTip(text_, timeout)
+{
+    ; 当前光标或鼠标位置
+    CoordMode, Caret, Screen
+    if (not A_CaretX){
+        CoordMode, Mouse, Screen
+        MouseGetPos, posX, posY
+        posX := posX + 10
+    }else {
+        posX := A_CaretX
+        posY := A_CaretY + 20
+    }
+    CoordMode, ToolTip, Screen
+    ToolTip, %text_%, %posX%, %posY%
+    if (timeout > 0){
+        SetTimer, RemoveFollowToolTip, -%timeout%
+    }
+}
+
+RemoveFollowToolTip:
+ToolTip
+return
+
+/*
     基于简单列表的跟随提示
     
 用到此函数族的功能块： LaTeXHelper.ahk CtrlRich.ahk
@@ -279,7 +308,7 @@ ShowSuggestionsGui(_suggList_, _actionFun_){
     ; 准备列表数据，并计算提示窗口的长宽
     getTextListWidthHeight(width, height, suggList, _suggList_ , "s10", "Courier New")
     width := Min(Max(width,100),600)
-    height := Min(Max(height,40),200)
+    height := Min(Max(height,20),200)
     ; 创建显示列表提示窗口(如果已创建，则利用已创建的窗口)
     SetupSuggestionsGui()
     Gui, Suggestions:Default
@@ -320,7 +349,7 @@ SetupSuggestionsGui(){
         Gui, Suggestions:Default
         Gui, Font, s10, Courier New
         Gui, +Delimiter`n
-        Gui, Add, ListBox, x0 y0 0x100 vsuggMatchedID gSuggCompleteAction AltSubmit
+        Gui, Add, ListBox, x0 y0 0x100 -VScroll -HScroll vsuggMatchedID gSuggCompleteAction AltSubmit
         Gui, -Caption +ToolWindow +AlwaysOnTop +LastFound
         suggHWND := WinExist()
         GuiControlGet, tmp, Pos , suggMatchedID
@@ -529,7 +558,7 @@ ShowFollowEditBox(clip, _actionFun_){
     Gui, Show, x%posX% y%posY% w%width% h%height% ; NoActivate
 }
 
-; 创建搜索框(只创建一次)
+; 创建编辑框(只创建一次)
 SetupEditBoxGui(){
     global editBoxText  ; 搜索框文本内容的关联变量
     global editBoxHWND  ; 搜索框窗口句柄

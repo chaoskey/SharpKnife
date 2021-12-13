@@ -263,25 +263,10 @@ getImState()
 
 IMToolTip(imState)
 {
-    ; 当前光标或鼠标位置
-    CoordMode, Caret, Screen
-    if (not A_CaretX){
-        CoordMode, Mouse, Screen
-        MouseGetPos, posX, posY
-        posX := posX + 10
-    }else {
-        posX := A_CaretX
-        posY := A_CaretY + 20
-    }
-    CoordMode, ToolTip, Screen
+    ; 1秒钟后消失
     if (imState = 1)
-        ToolTip, 中, %posX%, %posY%
+        FollowToolTip("中", 1000)
     else
-        ToolTip, EN, %posX%, %posY%
-    SetTimer, RemoveIMToolTip, -1000
+        FollowToolTip("EN", 1000)
 }
-
-RemoveIMToolTip:
-ToolTip
-return
 

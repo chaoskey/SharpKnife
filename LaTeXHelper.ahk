@@ -323,14 +323,9 @@ if (not unicodeMode){
 }
 unicodeMode := Mod(unicodeMode+1,2)
 if unicodeMode {
-    ToolTip, unicode模式
+    FollowToolTip("unicode模式", 1000)
 }else{
-    ToolTip, latex助手模式
+    FollowToolTip("latex助手模式", 1000)
 }
-SetTimer, RemoveLatexToolTip, -1000
-return
-
-RemoveLatexToolTip:    ; 删除当前模式提示
-ToolTip
 return
 
