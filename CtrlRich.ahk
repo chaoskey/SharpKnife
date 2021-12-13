@@ -221,7 +221,7 @@ execCtrlDownUPCmd(){
     if (ctrlCmd = "ve"){
         ; 消除已有提示信息
         clearToolTip()
-        clip := Trim(clipboard)
+        clip := Trim(clipboard, "`r`n")
         if (clip != "") {
             ; 进入当前剪切板编辑(只对文本内容进行编辑)
             ShowFollowEditBox(clip, "saveTextToClipAndPaste")
@@ -783,8 +783,8 @@ saveTextToClipAndPaste(saveText){
         return
     }
     ; 如果是空文本，意味着删除当前clip
-    saveText := Trim(saveText)
-    if (saveText = "") {
+    saveText := Trim(saveText, "`r`n")
+    if (Trim(saveText) = "") {
         deleteClip()
         Clipboard := ""
         return

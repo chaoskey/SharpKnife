@@ -209,53 +209,56 @@ pasteImageToScreen(pBitmap, crop := False, position := False, alpha := 255, scal
 }
 
 /*
-    文本像素长宽估算
+    估算多行文本所占像素宽高
 
-getTextsWidthHeight(texts, size_, ByRef width, ByRef height)  文本像素长宽估算
-getTextListWidthHeight(textList, size_, ByRef width, ByRef height, ByRef texts) 文本列表像素长宽估算
+ByRef width  返回值:  像素宽
+ByRef height 返回值:  像素高
+texts 多行文本
+https://www.autoahk.com/help/autohotkey/zh-cn/docs/commands/Gui.htm#Font
+Options := "s10"  字体选项
+FontName := "Courier New"  字体名称
 */
+getTextsWidthHeight(ByRef width, ByRef height, texts, Options := "s10", FontName := "Courier New"){
+    global tmpedit
 
-
-; 字符实际占宽与字节数的比值（以字体大小10为标准）
-; 其它字体大小可以按比例换算之
-; 注意: 本质是估算
-getRatioS10StrWidthAndBtyeLen(){
-    global ratioS10StrWidthAndBtyeLen
-    if (not ratioS10StrWidthAndBtyeLen) {
-        ; 如果没有被计算过，则返回一个经验值
-        return 9.0
-    }else {
-        ; 曾经被计算过，直接返回即可
-        return ratioS10StrWidthAndBtyeLen
-    }
-}
-
-; 估算文本所占像素长宽
-; text_   多行文本
-; size_   字符大小
-getTextsWidthHeight(texts, size_, ByRef width, ByRef height){
     rows := 0
-    maxBtyeSize := 0
     Loop, parse, texts, `n, `r  ; 在 `r 之前指定 `n, 这样可以同时支持对 Windows 和 Unix 文件的解析.
     {
-        rows := A_Index
-        maxBtyeSize := Max(StrPut(A_LoopField, "UTF-8") - 1, StrLen(A_LoopField), maxBtyeSize)
+        rows := rows + 1
     }
-    height := 2*size_*rows
-    width := Ceil(size_ * getRatioS10StrWidthAndBtyeLen() * maxBtyeSize /10) + 25
+    if (rows = 0) or (StrLen(texts) = 0) {
+        width := 0
+        height := 0
+        return
+    }
+    ; 创建一个临时控件（用于获取字符串的实际像素长宽）, 用完后立刻销毁
+    Gui, TmpGui:New
+    Gui, TmpGui:Font, %Options%, %FontName%
+    Gui, TmpGui:Add, Edit, x0 y0 r%rows% -Wrap -VScroll -HScroll vtmpedit,  %texts%
+    Gui, TmpGui:-Caption +ToolWindow +AlwaysOnTop +LastFound
+    GuiControlGet, tmp, Pos , tmpedit
+    width := tmpW
+    height := tmpH
+    Gui, TmpGui:Destroy
 }
-getTextListWidthHeight(textList, size_, ByRef width, ByRef height, ByRef texts){
-    rows := 0
-    maxBtyeSize := 0
+/*
+    估算文本列表所占像素宽高
+
+ByRef width  返回值:  像素宽
+ByRef height 返回值:  像素高
+ByRef texts 返回值:  多行文本
+textList 文本列表
+https://www.autoahk.com/help/autohotkey/zh-cn/docs/commands/Gui.htm#Font
+Options := "s10"  字体选项
+FontName := "Courier New"  字体名称
+*/
+getTextListWidthHeight(ByRef width, ByRef height, ByRef texts, textList , Options := "s10", FontName := "Courier New"){
     texts := ""
     for i_, v_ in textList{
-        rows := i_
-        maxBtyeSize := Max(StrPut(v_, "UTF-8") - 1, StrLen(v_), maxBtyeSize)
         texts := texts v_ "`n"
     }
-    texts := Trim(texts, " `t`r`n")
-    height := 2*size_*rows
-    width := Ceil(size_ * getRatioS10StrWidthAndBtyeLen() * maxBtyeSize /10) + 25
+    texts := Trim(texts, "`r`n")
+    getTextsWidthHeight(width, height, texts, Options, FontName)
 }
 
 /*
@@ -274,9 +277,9 @@ ShowSuggestionsGui(_suggList_, _actionFun_){
     global suggActionFun := _actionFun_
 
     ; 准备列表数据，并计算提示窗口的长宽
-    getTextListWidthHeight(_suggList_, 10, width, height, suggList)
-    height := Min(Max(height,40),200)
+    getTextListWidthHeight(width, height, suggList, _suggList_ , "s10", "Courier New")
     width := Min(Max(width,100),600)
+    height := Min(Max(height,40),200)
     ; 创建显示列表提示窗口(如果已创建，则利用已创建的窗口)
     SetupSuggestionsGui()
     Gui, Suggestions:Default
@@ -303,7 +306,7 @@ ShowSuggestionsGui(_suggList_, _actionFun_){
     if (posY + height > A_ScreenHeight) {
         posY := posY - height
     }
-    Gui, Show, x%posX% y%posY% w%width% h%height% NoActivate
+    Gui, Show, x%posX% y%posY% w%width% h%height% ;  NoActivate
 }
 
 ; 创建显示列表提示窗口
@@ -377,7 +380,6 @@ SuggLButtonHandler(){
     }
 }
 
-
 /*
     简单的跟随搜索框
     
@@ -427,11 +429,11 @@ SetupSearchBoxGui(){
         ; 设置搜索框
         Gui, FollowSearchBoxWin:Default
         Gui, Font, s10, Courier New
-        Gui, Add, Edit, x0 y0 w25 vsearchBoxText gupdateSearchBoxWidth
+        Gui, Add, Edit, x0 y0 w50 vsearchBoxText gupdateSearchBoxWidth
         Gui, -Caption +ToolWindow +AlwaysOnTop +LastFound
         searchBoxHWND := WinExist()
         GuiControlGet, tmp, Pos , searchBoxText
-        Gui, Show, w25 h%tmpH% Hide, FollowSearchBoxWin
+        Gui, Show, w50 h%tmpH% Hide, FollowSearchBoxWin
         Gui, FollowSearchBoxWin:Hide
         ; 搜索框热键处理
         Hotkey, IfWinExist, FollowSearchBoxWin ahk_class AutoHotkeyGUI
@@ -444,40 +446,15 @@ SetupSearchBoxGui(){
 ; 动态更新搜索框的长度
 updateSearchBoxWidth(){
     global searchBoxText  ; 搜索框文本内容的关联变量
-    global xMaxISearchBox ; 搜索框中光标相对搜索框窗口左端最大距离
-    global xMinISearchBox ; 搜索框中光标相对搜索框窗口左端最小距离
-    ; 字符实际占宽与字节数的比值（以字体大小10为标准）
-    ; 其它字体大小可以按比例换算之
-    ; 此比例作为全局变量不清空，可被其它程序使用
-    global ratioS10StrWidthAndBtyeLen 
 
-    Gui, FollowSearchBoxWin:Default
-    Gui, FollowSearchBoxWin:Show
-
-    ; 相对当前活动窗口的光标坐标模式
-    CoordMode, Caret, Relative
-    ; 光标最大x坐标和最小x坐标初始化
-    if (not xMaxISearchBox) {
-        xMaxISearchBox := A_CaretX
-        xMinISearchBox := A_CaretX
-    }
-    ; 输入内容的字节个数（不是字符长度）
+    ; 搜索框的宽
     GuiControlGet, searchBoxText
-    btyeSize_ := Max(StrPut(searchBoxText, "UTF-8") - 1, StrLen(searchBoxText))
-    if (btyeSize_ = 0){
-        return
-    }
-    ; 计算字符实际占宽与字符长度的比值
-    if  (A_CaretX > xMaxISearchBox){
-        xMaxISearchBox := A_CaretX
-        ratioS10StrWidthAndBtyeLen := (xMaxISearchBox - xMinISearchBox) / btyeSize_
-    }
-    ; 计算输入字符的实际占宽
-    width := Ceil(ratioS10StrWidthAndBtyeLen * btyeSize_) + 25
-    if (width <= 200){
-        GuiControl, Move, searchBoxText, w%width% ;设置搜索框控件宽
-        Gui, FollowSearchBoxWin:Show, w%width%
-    }
+    getTextsWidthHeight(width, height, searchBoxText, "s10", "Courier New")
+    width := Min(Max(width + 10, 50),200)
+    ; 按指定宽重新显示窗口
+    Gui, FollowSearchBoxWin:Default
+    GuiControl, Move, searchBoxText, w%width% ;设置搜索框控件宽
+    Gui, FollowSearchBoxWin:Show, w%width%
 }
 
 ; 搜索框回车确认
@@ -487,8 +464,6 @@ SearchBoxEnterHandler(){
     global searchBoxText   ; 搜索框文本内容的关联变量
     ; searchBoxActionFun(searchText) : 实际触发的动作函数，searchText是已输入的搜索关键词
     global searchBoxActionFun
-    global xMaxISearchBox := 0 ; 搜索框中光标相对搜索框窗口左端最大距离
-    global xMinISearchBox := 0 ; 搜索框中光标相对搜索框窗口左端最小距离
 
     Gui, FollowSearchBoxWin:Default
     Gui, FollowSearchBoxWin:Submit
@@ -502,8 +477,6 @@ SearchBoxEnterHandler(){
 
 ; 搜索框窗口外鼠标点击关闭窗口
 SearchBoxLButtonHandler(){
-    global xMaxISearchBox := 0 ; 搜索框中光标相对搜索框窗口左端最大距离
-    global xMinISearchBox := 0 ; 搜索框中光标相对搜索框窗口左端最小距离
     global searchBoxHWND ; 搜索框窗口句柄
 
     MouseGetPos,,, Temp1
@@ -511,8 +484,6 @@ SearchBoxLButtonHandler(){
         Gui, FollowSearchBoxWin:Hide
     }
 }
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 /*
     简单的跟随编辑框
@@ -527,10 +498,10 @@ ShowFollowEditBox(clip, _actionFun_){
     ; editBoxActionFun(editText) : 实际触发的动作函数，editText是已输入的内容
     global editBoxActionFun := _actionFun_
 
-    ; 数据所占像素长宽
-    getTextsWidthHeight(clip, 10, width, height)
+    ; 编辑框的宽高
+    getTextsWidthHeight(width, height, clip, "s10", "Courier New")
+    width := Min(Max(width + 10,100),600)
     height := Min(Max(height,20),200)
-    width := Min(Max(width + 25,100),600)
     ; 创建编辑框(只创建一次)
     SetupEditBoxGui()
     ; 填写编辑框
@@ -555,7 +526,7 @@ ShowFollowEditBox(clip, _actionFun_){
     }
     ; 跟随光标显示搜索框
     GuiControl, Move, editBoxText, w%width% h%height% ;设置搜索框控件宽
-    Gui, Show, x%posX% y%posY% w%width% h%height%
+    Gui, Show, x%posX% y%posY% w%width% h%height% ; NoActivate
 }
 
 ; 创建搜索框(只创建一次)
@@ -567,7 +538,7 @@ SetupEditBoxGui(){
         ; 设置搜索框
         Gui, FollowEditBoxWin:Default
         Gui, Font, s10, Courier New
-        Gui, Add, Edit, x0 y0 r3 veditBoxText
+        Gui, Add, Edit, x0 y0 r3 -Wrap -VScroll -HScroll veditBoxText gupdateEditBoxWidth
         Gui, -Caption +ToolWindow +AlwaysOnTop +LastFound
         editBoxHWND := WinExist()
         GuiControlGet, tmp, Pos , editBoxText
@@ -579,6 +550,21 @@ SetupEditBoxGui(){
         Hotkey, ^s, editBoxCtrlSHandler
         Hotkey, IfWinExist
     }
+}
+
+; 动态更新编辑框的宽高
+updateEditBoxWidth(){
+    global editBoxText  ; 搜索框文本内容的关联变量
+
+    ; 编辑框的宽高
+    GuiControlGet, editBoxText
+    getTextsWidthHeight(width, height, editBoxText, "s10", "Courier New")
+    width := Min(Max(width + 10,100),600)
+    height := Min(Max(height,20),200)
+    ; 按指定宽高重新显示窗口
+    Gui, FollowEditBoxWin:Default
+    GuiControl, Move, editBoxText, w%width% h%height% ;设置搜索框控件宽
+    Gui, FollowEditBoxWin:Show, w%width% h%height%
 }
 
 ; 搜索框回车确认
