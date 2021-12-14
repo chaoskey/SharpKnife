@@ -16,6 +16,8 @@ loadIMSwitchDefault()
 loadHotlatex()
 ; 创建触发热键
 loadTriggerHotKey()
+; Clip历史管理
+global clipHist := new ClipHistory()
 ; 启动“Ctrl+命令”死循环(务必放最后)
 startCtrlCmdLoop()
 return ; 自动运行段结束

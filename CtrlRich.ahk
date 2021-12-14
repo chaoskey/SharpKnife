@@ -14,6 +14,7 @@
 FileEncoding , UTF-8-RAW
 
 #Include lib\util.ahk
+#Include lib\ClipHistory.ahk
 
 ; 托盘提示
 Menu, Tray,Tip , Ctrl增强
@@ -23,6 +24,8 @@ if FileExist("images\ctrl.ico"){
 
 ; 启动GDI+支持
 startupGdip()
+; Clip历史管理
+global clipHist := new ClipHistory()
 ; 启动“Ctrl+命令”死循环
 startCtrlCmdLoop()
 return ; 自动运行段结束
@@ -88,21 +91,11 @@ startCtrlCmdLoop(){
     ; 桌面贴图及其索引 
     global screenPastes := []
     global activepaste := 0
-    ; 当前clip文件名索引
-    global activeclip := 0
-    ; 标记的clip文件名（保持和文件.clip/clip.tag内容同步）
-    ; 注意： 
-    ; 1) tagcliparray用"`n"分割并作为开头结尾
-    ; 2) 但是， .clip/clip.tag的内容不包括开头的"`n"
-    global tagcliparray := "`n" 
     ; 跟随提示位置坐标(X,Y)（Ctrl按下和松开之间保持不变）
     global tooltipPosX
     global tooltipPosY
     ; 用于跟随提示的显示位图的句柄
     global hWNDToolTip := 0 
-
-    ; 初始索引
-    indexClip()
 
     working := False
     loop{
@@ -121,9 +114,9 @@ startCtrlCmdLoop(){
             ; Ctrl+命令 （Ctrl松开）
             execCtrlDownUPCmd()
             ; 工作完成，状态复原
+            clipHist.reset()
             ctrlCmd := ""
             working := False
-            activeclip := 0
             activepaste := 0
             tooltipPosX := 
             tooltipPosY :=
@@ -136,7 +129,6 @@ startCtrlCmdLoop(){
 */
 execCtrlDownCmd(){
     global ctrlCmd ; Ctrl+命令
-    global activeclip ; 当前clip文件名索引
     global screenPastes ; 桌面贴图列表
     global activepaste ; 当前桌面贴图索引
 
@@ -145,27 +137,27 @@ execCtrlDownCmd(){
         ctrlCmd := "v"
         clearToolTip()
         ; 显示下一个索引位置的clip
-        nextClip()
+        clipHist.nextClip()
         showClip()
     }if (ctrlCmd = "vf"){
         ; 复原
         ctrlCmd := "v"
         clearToolTip()
         ; 显示上一个索引位置的clip
-        prevClip()
+        clipHist.prevClip()
         showClip()
     }else if (ctrlCmd = "vd"){
         ; 复原
         ctrlCmd := "v"
         clearToolTip()
         ; 删除当前索引位置的clip
-        deleteClip()
+        clipHist.deleteClip()
     }else if (ctrlCmd = "va"){
         ; 复原
         ctrlCmd := "v"
         clearToolTip()
         ; 删除当前索引位置的clip
-        deleteClipAll()
+        clipHist.deleteClipAll()
     }else if (ctrlCmd = "vvs"){
         ; 复原
         ctrlCmd := "vv"
@@ -215,12 +207,12 @@ execCtrlDownCmd(){
 */
 execCtrlDownUPCmd(){
     global ctrlCmd ; Ctrl+命令
-    global activeclip ; 当前clip文件名索引
     global activepaste ; 当前桌面贴图索引
 
     if (ctrlCmd = "ve"){
         ; 消除已有提示信息
         clearToolTip()
+        clipHist.moveClip()
         clip := Trim(clipboard, "`r`n")
         if (clip != "") {
             ; 进入当前剪切板编辑(只对文本内容进行编辑)
@@ -238,13 +230,13 @@ execCtrlDownUPCmd(){
         clearToolTip()
         ; Ctrl+cc 截图复制（会出现跟随鼠标的坐标提示，鼠标左键“按下-移动-松开”完成截图复制）
         screenShot()
-        addClip()
+        clipHist.addClip()
     } else if (ctrlCmd = "vv"){
         ; 消除已有提示信息
         clearToolTip()
         ; Ctrl+vv 粘贴到屏幕(待贴图的内容会跟随鼠标移动，点击鼠标左键完成屏幕贴图)
         screenPaste() 
-        moveClip() 
+        clipHist.moveClip() 
     }else if (StrLen(ctrlCmd) = 1) {
         if (ctrlCmd = "c") or (ctrlCmd = "x"){
             clip1:=ClipboardAll ; 备份
@@ -257,63 +249,16 @@ execCtrlDownUPCmd(){
             clip2 := ClipboardAll
             IF clip1 <> %clip2%
             {
-                addClip()
+                clipHist.addClip()
             }
         }else if (ctrlCmd = "v"){
             ; 消除已有提示信息
             clearToolTip()
-            moveClip()       
+            clipHist.moveClip()       
         }
     }
 
     ; 其它的情况无动作
-}
-
-/*
-    将当前clip读入Clipboard【同步操作】
-*/
-readClip(){
-    global cliparray ; clip文件名列表
-    global activeclip ; 当前clip文件名索引
-
-    if (cliparray.Length() = 0){
-        activeclip := 0
-    }else{
-        activeclip := Min(Max(activeclip,1), cliparray.Length()) 
-    }
-
-    if (activeclip > 0) {
-        currclip := cliparray[activeclip]
-        IfExist,.clip\%currclip%.clip
-            FileRead,Clipboard,*c .clip\%currclip%.clip
-    }else{
-        Clipboard := ""
-    }
-}
-
-/*
-    将当前clip变成最近clip
-*/
-moveClip(){
-    global cliparray ; clip文件名列表
-    global activeclip ; 当前clip文件名索引
-    global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
-
-    if (activeclip > 1) {
-        ; 当前粘贴内容对应的clip文件名
-        oldclip := cliparray[activeclip]
-        newclip := cliparray[1] + 1
-        ; 将当前clip文件变成最近文件 
-        FileMove, .clip\%oldclip%.clip, .clip\%newclip%.clip , 1
-        ; 同步修改 .clip\clip.tag
-        if InStr(tagcliparray, "`n" oldclip "`n") {
-            tagcliparray := StrReplace(tagcliparray, "`n" oldclip "`n" , "`n" newclip "`n")
-            FileDelete, .clip\clip.tag
-            FileAppend , %  SubStr(tagcliparray, 2) , .clip\clip.tag
-        }
-        ; 重新索引
-        indexClip()
-    }
 }
 
 /* 
@@ -338,175 +283,7 @@ showClip(){
     }else{
         toolTipImage(pBitmap)
     }
-}
-
-/*
-    下一个clip【保证同步】
-*/
-nextClip(){
-    global cliparray ; clip文件名列表
-    global activeclip ; 当前clip文件名索引
-
-    if (cliparray.Length() > 1) {
-        ; 下一个位置
-        activeclip := activeclip + 1
-        if (activeclip > cliparray.Length()){
-            activeclip := 1
-        }
-        readClip()
-    }
-}
-
-/*
-    上一个clip【保证同步】
-*/
-prevClip(){
-    global cliparray ; clip文件名列表
-    global activeclip ; 当前clip文件名索引
-
-    if (cliparray.Length() > 1) {
-        ; 上一个位置
-        activeclip := activeclip - 1
-        if (activeclip < 1){
-            activeclip := cliparray.Length()
-        }
-        ; 将当前clip读入到Clipboard
-        readClip()
-    }
-}     
-
-/*
-    删除所有clip【保证同步】
-*/
-deleteClipAll(){
-    global cliparray ; clip文件名列表
-    global activeclip :=0 ; 当前clip文件名索引
-    global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
-
-    for i_, v_ in cliparray {
-        if (InStr(tagcliparray, "`n" v_ "`n") == 0){
-            Filedelete,.clip\%v_%.clip ; 清空clip文件
-        }
-    }
-    cliparray := StrSplit(Trim(tagcliparray, " `t`n"), "`n")
-    if (cliparray.Length() = 0){
-        clipboard := "" ; 清空剪贴板
-    }else{
-        ; 重新索引
-        indexClip(True)
-    }
-}
-
-/*
-    删除当前clip【保证同步】
-*/
-deleteClip(){
-    global cliparray ; clip文件名列表
-    global activeclip ; 当前clip文件名索引
-    global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
-
-    if (activeclip > 0) {
-        ; 删除当前索引位置的clip
-        currclip := cliparray[activeclip]
-        Filedelete, .clip\%currclip%.clip
-        if InStr(tagcliparray, "`n" currclip "`n") {
-            tagcliparray := StrReplace(tagcliparray, "`n" currclip "`n" , "`n")
-            FileDelete, .clip\clip.tag
-            FileAppend , % SubStr(tagcliparray, 2) , .clip\clip.tag
-        }
-        ; 重新索引
-        indexClip()
-    }
-}
-
-/*
-    新加clip【保证同步】
-*/
-addClip(){
-    global cliparray ; Clipboar缓存文件索引cliparray
-
-    ; 最近的clip文件名+1，即将添加的clip文件名
-    lastclip := 1
-    if (cliparray.Length() > 0){
-        lastclip := cliparray[1] + 1 
-    }
-    ; 将当前Clipboard内容保存到文件
-    IfExist,.clip\%lastclip%.clip
-        FileDelete,.clip\%lastclip%.clip
-    FileAppend,%ClipboardAll%,.clip\%lastclip%.clip
-    ; 重新索引
-    indexClip()
-}
-
-/*
-    clip索引（逆序排列）【保证同步】
-*/
-indexClip(renumber := False){
-    ; renumber 默认情况下不重新编号，只在tagcliparray非空且全部删除时启用
-
-    global cliparray := [] ; clip文件名列表
-    global activeclip := 0 ; 当前clip文件名索引
-    global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
-
-    ; 如果tagcliparray没数据，尝试从.clip/clip.tag读取
-    if (tagcliparray = "`n") {
-        if FileExist(".clip\clip.tag") {  
-            Loop, read, .clip\clip.tag 
-            {
-                line := Trim(A_LoopReadLine)
-                if (line != "") {
-                    tagcliparray := tagcliparray line "`n"
-                }
-            }
-        }else{
-            FileCreateDir, .clip
-        }
-    }
-
-    ; 收集clip文件名
-    filelist := ""
-    Loop, Files, .clip\*.clip
-    {
-        filename := SubStr(A_LoopFileName, 1, -5)
-        filelist := filelist filename "`n"
-    }
-    if (filelist != ""){
-        filelist := Trim(filelist, " `t`n")
-        if renumber and (tagcliparray  != "`n") {
-            ; 正序排列
-            Sort,filelist,N
-            ; filelist的列表形式，及其"`n"分割的字符串副本
-            _filelist_ := StrSplit(filelist, "`n")
-            filelist := "`n" filelist "`n"
-            ; 批量文件改名，并保证和tagcliparray一致（重新从1开始编号）
-            newIndex := 0
-            for i_, v_ in _filelist_
-            {
-                newIndex := newIndex + 1
-                if (newIndex != v_) { 
-                    filelist := StrReplace(filelist, "`n" v_ "`n" , "`n" newIndex "`n")
-                    FileMove, .clip\%v_%.clip, .clip\%newIndex%.clip , 1
-                }
-            }
-            ; 逆序排列
-            filelist := Trim(filelist, " `t`n")
-            Sort,filelist,N R
-            ; 写入.clip\clip.tag，并保持和tagcliparray一致
-            tagcliparray := "`n" filelist "`n"
-            FileDelete, .clip\clip.tag
-            FileAppend , % SubStr(tagcliparray, 2), .clip\clip.tag
-        }else {
-            ; 逆序排列
-            Sort,filelist,N R
-        }
-        ; 索引后的结果
-        cliparray := StrSplit(filelist, "`n")
-        activeclip := 1
-        ; 保证和剪切板同步
-        readClip()
-        activeclip := 0
-    }
-}
+}    
 
 /*
     （文本）clip浏览提示
@@ -514,13 +291,8 @@ indexClip(renumber := False){
 toolTipClip(tooltip_){
     global tooltipPosX ; 跟随提示位置坐标X（Ctrl按下和松开之间保持不变）
     global tooltipPosY ; 跟随提示位置坐标Y（Ctrl按下和松开之间保持不变）
-    global cliparray ; clip文件名列表
-    global activeclip ; 当前clip文件名索引
-    global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
-    if (activeclip > 0) and InStr(tagcliparray, "`n" cliparray[activeclip] "`n") {
-        tooltip_ := "[★]" tooltip_
-    }
-
+    
+    tooltip_ := clipHist.getClipTag() tooltip_
     if (not tooltipPosX){
         ; 当前光标或鼠标位置
         CoordMode, Caret, Screen
@@ -666,79 +438,11 @@ deletScreenPaste(hWND){
 ; 只搜索单行文本剪切板内容，因为常用需要粘贴都是单行的
 ; 凡是搜索过的内容，都不会被“全部删除命令a”删除，但可以被“删除命令d”删除
 searchTextClipForPaste(search){
-    global cliparray ; clip文件名列表
     global matchedSingleLineClip := [] ; 匹配到的所有单行文本
-    global matchedSingleLineClipIndex := [] ; 匹配到的所有单行文本在cliparray中的索引
-    global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
-
-    ; 【这种输入只支持英文字符（弃用），现在已改用文本编辑框】
-    ; 输入搜索关键词，然后空格确认
-    ; 等候输入
-    ;Input, search, V C , {space}{tab}{enter}{esc}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}{Up}{Down}{Home}{End}{PgUp}{PgDn}{CapsLock}{NumLock}{PrintScreen}{Pause}
-    ; 非space终止符触发，表示放弃
-    ; 有些环境tab具有自动补全功能，为了避免冲突，特意改用空格(Space)作为输入终止符
-    ;if (ErrorLevel != "EndKey:space"){
-    ;    return
-    ;}
-
+    global matchedSingleLineClipIndex :=[] ; 匹配到的所有单行文本在cliparray中的索引
+    
     ; 搜索
-    for i_ , v_ in cliparray{
-        if FileExist(".clip\" v_ ".clip"){
-            FileRead,Clipboard,*c .clip\%v_%.clip
-            ; 只标记文本clip
-            clip := Trim(Clipboard)
-            if (clip = "") {
-                Continue
-            }
-            ; 大段内容概览(大于showWidth个字符)，简单内容全部显示
-            showWidth := 62   ; 适配提示窗口的最大显示宽度
-            if (searchIdx := InStr(clip, search)){
-                if (StrLen(clip) > showWidth) {
-                    ; 内容概览裁剪
-
-                    clip_end := InStr(clip, "`r`n" , , searchIdx)
-                    if clip_end {
-                        clip := SubStr(clip, 1 , clip_end - 1)
-                    }
-                    clip_start := InStr(clip, "`r`n" , , 0)
-                    if clip_start {
-                        clip := SubStr(clip, clip_start + 2)
-                    }
-                    clip := Trim(clip)
-                    if ((L__ := StrLen(clip)) > showWidth - 8){
-                        searchIdx := InStr(clip, search)
-                        l_ := StrLen(search)
-                        L1__ := searchIdx - 1
-                        L2__ := L__ - l_ - L1__
-                        l1_ := (showWidth - 8 - l_)//2
-                        l2_ := showWidth - 8 - l_ - l1_
-                        if (L1__ < l1_){
-                            l1_ := L1__
-                            l2_ := showWidth - 8 - l_ - l1_
-                        }else if (L2__ < l2_){
-                            l2_ := L2__
-                            l1_ := showWidth - 8 - l_ - l2_
-                        }
-                        clip := SubStr(clip, searchIdx - l1_ , showWidth - 8)
-                        if (l1_ < L1__){
-                            clip := "... " clip
-                        }
-                        if (l2_ < L2__){
-                            clip := clip " ..."
-                        }
-                    }
-                }
-                if InStr(tagcliparray, "`n" v_ "`n"){
-                    ; 特殊标记clip靠前
-                    matchedSingleLineClip.InsertAt(1, "[★]" clip )
-                    matchedSingleLineClipIndex.InsertAt(1, i_)
-                }else{
-                    matchedSingleLineClip.Push(clip)
-                    matchedSingleLineClipIndex.Push(i_)
-                }
-            }
-        }       
-    }
+    clipHist.searchClip(matchedSingleLineClip, matchedSingleLineClipIndex, search)
     ; 弹出建议窗口
     if (matchedSingleLineClip.Length() > 0)
     {
@@ -750,55 +454,26 @@ searchTextClipForPaste(search){
 ; 搜索后选择后的粘贴处理
 SearchPasteHandler(index){
     ; index 提示列表栏选择的序号
-
-    global cliparray ; clip文件名列表
-    global activeclip ; 当前clip文件名索引
     global matchedSingleLineClipIndex ; 匹配到的所有单行文本在cliparray中的索引 
-    global tagcliparray ; 标记的clip文件名（用"`n"分割并作为开头结尾）
-
+    
     ; 凡是搜索选择过的内容，都认为是比较重要的，所以特别添加到.clip\clip.tag中标记之 
-    activeclip := matchedSingleLineClipIndex[index]
-    currclip := cliparray[activeclip]
-    if (tagcliparray = "`n") or (0 = InStr(tagcliparray, "`n" currclip "`n")) {
-        FileAppend , % currclip "`n", .clip\clip.tag
-        tagcliparray := tagcliparray currclip "`n"
-    }
+    aclip := matchedSingleLineClipIndex[index]
+    clipHist.setClipTag(aclip)
     ; 读入到剪切板
-    readClip()
+    clipHist.readClip(aclip)
     ; 主动将剪切板的内容粘贴
     Send, ^v
     ; 将选择的clip移到最新(并且读入到剪切板)
-    moveClip()
+    clipHist.moveClip(aclip)
 }
 
 ; 将文本内容保存到当前粘贴板，然后粘贴
 saveTextToClipAndPaste(saveText){
-    global cliparray ; clip文件名列表
-    global activeclip ; 当前clip文件名索引
-
-    ; 确保合法操作
-    if (activeclip = 0) and (cliparray.Length() > 0){
-        activeclip := 1
+    if clipHist.saveClip(saveText){
+        ; 主动将剪切板的内容粘贴
+        Send, ^v
+        ; 将选择的clip移到最新(并且读入到剪切板)
+        clipHist.moveClip()
     }
-    if (activeclip = 0) {
-        return
-    }
-    ; 如果是空文本，意味着删除当前clip
-    saveText := Trim(saveText, "`r`n")
-    if (Trim(saveText) = "") {
-        deleteClip()
-        Clipboard := ""
-        return
-    }
-    ; 将修改后的内容保存到对应文件，并且写入剪切板
-    currclip := cliparray[activeclip]
-    IfExist,.clip\%currclip%.clip
-        FileDelete,.clip\%currclip%.clip
-    Clipboard := saveText
-    FileAppend,%ClipboardAll%,.clip\%currclip%.clip
-    ; 主动将剪切板的内容粘贴
-    Send, ^v
-    ; 将选择的clip移到最新(并且读入到剪切板)
-    moveClip()
 }
 
