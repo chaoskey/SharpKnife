@@ -216,7 +216,11 @@ execCtrlDownUPCmd(){
         clip := Trim(clipboard, "`r`n")
         if (clip != "") {
             ; 进入当前剪切板编辑(只对文本内容进行编辑)
-            ShowFollowEditBox(clip, "saveTextToClipAndPaste")
+            tag := clipHist.getClipTag()
+            if (tag != ""){
+                tag := "[" tag "]"
+            }
+            ShowFollowEditBox(tag clip, "saveTextToClipAndPaste")
         }
     } else if (ctrlCmd = "ss"){
         ; 消除已有提示信息

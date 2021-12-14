@@ -83,8 +83,10 @@ class ClipHistory
             ; 删除当前索引位置的clip
             currclip := this.cliparray[aclip]
             Filedelete, % this.clipDir "\" currclip ".clip"
-            if InStr(this.tagcliparray, "`n" currclip "`n") {
-                this.tagcliparray := StrReplace(this.tagcliparray, "`n" currclip "`n" , "`n")
+            if (idx1 := InStr(this.tagcliparray, "`n" currclip "|")) {
+                idx2 := InStr(this.tagcliparray, "`n", , idx1 + 1)
+                line := SubStr(this.tagcliparray, idx1 , idx2 - idx1 + 1)
+                this.tagcliparray := StrReplace(this.tagcliparray, line , "`n")
                 FileDelete, % this.clipDir "\clip.tag"
                 FileAppend , % SubStr(this.tagcliparray, 2) , % this.clipDir "\clip.tag"
             }
@@ -99,17 +101,12 @@ class ClipHistory
     deleteClipAll(){
         this.activeclip := 0 ; 当前clip文件名索引
         for i_, v_ in this.cliparray {
-            if (InStr(this.tagcliparray, "`n" v_ "`n") == 0){
+            if (InStr(this.tagcliparray, "`n" v_ "|") == 0){
                 Filedelete, % this.clipDir "\" v_ ".clip" ; 清空clip文件
             }
         }
-        this.cliparray := StrSplit(Trim(this.tagcliparray, " `t`n"), "`n")
-        if (this.cliparray.Length() = 0){
-            clipboard := "" ; 清空剪贴板
-        }else{
-            ; 重新索引并重新编号
-            this.indexClipAndRenumber()
-        }
+        ; 重新索引并重新编号
+        this.indexClipAndRenumber()
     }
 
     ;  新加clip
@@ -140,8 +137,8 @@ class ClipHistory
             ; 将当前clip文件变成最近文件 
             FileMove, % this.clipDir "\" oldclip ".clip", % this.clipDir "\" newclip ".clip" , 1
             ; 同步修改 .clip\clip.tag
-            if InStr(this.tagcliparray, "`n" oldclip "`n") {
-                this.tagcliparray := StrReplace(this.tagcliparray, "`n" oldclip "`n" , "`n" newclip "`n")
+            if InStr(this.tagcliparray, "`n" oldclip "|") {
+                this.tagcliparray := StrReplace(this.tagcliparray, "`n" oldclip "|" , "`n" newclip "|")
                 FileDelete, % this.clipDir "\clip.tag"
                 FileAppend , %  SubStr(this.tagcliparray, 2) , % this.clipDir "\clip.tag"
             }
@@ -157,6 +154,18 @@ class ClipHistory
         }
         aclip := Min(Max(aclip,1), this.cliparray.Length())
         if (aclip > 0) {
+            ; 分离标签和clip
+            tag := ""
+            idx1 := InStr(saveText, "[")
+            idx2 := InStr(saveText, "]", , idx1 + 1)
+            if (idx1 = 1) and (idx2 > 2) {
+                tag := SubStr(saveText, idx1 + 1 , idx2 - idx1 -1)
+            }
+            ; 默认标签转义
+            tag := StrReplace(tag, "*" , "★")
+            if (idx1 = 1) and (idx2 > 1) {
+                saveText := SubStr(saveText, idx2 + 1)
+            }
             ; 如果是空文本，意味着删除当前clip
             saveText := Trim(saveText, "`r`n")
             if (Trim(saveText) = "") {
@@ -171,6 +180,7 @@ class ClipHistory
             Clipboard := saveText
             FileAppend,%ClipboardAll%, % this.clipDir "\" currclip ".clip"
             this.activeclip := aclip
+            this.setClipTag(this.activeclip, tag)
             return True
         }
         return False
@@ -185,6 +195,9 @@ class ClipHistory
             {
                 line := Trim(A_LoopReadLine)
                 if (line != "") {
+                    if (InStr(line, "|") = 0){
+                        line := line "|★"
+                    }
                     this.tagcliparray := this.tagcliparray line "`n"
                 }
             }
@@ -221,7 +234,7 @@ class ClipHistory
     }
 
     ; clip索引并重新编号（逆序排列）
-    ; 假设cliparray 和 tagcliparray  完全一致的清空下调用
+    ; 假设clip文件 和 tagcliparray  完全一致的清空下调用
     indexClipAndRenumber(){
         this.cliparray := [] ; clip文件名列表
         this.activeclip := 0 ; 当前clip文件名索引
@@ -250,14 +263,17 @@ class ClipHistory
                 newIndex := newIndex + 1
                 if (newIndex != v_) { 
                     filelist := StrReplace(filelist, "`n" v_ "`n" , "`n" newIndex "`n")
+                    this.tagcliparray := StrReplace(this.tagcliparray, "`n" v_ "|" , "`n" newIndex "|")
                     FileMove, % this.clipDir "\" v_ ".clip", % this.clipDir "\" newIndex ".clip" , 1
                 }
             }
             ; 逆序排列
             filelist := Trim(filelist, " `t`n")
+            tmp := Trim(this.tagcliparray, " `t`n")
             Sort,filelist,N R
+            Sort,tmp, N R
             ; 写入.clip\clip.tag，并保持和tagcliparray一致
-            this.tagcliparray := filelist "`n"
+            this.tagcliparray := tmp "`n"
             FileDelete, % this.clipDir "\clip.tag"
             FileAppend , % this.tagcliparray, % this.clipDir "\clip.tag"
             ; 索引后的结果
@@ -275,30 +291,47 @@ class ClipHistory
             aclip := this.activeclip
         }
         aclip := Min(Max(aclip,1), this.cliparray.Length())
-        if (aclip > 0) and InStr(this.tagcliparray, "`n" this.cliparray[aclip] "`n") {
-            return "★"
+        if (aclip > 0) and (idx0 := InStr(this.tagcliparray, "`n" this.cliparray[aclip] "|")) {
+            idx1 := InStr(this.tagcliparray, "|", , idx0)
+            idx2 := InStr(this.tagcliparray, "`n", , idx1)
+            tag := SubStr(this.tagcliparray, idx1 + 1, idx2 - idx1 -1)
+            return tag
         }
         return ""
     }
 
     ; 将指定clip标记之
     ; 默认，将当前clip标记之
-    setClipTag(aclip := -1){
+    setClipTag(aclip := -1, tag := "★"){
         if (aclip < 0) {
             aclip := this.activeclip
         }
         aclip := Min(Max(this.activeclip,1), this.cliparray.Length())
         if (aclip > 0){
             currclip := this.cliparray[aclip]
-            if (this.tagcliparray = "`n") or (0 = InStr(this.tagcliparray, "`n" currclip "`n")) {
-                FileAppend , % currclip "`n", % this.clipDir "\clip.tag"
-                this.tagcliparray := this.tagcliparray currclip "`n"
+            if (0 = (idx1 := InStr(this.tagcliparray, "`n" currclip "|"))) {
+                if (tag != "") {
+                    line := currclip "|" tag "`n"
+                    FileAppend , %line% , % this.clipDir "\clip.tag"
+                    this.tagcliparray := this.tagcliparray line
+                }
+            }else{
+                idx2 := InStr(this.tagcliparray, "`n" , , idx1 + 1)
+                line := SubStr(this.tagcliparray, idx1, idx2 - idx1 + 1)
+                if (tag != "") {
+                    newline := "`n" currclip "|" tag "`n"
+                }else{
+                    newline := "`n"
+                }
+                this.tagcliparray := StrReplace(this.tagcliparray, line , newline)
+                FileDelete, % this.clipDir "\clip.tag"
+                FileAppend , % SubStr(this.tagcliparray, 2) , % this.clipDir "\clip.tag"
             } 
         } 
     }
 
     ; 搜索纯文本clip
-    searchClip(ByRef textList, ByRef clipList, sText, showWidth := 62){
+    searchClip(ByRef textList, ByRef clipList, sText, showWidth := 85){
         textList := []
         clipList := []
         ; 搜索
@@ -311,44 +344,37 @@ class ClipHistory
                 if (clip = "") {
                     Continue
                 }
-                ; 大段内容概览(大于showWidth个字符)，简单内容全部显示
-                if (searchIdx := InStr(clip, sText)){
-                    if (StrLen(clip) > showWidth) {
-                        ; 内容概览裁剪
-
-                        clip_end := InStr(clip, "`r`n" , , searchIdx)
-                        if clip_end {
-                            clip := SubStr(clip, 1 , clip_end - 1)
+                ; 大段内容概览(大于showWidth个字节)，简单内容全部显示
+                ; 注意: 是字节数，而不是字符数
+                clip := Trim(StrReplace(clip, "`r`n" , " "))
+                if (idx := InStr(clip, sText)){
+                    LL := StrLen(clip)
+                    l := StrLen(sText)
+                    loop {
+                        if (idx > 1) and (idx < LL - l + 1){
+                            idx := idx -1
+                            l := l + 2
+                        }else if (l < LL){
+                            if (idx > 1){
+                                idx := idx -1
+                            }
+                            l := l + 1
+                        }else {
+                            Break
                         }
-                        clip_start := InStr(clip, "`r`n" , , 0)
-                        if clip_start {
-                            clip := SubStr(clip, clip_start + 2)
-                        }
-                        clip := Trim(clip)
-                        if ((L__ := StrLen(clip)) > showWidth - 8){
-                            searchIdx := InStr(clip, search)
-                            l_ := StrLen(search)
-                            L1__ := searchIdx - 1
-                            L2__ := L__ - l_ - L1__
-                            l1_ := (showWidth - 8 - l_)//2
-                            l2_ := showWidth - 8 - l_ - l1_
-                            if (L1__ < l1_){
-                                l1_ := L1__
-                                l2_ := showWidth - 8 - l_ - l1_
-                            }else if (L2__ < l2_){
-                                l2_ := L2__
-                                l1_ := showWidth - 8 - l_ - l2_
-                            }
-                            clip := SubStr(clip, searchIdx - l1_ , showWidth - 8)
-                            if (l1_ < L1__){
-                                clip := "... " clip
-                            }
-                            if (l2_ < L2__){
-                                clip := clip " ..."
-                            }
+                        line := SubStr(clip, idx, l)
+                        if (StrPut(line, "utf-8") > showWidth){
+                            Break
                         }
                     }
-                    if InStr(this.tagcliparray, "`n" v_ "`n"){
+                    clip := SubStr(clip, idx, l)
+                    if (idx > 1) {
+                        clip := "... " clip
+                    }
+                    if (idx < LL - l + 1){
+                        clip := clip " ..."
+                    }
+                    if InStr(this.tagcliparray, "`n" v_ "|"){
                         ; 特殊标记clip靠前
                         tag := this.getClipTag(i_)
                         if (tag != ""){
