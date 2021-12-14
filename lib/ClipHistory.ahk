@@ -274,9 +274,9 @@ class ClipHistory
         if (aclip < 0) {
             aclip := this.activeclip
         }
-        aclip := Min(Max(this.activeclip,1), this.cliparray.Length())
+        aclip := Min(Max(aclip,1), this.cliparray.Length())
         if (aclip > 0) and InStr(this.tagcliparray, "`n" this.cliparray[aclip] "`n") {
-            return "[★]"
+            return "★"
         }
         return ""
     }
@@ -350,7 +350,11 @@ class ClipHistory
                     }
                     if InStr(this.tagcliparray, "`n" v_ "`n"){
                         ; 特殊标记clip靠前
-                        textList.InsertAt(1, "[★]" clip )
+                        tag := this.getClipTag(i_)
+                        if (tag != ""){
+                            tag := "[" tag "]"
+                        }
+                        textList.InsertAt(1, tag clip )
                         clipList.InsertAt(1, i_)
                     }else{
                         textList.Push(clip)

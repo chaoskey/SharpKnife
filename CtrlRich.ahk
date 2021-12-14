@@ -292,7 +292,11 @@ toolTipClip(tooltip_){
     global tooltipPosX ; 跟随提示位置坐标X（Ctrl按下和松开之间保持不变）
     global tooltipPosY ; 跟随提示位置坐标Y（Ctrl按下和松开之间保持不变）
     
-    tooltip_ := clipHist.getClipTag() tooltip_
+    tag := clipHist.getClipTag()
+    if (tag != ""){
+        tag := "[" tag "]"
+    }
+    tooltip_ := tag tooltip_
     if (not tooltipPosX){
         ; 当前光标或鼠标位置
         CoordMode, Caret, Screen
