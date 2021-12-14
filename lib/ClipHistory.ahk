@@ -179,16 +179,15 @@ class ClipHistory
     ; 将clip标记数据全部读入内存
     readTags(){
         this.tagcliparray := "`n"
-        if FileExist(this.clipDir) {  
-            Loop, read, % this.clipDir "\clip.tag" 
+        tagPath := this.clipDir "\clip.tag"
+        if FileExist(tagPath) {
+            Loop, read, %tagPath%
             {
                 line := Trim(A_LoopReadLine)
                 if (line != "") {
                     this.tagcliparray := this.tagcliparray line "`n"
                 }
             }
-        }else{
-            FileCreateDir, this.clipDir
         }
     }
 
@@ -196,6 +195,9 @@ class ClipHistory
     indexClip(){
         this.cliparray := [] ; clip文件名列表
         this.activeclip := 0 ; 当前clip文件名索引
+        if (not FileExist(this.clipDir)) {  
+            FileCreateDir, % this.clipDir
+        }
         ; 尝试将clip标记数据全部读入内存
         if (this.tagcliparray = "") {
             this.readTags()
