@@ -343,7 +343,7 @@ class FollowMultiLineEdit
         ; 创建列表窗口获取窗口和控件句柄
         Gui, New
         Gui, Font, %fontOptions%, %fontName%
-        Gui, Add, Edit, x0 y0 r3 -Wrap -VScroll -HScroll HwndwndControl
+        Gui, Add, Edit, x0 y0 r3 WantTab -Wrap -VScroll -HScroll HwndwndControl
         Gui, -Caption +ToolWindow +AlwaysOnTop +LastFound
         Gui, +HwndwndGui
         this.wndGui := wndGui

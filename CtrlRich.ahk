@@ -212,7 +212,6 @@ execCtrlDownCmd(){
 */
 execCtrlDownUPCmd(){
     global ctrlCmd ; Ctrl+命令
-    global activepaste ; 当前桌面贴图索引
 
     if (ctrlCmd = "ve"){
         ; 消除已有提示信息
@@ -255,7 +254,7 @@ execCtrlDownUPCmd(){
         ; 保证拦截的“Ctrl+单字符命令”的系统原生功能不变
         Send, ^%ctrlCmd%
         if (ctrlCmd = "c")  or (ctrlCmd = "x") {
-            ClipWait, , 1  ; 等待剪贴板中出现数据.
+            ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
             clip2 := ClipboardAll
             IF clip1 <> %clip2%
             {
