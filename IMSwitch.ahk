@@ -24,6 +24,7 @@
 FileEncoding , UTF-8-RAW
 
 #Include lib\util.ahk
+#Include lib\CustomGUI.ahk
 
 ; 托盘提示
 Menu, Tray,Tip , 输入法助手
