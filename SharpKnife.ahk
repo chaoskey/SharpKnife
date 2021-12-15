@@ -18,6 +18,10 @@ loadHotlatex()
 loadTriggerHotKey()
 ; Clip历史管理
 global clipHist := new ClipHistory()
+; 光标或鼠标跟随控件
+global followList := new FollowListBox()
+global follSingleLineEdit := new FollowSingleLineEdit()
+global follMultiLineEdit := new FollowMultiLineEdit()
 ; 启动“Ctrl+命令”死循环(务必放最后)
 startCtrlCmdLoop()
 return ; 自动运行段结束

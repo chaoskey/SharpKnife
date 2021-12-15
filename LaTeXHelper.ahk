@@ -32,6 +32,7 @@ FileEncoding , UTF-8-RAW
 
 #Include lib\LaTeXs.ahk
 #Include lib\util.ahk
+#Include lib\CustomGUI.ahk
 
 ; 托盘提示
 Menu, Tray,Tip , LaTeX助手
@@ -43,6 +44,8 @@ if FileExist("images\tab.ico"){
 loadHotlatex()
 ; 创建触发热键
 loadTriggerHotKey()
+; 光标或鼠标跟随控件
+global followList := new FollowListBox()
 return ; 自动运行段结束
 
 ;------------------------------------------------------------------------------------------------------
@@ -269,7 +272,7 @@ HotlatexHandler()
             suggList.Push(itemName)
         }
         ; 弹出提示窗口
-        ShowSuggestionsGui(suggList, "SelectHandler")
+        followList.show(suggList, "SelectHandler")
         return
     }
 

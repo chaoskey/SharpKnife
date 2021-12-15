@@ -15,6 +15,7 @@ FileEncoding , UTF-8-RAW
 
 #Include lib\util.ahk
 #Include lib\ClipHistory.ahk
+#Include lib\CustomGUI.ahk
 
 ; 托盘提示
 Menu, Tray,Tip , Ctrl增强
@@ -26,6 +27,10 @@ if FileExist("images\ctrl.ico"){
 startupGdip()
 ; Clip历史管理
 global clipHist := new ClipHistory()
+; 光标或鼠标跟随控件
+global followList := new FollowListBox()
+global follSingleLineEdit := new FollowSingleLineEdit()
+global follMultiLineEdit := new FollowMultiLineEdit()
 ; 启动“Ctrl+命令”死循环
 startCtrlCmdLoop()
 return ; 自动运行段结束
@@ -220,7 +225,8 @@ execCtrlDownUPCmd(){
             if (tag != ""){
                 tag := "[" tag "]"
             }
-            ShowFollowEditBox(tag clip, "saveTextToClipAndPaste")
+            follMultiLineEdit.show(tag clip, "saveTextToClipAndPaste")
+
         }
     } else if (ctrlCmd = "ss"){
         ; 消除已有提示信息
@@ -228,7 +234,7 @@ execCtrlDownUPCmd(){
         ; 进入搜索粘贴模式
         ; 只搜索剪切板中的文本内容
         ; 凡是搜索过的内容，都不会被“全部删除命令a”删除
-        ShowFollowSearchBox("searchTextClipForPaste")
+        follSingleLineEdit.show("searchTextClipForPaste")
     } else if (ctrlCmd = "cc"){
         ; 消除已有提示信息
         clearToolTip()
@@ -455,7 +461,7 @@ searchTextClipForPaste(search){
     if (matchedSingleLineClip.Length() > 0)
     {
         ; 弹出提示窗口
-        ShowSuggestionsGui(matchedSingleLineClip, "SearchPasteHandler")
+        followList.show(matchedSingleLineClip, "SearchPasteHandler")
     }
 }
 
