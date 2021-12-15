@@ -255,6 +255,9 @@ execCtrlDownUPCmd(){
         Send, ^%ctrlCmd%
         if (ctrlCmd = "c")  or (ctrlCmd = "x") {
             ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
+            if (ErrorLevel = 1) {
+                return
+            }
             clip2 := ClipboardAll
             IF clip1 <> %clip2%
             {
