@@ -8,8 +8,20 @@ class SniPaste
     pastearray := [] ; 屏幕贴图的句柄列表
     activepaste := 0 ; 当前桌面贴图索引
 
+    ; 仅与当前剪切板交换数据
+    ; Clipboard      文本剪切板
+    ; ClipboardAll   富剪切板, 包括了Clipboard
+
     ; 构造函数
     __New(){
+        ; 用来判定是否要触发上下文热键
+        fnHotkeyShould := ObjBindMethod(this, "HotkeyShould")
+        ; 鼠标左键处理
+        fnLButtonHandler := ObjBindMethod(this, "LButtonHandler")
+        ; 创建上下文热键
+        Hotkey If, % fnHotkeyShould
+        Hotkey ~LButton, % fnLButtonHandler
+        Hotkey If
     }
 
     reset(){
@@ -118,6 +130,50 @@ class SniPaste
                 Sleep 50
                 Gui, %hWND%:Show
                 Sleep 50
+            }
+        }
+    }
+
+    ; 判定是否要触发上下文热键
+    HotkeyShould(){
+        CoordMode, Mouse , Screen
+        MouseGetPos, mX , mY , currWnd
+        WinGetPos , wX, wY, wW, wH, ahk_id %currWnd%
+        if (mX < wX+2) or (mY < wY+2) or (mX > wX+wW-2) or (mY > wY+wH-2) {
+            return False
+        }
+        should := False
+        for i_ , v_ in this.pastearray {
+            if (currWnd = v_){
+                should := True
+            }
+        }
+        return should
+    }
+
+    ; 鼠标左键处理
+    LButtonHandler(){
+        CoordMode, Mouse , Screen
+        MouseGetPos, cX , cY , currWnd
+        WinGetPos , wX, wY, wW, wH, ahk_id %currWnd%
+        ; 定位
+        loop{
+            keyIsDown := GetKeyState("LButton" , "P")
+            if (keyIsDown != 1) {
+                break
+            }
+            MouseGetPos, X, Y
+            posX := X - cX + wX
+            posY := Y - cY + wY
+            posX := Min(Max(posX, 0),  A_ScreenWidth-wW)
+            posY := Min(Max(posY, 0),  A_ScreenHeight-wH)
+            ; 移动贴图
+            WinMove, ahk_id %currWnd%, , %posX%, %posY%
+        }
+        this.activepaste := 0
+        for i_ , v_ in this.pastearray {
+            if (currWnd = v_){
+                this.activepaste := i_
             }
         }
     }

@@ -132,10 +132,8 @@ pasteImageToScreen(pBitmap, crop := False, position := False, alpha := 255, scal
     Gui, New ; 必须开新窗口，才能开新图
     ; E0x80000  WS_EX_LAYERED   分层窗口 https://docs.microsoft.com/en-us/windows/win32/winmsg/extended-window-styles
     ; 创建一个分层窗口（+E0x80000 ：UpdateLayeredWindow必须用这个才能工作！）它总是在顶部（+AlwaysOnTop），没有任务栏条目或标题
-    Gui, -Caption +E0x80000 +LastFound +AlwaysOnTop +ToolWindow +OwnDialogs
+    Gui, -Caption +E0x80000 +LastFound +AlwaysOnTop +ToolWindow +OwnDialogs +HwndhWND
     Gui, Show
-    ; 获取窗口句柄
-    hWND := WinExist()
 
     ; 获取位图的长宽
     Width := Gdip_GetImageWidth(pBitmap)
