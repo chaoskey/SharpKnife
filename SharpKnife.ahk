@@ -22,6 +22,7 @@ global clipHist := new ClipHistory()
 global followList := new FollowListBox()
 global follSingleLineEdit := new FollowSingleLineEdit()
 global follMultiLineEdit := new FollowMultiLineEdit()
+global sPaste := new SniPaste()
 ; 启动“Ctrl+命令”死循环(务必放最后)
 startCtrlCmdLoop()
 return ; 自动运行段结束
