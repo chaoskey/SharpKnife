@@ -48,8 +48,11 @@ CtrlRich.exe
 
 注意: 
 
-1. Ctrl松开后将，执行**系统粘贴**功能（Ctrl-V）； Ctrl松开前再补敲一个字符V, Ctrl松开后将，执行**贴图**功能（Ctrl-VV），可以将文字，位图，图片文件... 直接贴图到桌面。
-2. 在Ctrl松开前，`Ctrl-VA = Ctrl-VVA` , `Ctrl-VS = Ctrl-VVS`, `Ctrl-VD = Ctrl-VVD`, `Ctrl-VF = Ctrl-VVF`；  区别在Ctrl松开后，前者代表系统粘贴，后者代表贴图。 
+1. Ctrl松开后将，执行**系统粘贴**功能（Ctrl-V）
+
+2. Ctrl松开前再补敲一个字符V, Ctrl松开后将，执行**贴图**功能（Ctrl-VV），可以将文字，位图，图片文件... 直接贴图到桌面。
+
+3. 在Ctrl松开前，`Ctrl-VA = Ctrl-VVA` , `Ctrl-VS = Ctrl-VVS`, `Ctrl-VD = Ctrl-VVD`, `Ctrl-VF = Ctrl-VVF`；  区别在Ctrl松开后，前者代表系统粘贴，后者代表贴图。 
 
 ## 增加“剪切板历史记录的搜索-标记”功能
 
@@ -69,9 +72,11 @@ CtrlRich.exe
 >
 > 20211218, 改成调用Snipaste的方式实现截图和贴图
 
-- Ctrl + CC  鼠标选择截图 或 点击窗口截图  到 剪切板
+- `Ctrl + CC`  鼠标选择截图 或 点击窗口截图  到 剪切板
 
-- Ctrl + VV  剪切板贴图, 可以将位图，文字, 图片文件，贴图
+- `Ctrl + VV`  剪切板贴图, 可以将位图，文字, 图片文件，贴图
+
+- `Ctrl + CV`  先截图然后直接粘贴到屏幕上: `Ctrl + CC` 和 `Ctrl + VV` 的组合
 
 ## ~~增加桌面贴图管理~~
 
