@@ -109,17 +109,18 @@ startCtrlCmdLoop(){
             Clipboard := ""
             RunWait, %comSpec% /c "tasklist | find /i "snipaste" | CLIP",, hide
             ClipWait,2
-            snipaste := Trim(Clipboard, " `t`r`n")
-            snipaste := (snipaste !="")
+            snipaste := (Trim(Clipboard, " `t`r`n") != "")
             if snipaste {
                 break
             }
             if (not execSnipaste){
-                RunWait, Snipaste.exe
+                Run, Snipaste.exe
                 execSnipaste := True
             }
             Sleep, 1000
-        }catch{}
+        }catch{
+            break
+        }
     }
 	Clipboard:=Clip_Saved
     if (not snipaste) {
