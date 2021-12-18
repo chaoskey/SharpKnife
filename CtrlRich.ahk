@@ -15,7 +15,6 @@ FileEncoding , UTF-8-RAW
 
 #Include lib\util.ahk
 #Include lib\ClipHistory.ahk
-#Include lib\SniPaste.ahk
 #Include lib\CustomGUI.ahk
 
 ; 托盘提示
@@ -32,7 +31,6 @@ global clipHist := new ClipHistory()
 global followList := new FollowListBox()
 global follSingleLineEdit := new FollowSingleLineEdit()
 global follMultiLineEdit := new FollowMultiLineEdit()
-global sPaste := new SniPaste()
 ; 启动“Ctrl+命令”死循环
 startCtrlCmdLoop()
 return ; 自动运行段结束
@@ -100,6 +98,27 @@ startCtrlCmdLoop(){
     global tooltipPosY
     ; 用于跟随提示的显示位图的句柄
     global hWNDToolTip := 0 
+    global snipaste := False  ;  snipaste是否安装并启动
+
+    ; 启动Snipaste
+    familyName := ""
+	Clip_Saved:=ClipboardAll
+	try{
+		Clipboard:=""
+		RunWait, PowerShell.exe -Command &{Get-AppxPackage -Name "*45479liulios*" | CLIP},, hide
+		ClipWait,2
+        familyName := Clipboard
+        ; PackageFamilyName : 45479liulios.17062D84F7C46_p7pnf6hceqser
+        if RegExMatch(familyName, "O)PackageFamilyName\s+:\s+(.+)\r?\n", SubPat) {
+            familyName := Trim(SubPat.Value(1))
+            Run, explorer shell:AppsFolder\%familyName%!Snipaste
+            snipaste := True
+        }
+	}catch{}
+	Clipboard:=Clip_Saved
+    if (not snipaste) {
+        FollowToolTip("Snipaste尚未安装，不支持截图和贴图的功能！", 5000)
+    }
 
     working := False
     loop{
@@ -119,7 +138,6 @@ startCtrlCmdLoop(){
             ; 工作完成，状态复原
             working := False
             clipHist.reset()
-            sPaste.reset()
             ctrlCmd := ""
             tooltipPosX := 
             tooltipPosY :=
@@ -133,40 +151,24 @@ startCtrlCmdLoop(){
 execCtrlDownCmd(){
     global ctrlCmd ; Ctrl+命令
 
-    if (ctrlCmd = "vs"){  ; 显示下一个clip
+    if (ctrlCmd = "vs") or (ctrlCmd = "vvs"){  ; 显示下一个clip
         ctrlCmd := "v"
         clearToolTip()
         clipHist.nextClip()
         showClip()
-    }if (ctrlCmd = "vf"){  ; 显示上一个clip
+    }if (ctrlCmd = "vf")  or (ctrlCmd = "vvf"){  ; 显示上一个clip
         ctrlCmd := "v"
         clearToolTip()
         clipHist.prevClip()
         showClip()
-    }else if (ctrlCmd = "vd"){  ; 删除当前clip
+    }else if (ctrlCmd = "vd")  or (ctrlCmd = "vvd"){  ; 删除当前clip
         ctrlCmd := "v"
         clearToolTip()
         clipHist.deleteClip()
-    }else if (ctrlCmd = "va"){ ; 删除所有clip
+    }else if (ctrlCmd = "va")  or (ctrlCmd = "vva"){ ; 删除所有clip
         ctrlCmd := "v"
         clearToolTip()
         clipHist.deleteClipAll()
-    }else if (ctrlCmd = "vvs"){  ; 闪烁下一张桌面贴图
-        ctrlCmd := "vv"
-        clearToolTip()
-        sPaste.nextPaste()
-    }else if (ctrlCmd = "vvf"){  ; 闪烁上一张桌面贴图
-        ctrlCmd := "vv"
-        clearToolTip()
-        sPaste.prevPaste()
-    }else if (ctrlCmd = "vvd"){  ; 删除当前桌面贴图
-        ctrlCmd := "vv"
-        clearToolTip()
-        sPaste.deletPaste()
-    }else if (ctrlCmd = "vva"){  ; 清空所有桌面贴图
-        ctrlCmd := "vv"
-        clearToolTip()
-        sPaste.clearPastes()
     }
 }
 
@@ -175,8 +177,11 @@ execCtrlDownCmd(){
 */
 execCtrlDownUPCmd(){
     global ctrlCmd ; Ctrl+命令
+    global snipaste  ;  snipaste是否安装并启动
 
-    if (ctrlCmd = "ve"){  ; 进入当前剪切板编辑(只对文本内容进行编辑)
+    if (ctrlCmd = "vx") or (ctrlCmd = "vvx"){ ; 控制命令执行后补敲字符X，表示放弃系统粘贴或贴图
+        clearToolTip()
+    } else if (ctrlCmd = "ve"){  ; 进入当前剪切板编辑(只对文本内容进行编辑)
         clearToolTip()
         clipHist.moveClip()
         clip := Trim(clipboard, "`r`n")
@@ -190,13 +195,17 @@ execCtrlDownUPCmd(){
     } else if (ctrlCmd = "ss"){  ; 进入搜索粘贴模式
         clearToolTip()
         follSingleLineEdit.show("searchTextClipForPaste")
-    } else if (ctrlCmd = "cc"){ ; Ctrl+cc 截图复制（会出现跟随鼠标的坐标提示，鼠标左键“按下-移动-松开”完成截图复制）
+    } else if snipaste and (ctrlCmd = "cc"){ ; Ctrl+cc 截图复制（会出现跟随鼠标的坐标提示，鼠标左键“按下-移动-松开”完成截图复制）
         clearToolTip()
-        sPaste.snip()
+        ; 鼠标选择截图 或 点击窗口截图  到 剪切板
+        clipboard := "" ; 清空剪贴板
+        Run, % "Snipaste snip -o clipboard"
+        ClipWait, , 1
         clipHist.addClip()
-    } else if (ctrlCmd = "vv"){  ; Ctrl+vv 粘贴到屏幕(待贴图的内容会跟随鼠标移动，点击鼠标左键完成屏幕贴图)
+    } else if snipaste and (ctrlCmd = "vv"){  ; Ctrl+vv 粘贴到屏幕(待贴图的内容会跟随鼠标移动，点击鼠标左键完成屏幕贴图)
         clearToolTip()
-        sPaste.paste() 
+        ; 鼠标选择截图 或 点击窗口截图  到 剪切板
+        Run, % "Snipaste paste --clipboard"
         clipHist.moveClip() 
     }else if (StrLen(ctrlCmd) = 1) {  ; 保证拦截的“Ctrl+单字符命令”的系统原生功能不变
         if (ctrlCmd = "c") or (ctrlCmd = "x"){  ; 复制剪切前清空剪贴板，方便后续判定
