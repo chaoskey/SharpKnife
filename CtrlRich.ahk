@@ -100,24 +100,30 @@ startCtrlCmdLoop(){
     global hWNDToolTip := 0 
     global snipaste := False  ;  snipaste是否安装并启动
 
-    ; 启动Snipaste
-    familyName := ""
-	Clip_Saved:=ClipboardAll
-	try{
-		Clipboard:=""
-		RunWait, PowerShell.exe -Command &{Get-AppxPackage -Name "*45479liulios*" | CLIP},, hide
-		ClipWait,2
-        familyName := Clipboard
-        ; PackageFamilyName : 45479liulios.17062D84F7C46_p7pnf6hceqser
-        if RegExMatch(familyName, "O)PackageFamilyName\s+:\s+(.+)\r?\n", SubPat) {
-            familyName := Trim(SubPat.Value(1))
-            Run, explorer shell:AppsFolder\%familyName%!Snipaste
-            snipaste := True
-        }
-	}catch{}
+    ; 判断Snipaste进程存在否，如果不存在尝试启动之
+    Clip_Saved:=ClipboardAll
+    execSnipaste := False ; 是否尝试执行过Snipaste
+    Loop, 10  ; 大概10s钟内没启动Snipaste， 可认为没有安装Snipaste或不在运行路径(PATH)中
+    {
+        try{
+            Clipboard := ""
+            RunWait, %comSpec% /c "tasklist | find /i "snipaste" | CLIP",, hide
+            ClipWait,2
+            snipaste := Trim(Clipboard, " `t`r`n")
+            snipaste := (snipaste !="")
+            if snipaste {
+                break
+            }
+            if (not execSnipaste){
+                RunWait, Snipaste.exe
+                execSnipaste := True
+            }
+            Sleep, 1000
+        }catch{}
+    }
 	Clipboard:=Clip_Saved
     if (not snipaste) {
-        FollowToolTip("Snipaste尚未安装，不支持截图和贴图的功能！", 5000)
+        FollowToolTip("Snipaste尚未安装或不在运行路径下，不支持截图和贴图的功能！", 5000)
     }
 
     working := False
