@@ -152,21 +152,21 @@ execCtrlDownCmd(){
     global ctrlCmd ; Ctrl+命令
 
     if (ctrlCmd = "vs") or (ctrlCmd = "vvs"){  ; 显示下一个clip
-        ctrlCmd := "v"
+        ctrlCmd := SubStr(ctrlCmd, 1 , -1)
         clearToolTip()
         clipHist.nextClip()
         showClip()
     }if (ctrlCmd = "vf")  or (ctrlCmd = "vvf"){  ; 显示上一个clip
-        ctrlCmd := "v"
+        ctrlCmd := SubStr(ctrlCmd, 1 , -1)
         clearToolTip()
         clipHist.prevClip()
         showClip()
     }else if (ctrlCmd = "vd")  or (ctrlCmd = "vvd"){  ; 删除当前clip
-        ctrlCmd := "v"
+        ctrlCmd := SubStr(ctrlCmd, 1 , -1)
         clearToolTip()
         clipHist.deleteClip()
     }else if (ctrlCmd = "va")  or (ctrlCmd = "vva"){ ; 删除所有clip
-        ctrlCmd := "v"
+        ctrlCmd := SubStr(ctrlCmd, 1 , -1)
         clearToolTip()
         clipHist.deleteClipAll()
     }
@@ -195,18 +195,22 @@ execCtrlDownUPCmd(){
     } else if (ctrlCmd = "ss"){  ; 进入搜索粘贴模式
         clearToolTip()
         follSingleLineEdit.show("searchTextClipForPaste")
-    } else if snipaste and (ctrlCmd = "cc"){ ; Ctrl+cc 截图复制（会出现跟随鼠标的坐标提示，鼠标左键“按下-移动-松开”完成截图复制）
+    } else if (ctrlCmd = "cc"){ ; Ctrl+cc 截图复制（会出现跟随鼠标的坐标提示，鼠标左键“按下-移动-松开”完成截图复制）
         clearToolTip()
-        ; 鼠标选择截图 或 点击窗口截图  到 剪切板
-        clipboard := "" ; 清空剪贴板
-        Run, % "Snipaste snip -o clipboard"
-        ClipWait, , 1
-        clipHist.addClip()
-    } else if snipaste and (ctrlCmd = "vv"){  ; Ctrl+vv 粘贴到屏幕(待贴图的内容会跟随鼠标移动，点击鼠标左键完成屏幕贴图)
+        if snipaste {
+            ; 鼠标选择截图 或 点击窗口截图  到 剪切板
+            clipboard := "" ; 清空剪贴板
+            Run, % "Snipaste snip -o clipboard"
+            ClipWait, , 1
+            clipHist.addClip()
+        }
+    } else if (ctrlCmd = "vv"){  ; Ctrl+vv 粘贴到屏幕(待贴图的内容会跟随鼠标移动，点击鼠标左键完成屏幕贴图)
         clearToolTip()
-        ; 鼠标选择截图 或 点击窗口截图  到 剪切板
-        Run, % "Snipaste paste --clipboard"
-        clipHist.moveClip() 
+        if snipaste {
+            ; 鼠标选择截图 或 点击窗口截图  到 剪切板
+            Run, % "Snipaste paste --clipboard"
+            clipHist.moveClip() 
+        }
     }else if (StrLen(ctrlCmd) = 1) {  ; 保证拦截的“Ctrl+单字符命令”的系统原生功能不变
         if (ctrlCmd = "c") or (ctrlCmd = "x"){  ; 复制剪切前清空剪贴板，方便后续判定
             clip1:=ClipboardAll
