@@ -100,6 +100,23 @@ startCtrlCmdLoop(){
     global hWNDToolTip := 0 
     global snipaste := False  ;  snipaste是否安装并启动
 
+    ; 【这段注释掉的代码含有如何运行PowerShell.exe中的命令? 如何启动Win商店版程序，具有参考价值】
+    ; 启动Snipaste
+    ; familyName := ""
+    ; Clip_Saved:=ClipboardAll
+    ; try{
+    ;   Clipboard:=""
+    ;   RunWait, PowerShell.exe -Command &{Get-AppxPackage -Name "*45479liulios*" | CLIP},, hide
+    ;   ClipWait,2
+    ;   familyName := Clipboard
+    ;   ; PackageFamilyName : 45479liulios.17062D84F7C46_p7pnf6hceqser
+    ;   if RegExMatch(familyName, "O)PackageFamilyName\s+:\s+(.+)\r?\n", SubPat) {
+    ;       familyName := Trim(SubPat.Value(1))
+    ;       Run, explorer shell:AppsFolder\%familyName%!Snipaste
+    ;       snipaste := True
+    ; }
+    ; }catch{}
+
     ; 判断Snipaste进程存在否，如果不存在尝试启动之
     Clip_Saved:=ClipboardAll
     execSnipaste := False ; 是否尝试执行过Snipaste
@@ -233,6 +250,8 @@ execCtrlDownUPCmd(){
         if (ctrlCmd = "c") or (ctrlCmd = "x"){  ; 复制剪切前清空剪贴板，方便后续判定
             clip1:=ClipboardAll
             clipboard := ""
+        }else if (ctrlCmd = "v"){
+            clearToolTip()
         }
         Send, ^%ctrlCmd%
         if (ctrlCmd = "c")  or (ctrlCmd = "x") { ; 如果新内容，则新加一条历史记录
@@ -246,7 +265,6 @@ execCtrlDownUPCmd(){
                 clipHist.addClip()
             }
         }else if (ctrlCmd = "v"){ ; 粘贴后的记录作为最新记录
-            clearToolTip()
             clipHist.moveClip()       
         }
     }
@@ -258,22 +276,49 @@ execCtrlDownUPCmd(){
 */
 clearToolTip(){
     global hWNDToolTip ; 用于跟随提示的显示位图的句柄
+    global snipaste  ;  snipaste是否安装并启动
     if hWNDToolTip {
-        Gui, %hWNDToolTip%:Destroy
+        if snipaste {
+            ; 关闭贴图（确保贴图在激活状态下发送Snipaste内置快捷键`Shift+ESC`销毁贴图）
+            WinActivate , ahk_id %hWNDToolTip%
+            WinWaitActive , ahk_id %hWNDToolTip%
+            Send +{ESC}
+            WinWaitNotActive , ahk_id %hWNDToolTip%, , 5
+            if (ErrorLevel = 1){
+                MsgBox,
+(
+Snipaste以管理员状态运行，而本程序以非管理状态运行，程序无法继续！`n
+要么，请将Snipaste改为非管理员状态运行；
+要么，请将本程序改为管理员状态运行。
+总之，必须保证本程序和Snipaste的管理员状态一致。`n
+点击确认，程序将退出，务必设置好后重新启动本程序！
+)
+                ExitApp
+            }
+        }else{
+            Gui, %hWNDToolTip%:Destroy
+        }
         hWNDToolTip := 0
+    }else if (not snipaste) {
+        ToolTip
     }
-    ToolTip
 }
 
 /*
     显示当前剪切板内容
 */
 showClip(){
-    pBitmap := Gdip_CreateBitmapFromClipboard()
-    if (pBitmap < 0) {
-        toolTipClip(Clipboard)
+    global snipaste  ;  snipaste是否安装并启动
+
+    if snipaste {
+        toolTipSnipaste()
     }else{
-        toolTipImage(pBitmap)
+        pBitmap := Gdip_CreateBitmapFromClipboard()
+        if (pBitmap < 0) {
+            toolTipClip(Clipboard)
+        }else{
+            toolTipImage(pBitmap)
+        }
     }
 }    
 
@@ -329,6 +374,32 @@ toolTipImage(pBitmap){
     ;scale := "h" A_ScreenHeight*0.2
     hWNDToolTip := pasteImageToScreen(pBitmap, , tooltipPosX "," tooltipPosY) ;, , scale)
     Gdip_DisposeImage(pBitmap)
+}
+
+; 利用Snipaste进行剪切板浏览
+toolTipSnipaste(){
+    global tooltipPosX ; 跟随提示位置坐标X（Ctrl按下和松开之间保持不变）
+    global tooltipPosY ; 跟随提示位置坐标Y（Ctrl按下和松开之间保持不变）
+    global hWNDToolTip ; 用于跟随提示的显示位图的句柄
+
+    if (not tooltipPosX){
+        ; 当前光标或鼠标位置
+        CoordMode, Caret, Screen
+        if (not A_CaretX){
+            CoordMode, Mouse, Screen
+            MouseGetPos, tooltipPosX, tooltipPosY
+            tooltipPosX := tooltipPosX + 10
+        }else {
+            tooltipPosX := A_CaretX
+            tooltipPosY := A_CaretY + 20
+        }
+    }
+    ; 贴图，并在确保激活状态下获取贴图句柄
+    hOldWND := WinExist("A")
+    RunWait, % "Snipaste paste --clipboard --pos " tooltipPosX " " tooltipPosY
+    WinWaitNotActive , ahk_id %hOldWND%
+    WinWaitActive , Paster - Snipaste
+    hWNDToolTip := WinExist("A")
 }
 
 /*
