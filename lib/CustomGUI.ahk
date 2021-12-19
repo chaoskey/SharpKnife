@@ -78,9 +78,9 @@ FollowToolTip(text_, timeout)
     }
 }
 
-RemoveFollowToolTip:
-ToolTip
-return
+RemoveFollowToolTip(){
+    ToolTip
+}
 
 /*
     光标或鼠标跟随列表框
