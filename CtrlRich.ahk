@@ -149,6 +149,7 @@ startCtrlCmdLoop(){
     }
 
     working := False
+    SetBatchLines, 10ms
     loop{
         if (not working){
             ; 等待CTRL按下
@@ -156,6 +157,9 @@ startCtrlCmdLoop(){
         }
         keyIsDown := GetKeyState("CTRL" , "P")
         if keyIsDown{
+            if (not working){
+                SetBatchLines -1
+            }
             ; 进入工作状态
             working := True
             ; Ctrl+命令 （Ctrl未松开）
@@ -169,6 +173,7 @@ startCtrlCmdLoop(){
             ctrlCmd := ""
             tooltipPosX := 
             tooltipPosY :=
+            SetBatchLines, 10ms
         }
     }
 }
