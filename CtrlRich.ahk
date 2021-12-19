@@ -281,10 +281,16 @@ clearToolTip(){
         if snipaste {
             ; 关闭贴图（确保贴图在激活状态下发送Snipaste内置快捷键`Shift+ESC`销毁贴图）
             WinActivate , ahk_id %hWNDToolTip%
-            WinWaitActive , ahk_id %hWNDToolTip%, , 2
+            WinWaitActive , ahk_id %hWNDToolTip%, , 5
+            oldErrorLevel := ErrorLevel
             Send +{ESC}
             WinWaitNotActive , ahk_id %hWNDToolTip%, , 5
-            if (ErrorLevel = 1){
+            /*
+            严格Snipaste是否管理员状态判断。
+            因为非管理员ahk脚本面临Snipaste在管理员状态时，可以贴图，但发出Snipaste内置快捷键无效。
+            这种情况对应: 也就是说oldErrorLevel非1，并且ErrorLevel为1。
+            */
+            if (oldErrorLevel != 1) and (ErrorLevel = 1){
                 MsgBox,
 (
 Snipaste以管理员状态运行，而本程序以非管理状态运行，程序无法继续！`n
