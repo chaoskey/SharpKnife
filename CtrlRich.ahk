@@ -103,6 +103,7 @@ startCtrlCmdLoop(){
     ; 用于跟随提示的显示位图的句柄
     global hWNDToolTip := 0 
     global snipaste := False  ;  snipaste是否安装并启动
+    global hOldWND := 0 ; 记录Ctrl按下时的活动窗口
 
     ; 【这段注释掉的代码含有如何运行PowerShell.exe中的命令? 如何启动Win商店版程序，具有参考价值】
     ; 启动Snipaste
@@ -158,10 +159,11 @@ startCtrlCmdLoop(){
         keyIsDown := GetKeyState("CTRL" , "P")
         if keyIsDown{
             if (not working){
+                ; 进入工作状态
+                working := True
                 SetBatchLines -1
+                hOldWND := WinExist("A")
             }
-            ; 进入工作状态
-            working := True
             ; Ctrl+命令 （Ctrl未松开）
             execCtrlDownCmd()
         }else if working {
@@ -171,6 +173,7 @@ startCtrlCmdLoop(){
             working := False
             clipHist.reset()
             ctrlCmd := ""
+            hOldWND := 0
             tooltipPosX := 
             tooltipPosY :=
             SetBatchLines, 10ms
@@ -281,15 +284,17 @@ execCtrlDownUPCmd(){
 */
 clearToolTip(){
     global hWNDToolTip ; 用于跟随提示的显示位图的句柄
+    global hOldWND
     global snipaste  ;  snipaste是否安装并启动
     if hWNDToolTip {
         if snipaste {
             ; 关闭贴图（确保贴图在激活状态下发送Snipaste内置快捷键`Shift+ESC`销毁贴图）
+            WinActivate , ahk_id %hOldWND%
             WinActivate , ahk_id %hWNDToolTip%
-            WinWaitActive , ahk_id %hWNDToolTip%, , 5
+            WinWaitActive , ahk_id %hWNDToolTip%, , 2
             oldErrorLevel := ErrorLevel
             Send +{ESC}
-            WinWaitNotActive , ahk_id %hWNDToolTip%, , 5
+            WinWaitClose , ahk_id %hWNDToolTip% , , 5
             /*
             严格Snipaste是否管理员状态判断。
             因为非管理员ahk脚本面临Snipaste在管理员状态时，可以贴图，但发出Snipaste内置快捷键无效。
@@ -392,6 +397,7 @@ toolTipSnipaste(){
     global tooltipPosX ; 跟随提示位置坐标X（Ctrl按下和松开之间保持不变）
     global tooltipPosY ; 跟随提示位置坐标Y（Ctrl按下和松开之间保持不变）
     global hWNDToolTip ; 用于跟随提示的显示位图的句柄
+    global hOldWND ; 记录Ctrl按下时的活动窗口
 
     if (not tooltipPosX){
         ; 当前光标或鼠标位置
@@ -420,17 +426,18 @@ toolTipSnipaste(){
         }
     }
     ; 贴图，并在确保激活状态下获取贴图句柄
-    hOldWND := WinExist("A")
+    ; 确保回到原始窗口
+    WinActivate , ahk_id %hOldWND%
+    WinWaitActive, ahk_id %hOldWND%
     if (tag = "") or (not isText){
-        Run, % "Snipaste paste --clipboard --pos " tooltipPosX " " tooltipPosY
+        RunWait, % "Snipaste paste --clipboard --pos " tooltipPosX " " tooltipPosY
     }else{
         oldclip := ClipboardAll
         Clipboard := tag Clipboard
         RunWait, % "Snipaste paste --clipboard --pos " tooltipPosX " " tooltipPosY
         Clipboard := oldclip
     }
-    WinWaitNotActive , ahk_id %hOldWND%, , 2
-    WinWaitActive , Paster - Snipaste, , 2
+    WinWaitNotActive, ahk_id %hOldWND%
     hWNDToolTip := WinExist("A")
 }
 
@@ -490,7 +497,7 @@ saveTextToClipAndPaste(saveText){
 ; 【基于Snipaste】鼠标选择截图 或 点击窗口截图  到 剪切板
 SnipasteS(){
     clipboard := "" ; 清空剪贴板
-    Run, % "Snipaste snip -o clipboard"
+    RunWait, % "Snipaste snip -o clipboard"
     ClipWait, , 1
     clipHist.addClip()
 }
@@ -505,18 +512,18 @@ SnipasteP(){
 SnipasteSP(){
     ; 鼠标选择截图 或 点击窗口截图  到 剪切板
     clipboard := "" ; 清空剪贴板
-    Run, % "Snipaste snip -o clipboard"
+    RunWait, % "Snipaste snip -o clipboard"
     ClipWait, , 1
     clipHist.addClip()
     ; 鼠标选择截图 或 点击窗口截图  到 剪切板
-    Run, % "Snipaste paste --clipboard"
+    RunWait, % "Snipaste paste --clipboard"
 }
 
 ; 【基于Snipaste】启动白板
 SnipasteWhiteboard(){
     clip1:=ClipboardAll
     clipboard := ""
-    Run, Snipaste whiteboard
+    RunWait, Snipaste whiteboard
     ; 等候白板启动后再关闭
     WinWaitActive , Snipper - Snipaste, , 2
     WinWaitNotActive , Snipper - Snipaste, , 2
