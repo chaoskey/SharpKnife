@@ -209,27 +209,7 @@ execCtrlDownUPCmd(){
     } else if (ctrlCmd = "ww"){  ; 进入白板模式
         clearToolTip()
         if snipaste {
-            clip1:=ClipboardAll
-            clipboard := ""
-            Run, Snipaste whiteboard
-            ; 等候白板启动后再关闭
-            WinWaitActive , Snipper - Snipaste
-            WinWaitNotActive , Snipper - Snipaste
-            ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
-            new_ := False
-            if (ErrorLevel != 1) {
-                clip2 := ClipboardAll
-                IF clip1 <> %clip2%
-                {
-                    ; 如果白板被复制，则作为历史保存
-                    clipHist.addClip()
-                    new_ := True
-                }
-            }
-            if (not new_){
-                ;没有新的剪切数据，则复原
-                Clipboard := clip1
-            }
+            SnipasteWhiteboard()
         }
     } else if (ctrlCmd = "ve"){  ; 进入当前剪切板编辑(只对文本内容进行编辑)
         clearToolTip()
@@ -248,29 +228,17 @@ execCtrlDownUPCmd(){
     } else if (ctrlCmd = "cc"){ ; Ctrl+cc 截图复制
         clearToolTip()
         if snipaste {
-            ; 鼠标选择截图 或 点击窗口截图  到 剪切板
-            clipboard := "" ; 清空剪贴板
-            Run, % "Snipaste snip -o clipboard"
-            ClipWait, , 1
-            clipHist.addClip()
+            SnipasteS()
         }
     }else if (ctrlCmd = "vv"){  ; Ctrl+vv 粘贴到屏幕
         clearToolTip()
         if snipaste {
-            ; 鼠标选择截图 或 点击窗口截图  到 剪切板
-            Run, % "Snipaste paste --clipboard"
-            clipHist.moveClip() 
+            SnipasteP()
         }
     }else if (ctrlCmd = "cv"){  ; Ctrl+cv 先截图然后直接粘贴到屏幕上
         clearToolTip()
         if snipaste {
-            ; 鼠标选择截图 或 点击窗口截图  到 剪切板
-            clipboard := "" ; 清空剪贴板
-            Run, % "Snipaste snip -o clipboard"
-            ClipWait, , 1
-            clipHist.addClip()
-            ; 鼠标选择截图 或 点击窗口截图  到 剪切板
-            Run, % "Snipaste paste --clipboard"
+            SnipasteSP()
         }
     }else if (StrLen(ctrlCmd) = 1) {  ; 保证拦截的“Ctrl+单字符命令”的系统原生功能不变
         if (ctrlCmd = "c") or (ctrlCmd = "x"){  ; 复制剪切前清空剪贴板，方便后续判定
@@ -474,6 +442,56 @@ saveTextToClipAndPaste(saveText){
         Send, ^v
         ; 将选择的clip移到最新(并且读入到剪切板)
         clipHist.moveClip()
+    }
+}
+
+; 【基于Snipaste】鼠标选择截图 或 点击窗口截图  到 剪切板
+SnipasteS(){
+    clipboard := "" ; 清空剪贴板
+    Run, % "Snipaste snip -o clipboard"
+    ClipWait, , 1
+    clipHist.addClip()
+}
+
+; 【基于Snipaste】鼠标选择截图 或 点击窗口截图  到 剪切板
+SnipasteP(){
+    Run, % "Snipaste paste --clipboard"
+    clipHist.moveClip()
+}
+
+; 【基于Snipaste】截图后直接贴图
+SnipasteSP(){
+    ; 鼠标选择截图 或 点击窗口截图  到 剪切板
+    clipboard := "" ; 清空剪贴板
+    Run, % "Snipaste snip -o clipboard"
+    ClipWait, , 1
+    clipHist.addClip()
+    ; 鼠标选择截图 或 点击窗口截图  到 剪切板
+    Run, % "Snipaste paste --clipboard"
+}
+
+; 【基于Snipaste】启动白板
+SnipasteWhiteboard(){
+    clip1:=ClipboardAll
+    clipboard := ""
+    Run, Snipaste whiteboard
+    ; 等候白板启动后再关闭
+    WinWaitActive , Snipper - Snipaste
+    WinWaitNotActive , Snipper - Snipaste
+    ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
+    new_ := False
+    if (ErrorLevel != 1) {
+        clip2 := ClipboardAll
+        IF clip1 <> %clip2%
+        {
+            ; 如果白板被复制，则作为历史保存
+            clipHist.addClip()
+            new_ := True
+        }
+    }
+    if (not new_){
+        ;没有新的剪切数据，则复原
+        Clipboard := clip1
     }
 }
 
