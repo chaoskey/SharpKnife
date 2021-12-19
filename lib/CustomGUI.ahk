@@ -128,12 +128,17 @@ class FollowListBox
         Hotkey, IfWinExist
     }
 
-    show(textList, callbackFun, minWH := "100,20", maxWH := "600,200"){
+    show(textList, callbackFun, obj := False, minWH := "100,20", maxWH := "600,200"){
         ; textList              ; 文本列表
         ; callbackFun(index)    ; 回调函数，index是从列表数据已选索引
 
         ; 参数处理
-        this.callbackFun := Func(callbackFun)
+        if obj {
+            this.callbackFun := ObjBindMethod(obj, callbackFun)
+        }else{
+            this.callbackFun := Func(callbackFun)
+        }
+
         minWH := StrSplit(minWH, ",")
         maxWH := StrSplit(MaxWH, ",")
         ; 准备列表数据，并计算窗口的长宽
@@ -250,14 +255,21 @@ class FollowSingleLineEdit
         Hotkey, IfWinExist
     }
 
-    show(callbackFun, minWidth := 50, maxWidth := 200){
+    show(text_, callbackFun, obj := False, minWidth := 50, maxWidth := 200){
         ; textList              ; 文本列表
         ; callbackFun(varText)    ; 回调函数，varText是编辑控件内容
 
         ; 参数处理
-        this.callbackFun := Func(callbackFun)
+        if obj {
+            this.callbackFun := ObjBindMethod(obj, callbackFun)
+        }else{
+            this.callbackFun := Func(callbackFun)
+        }
         this.minWidth := minWidth
         this.maxWidth := maxWidth
+        ; 编辑框的宽高
+        getTextsWidthHeight(width, height, text_, this.fontOptions, this.fontName)
+        width := Min(Max(width + 10,this.minWidth),this.maxWidth)
         ; 当前光标或鼠标位置
         CoordMode, Caret, Screen
         if (not A_CaretX){
@@ -277,8 +289,9 @@ class FollowSingleLineEdit
         }
         ; 窗口显示
         Gui, % this.wndGui ":Default"
-        GuiControl,, % this.wndControl, % ""
-        Gui, Show, x%posX% y%posY% NoActivate
+        GuiControl,, % this.wndControl, %text_%
+        GuiControl, Move, % this.wndControl , w%width% ;设置控件宽
+        Gui, Show, x%posX% y%posY% w%width% ;  NoActivate
     }
 
     ; 动态更新搜索框的长度
@@ -361,12 +374,16 @@ class FollowMultiLineEdit
         Hotkey, IfWinExist
     }
 
-    show(texts, callbackFun, minWH := "100,20", maxWH := "600,200"){
+    show(texts, callbackFun, obj := False, minWH := "100,20", maxWH := "600,200"){
         ; textList              ; 文本列表
         ; callbackFun(varText)    ; 回调函数，varText是编辑控件内容
 
         ; 参数处理
-        this.callbackFun := Func(callbackFun)
+        if obj {
+            this.callbackFun := ObjBindMethod(obj, callbackFun)
+        }else{
+            this.callbackFun := Func(callbackFun)
+        }
         minWH := StrSplit(minWH, ",")
         maxWH := StrSplit(maxWH, ",")
         this.minWidth := minWH[1]

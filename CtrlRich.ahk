@@ -74,6 +74,7 @@ $^a::
 $^f::
 $^e::
 $^w::
+$^t::
 CtrlHandler()
 return
 
@@ -206,7 +207,10 @@ execCtrlDownUPCmd(){
 
     if (ctrlCmd = "vx") or (ctrlCmd = "vvx"){ ; 控制命令执行后补敲字符X，表示放弃系统粘贴或贴图
         clearToolTip()
-    } else if (ctrlCmd = "ww"){  ; 进入白板模式
+    } else if (ctrlCmd = "tt"){  ; 修改当前剪切板标签
+        clearToolTip()
+        follSingleLineEdit.show(clipHist.getClipTag(), "setClipTag", clipHist)
+    }  else if (ctrlCmd = "ww"){  ; 进入白板模式
         clearToolTip()
         if snipaste {
             SnipasteWhiteboard()
@@ -224,7 +228,7 @@ execCtrlDownUPCmd(){
         }
     } else if (ctrlCmd = "ss"){  ; 进入搜索粘贴模式
         clearToolTip()
-        follSingleLineEdit.show("searchTextClipForPaste")
+        follSingleLineEdit.show("", "searchTextClipForPaste")
     } else if (ctrlCmd = "cc"){ ; Ctrl+cc 截图复制
         clearToolTip()
         if snipaste {
@@ -424,7 +428,11 @@ SearchPasteHandler(index){
     
     ; 凡是搜索选择过的内容，都认为是比较重要的，所以特别添加到.clip\clip.tag中标记之 
     aclip := matchedSingleLineClipIndex[index]
-    clipHist.setClipTag(aclip)
+    tag := clipHist.getClipTag(aclip)
+    if (tag = ""){
+        tag := "★"
+    }
+    clipHist.setClipTag(tag, aclip)
     ; 读入到剪切板
     clipHist.readClip(aclip)
     ; 主动将剪切板的内容粘贴

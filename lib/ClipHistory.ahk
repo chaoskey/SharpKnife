@@ -157,12 +157,10 @@ class ClipHistory
             ; 分离标签和clip
             tag := ""
             idx1 := InStr(saveText, "[")
-            idx2 := InStr(saveText, "]", , idx1 + 1)
+            idx2 := InStr(saveText, "]", idx1 + 1)
             if (idx1 = 1) and (idx2 > 2) {
                 tag := SubStr(saveText, idx1 + 1 , idx2 - idx1 -1)
             }
-            ; 默认标签转义
-            tag := StrReplace(tag, "*" , "★")
             if (idx1 = 1) and (idx2 > 1) {
                 saveText := SubStr(saveText, idx2 + 1)
             }
@@ -180,7 +178,7 @@ class ClipHistory
             Clipboard := saveText
             FileAppend,%ClipboardAll%, % this.clipDir "\" currclip ".clip"
             this.activeclip := aclip
-            this.setClipTag(this.activeclip, tag)
+            this.setClipTag(tag, this.activeclip)
             return True
         }
         return False
@@ -302,7 +300,9 @@ class ClipHistory
 
     ; 将指定clip标记之
     ; 默认，将当前clip标记之
-    setClipTag(aclip := -1, tag := "★"){
+    setClipTag(tag, aclip := -1){
+        ; 默认标签转义
+        tag := StrReplace(tag, "*" , "★")
         if (aclip < 0) {
             aclip := this.activeclip
         }
