@@ -82,6 +82,8 @@ return
     Ctrl+命令 拦截
 */
 CtrlHandler(){
+    Critical
+
     global ctrlCmd ; Ctrl+命令
     if (not ctlCmd){
         ctlCmd := ""
@@ -126,7 +128,7 @@ startCtrlCmdLoop(){
     {
         try{
             Clipboard := ""
-            RunWait, %comSpec% /c "tasklist | find /i "snipaste" | CLIP",, hide
+            Run, %comSpec% /c "tasklist | find /i "snipaste" | CLIP",, hide
             ClipWait,2
             snipaste := (Trim(Clipboard, " `t`r`n") != "")
             if snipaste {
@@ -409,7 +411,7 @@ toolTipSnipaste(){
     ; 贴图，并在确保激活状态下获取贴图句柄
     hOldWND := WinExist("A")
     if (tag = "") or (not isText){
-        RunWait, % "Snipaste paste --clipboard --pos " tooltipPosX " " tooltipPosY
+        Run, % "Snipaste paste --clipboard --pos " tooltipPosX " " tooltipPosY
     }else{
         oldclip := ClipboardAll
         Clipboard := tag Clipboard
