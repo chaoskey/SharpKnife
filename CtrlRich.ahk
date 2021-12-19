@@ -73,6 +73,7 @@ $^d::
 $^a::
 $^f::
 $^e::
+$^w::
 CtrlHandler()
 return
 
@@ -205,6 +206,31 @@ execCtrlDownUPCmd(){
 
     if (ctrlCmd = "vx") or (ctrlCmd = "vvx"){ ; 控制命令执行后补敲字符X，表示放弃系统粘贴或贴图
         clearToolTip()
+    } else if (ctrlCmd = "ww"){  ; 进入白板模式
+        clearToolTip()
+        if snipaste {
+            clip1:=ClipboardAll
+            clipboard := ""
+            Run, Snipaste whiteboard
+            ; 等候白板启动后再关闭
+            WinWaitActive , Snipper - Snipaste
+            WinWaitNotActive , Snipper - Snipaste
+            ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
+            new_ := False
+            if (ErrorLevel != 1) {
+                clip2 := ClipboardAll
+                IF clip1 <> %clip2%
+                {
+                    ; 如果白板被复制，则作为历史保存
+                    clipHist.addClip()
+                    new_ := True
+                }
+            }
+            if (not new_){
+                ;没有新的剪切数据，则复原
+                Clipboard := clip1
+            }
+        }
     } else if (ctrlCmd = "ve"){  ; 进入当前剪切板编辑(只对文本内容进行编辑)
         clearToolTip()
         clipHist.moveClip()
@@ -288,7 +314,7 @@ clearToolTip(){
                 MsgBox,
 (
 Snipaste以管理员状态运行，而本程序以非管理状态运行，程序无法继续！`n
-要么，请将Snipaste改为非管理员状态运行；
+要么，请将Snipaste改为非管理员状态运行；【建议】
 要么，请将本程序改为管理员状态运行。
 总之，必须保证本程序和Snipaste的管理员状态一致。`n
 点击确认，程序将退出，务必设置好后重新启动本程序！
