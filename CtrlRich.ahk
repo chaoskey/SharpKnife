@@ -331,7 +331,7 @@ toolTipClip(tooltip_){
     if (tag != ""){
         tag := "[" tag "]"
     }
-    tooltip_ := tag tooltip_
+    clip := tag tooltip_
     if (not tooltipPosX){
         ; 当前光标或鼠标位置
         CoordMode, Caret, Screen
@@ -345,7 +345,7 @@ toolTipClip(tooltip_){
         }
     }
     CoordMode, ToolTip, Screen
-    ToolTip, %tooltip_%, %tooltipPosX%, %tooltipPosY%
+    ToolTip, %clip%, %tooltipPosX%, %tooltipPosY%
 }
 
 /*
@@ -392,9 +392,30 @@ toolTipSnipaste(){
             tooltipPosY := A_CaretY + 20
         }
     }
+    tag := clipHist.getClipTag()
+    if (tag != ""){
+        tag := "[" tag "]"
+    }
+    ; 判断剪切板是否是文本
+    isText := False
+    if (tag != "") {
+        Ptr := A_PtrSize ? "UPtr" : "UInt"
+        if DllCall("IsClipboardFormatAvailable", "uint", 1){
+            DllCall("OpenClipboard", Ptr, 0)
+            isText := (not (not DllCall("GetClipboardData", "uint", 1, Ptr)))
+            DllCall("CloseClipboard")
+        }
+    }
     ; 贴图，并在确保激活状态下获取贴图句柄
     hOldWND := WinExist("A")
-    RunWait, % "Snipaste paste --clipboard --pos " tooltipPosX " " tooltipPosY
+    if (tag = "") or (not isText){
+        RunWait, % "Snipaste paste --clipboard --pos " tooltipPosX " " tooltipPosY
+    }else{
+        oldclip := ClipboardAll
+        Clipboard := tag Clipboard
+        RunWait, % "Snipaste paste --clipboard --pos " tooltipPosX " " tooltipPosY
+        Clipboard := oldclip
+    }
     WinWaitNotActive , ahk_id %hOldWND%
     WinWaitActive , Paster - Snipaste
     hWNDToolTip := WinExist("A")
