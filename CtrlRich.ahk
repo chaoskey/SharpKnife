@@ -279,7 +279,7 @@ clearToolTip(){
         if snipaste {
             ; 关闭贴图（确保贴图在激活状态下发送Snipaste内置快捷键`Shift+ESC`销毁贴图）
             WinActivate , ahk_id %hWNDToolTip%
-            WinWaitActive , ahk_id %hWNDToolTip%
+            WinWaitActive , ahk_id %hWNDToolTip%, , 2
             Send +{ESC}
             WinWaitNotActive , ahk_id %hWNDToolTip%, , 5
             if (ErrorLevel = 1){
@@ -416,8 +416,8 @@ toolTipSnipaste(){
         RunWait, % "Snipaste paste --clipboard --pos " tooltipPosX " " tooltipPosY
         Clipboard := oldclip
     }
-    WinWaitNotActive , ahk_id %hOldWND%
-    WinWaitActive , Paster - Snipaste
+    WinWaitNotActive , ahk_id %hOldWND%, , 2
+    WinWaitActive , Paster - Snipaste, , 2
     hWNDToolTip := WinExist("A")
 }
 
@@ -505,8 +505,8 @@ SnipasteWhiteboard(){
     clipboard := ""
     Run, Snipaste whiteboard
     ; 等候白板启动后再关闭
-    WinWaitActive , Snipper - Snipaste
-    WinWaitNotActive , Snipper - Snipaste
+    WinWaitActive , Snipper - Snipaste, , 2
+    WinWaitNotActive , Snipper - Snipaste, , 2
     ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
     new_ := False
     if (ErrorLevel != 1) {
