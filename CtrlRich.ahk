@@ -103,7 +103,6 @@ startCtrlCmdLoop(){
     ; 用于跟随提示的显示位图的句柄
     global hWNDToolTip := 0 
     global snipaste := False  ;  snipaste是否安装并启动
-    ;global hOldWND := 0 ; 记录Ctrl按下时的活动窗口
 
     ; 【这段注释掉的代码含有如何运行PowerShell.exe中的命令? 如何启动Win商店版程序，具有参考价值】
     ; 启动Snipaste
@@ -162,7 +161,6 @@ startCtrlCmdLoop(){
                 ; 进入工作状态
                 working := True
                 SetBatchLines -1
-                ; hOldWND := WinExist("A")
             }
             ; Ctrl+命令 （Ctrl未松开）
             execCtrlDownCmd()
@@ -173,7 +171,6 @@ startCtrlCmdLoop(){
             working := False
             clipHist.reset()
             ctrlCmd := ""
-            ;hOldWND := 0
             tooltipPosX := 
             tooltipPosY :=
             SetBatchLines, 10ms
@@ -284,22 +281,26 @@ execCtrlDownUPCmd(){
 */
 clearToolTip(){
     global hWNDToolTip ; 用于跟随提示的显示位图的句柄
-    ; global hOldWND
-    ; global snipaste  ;  snipaste是否安装并启动
-    if hWNDToolTip {
-        /*
-            ; 关闭贴图（确保贴图在激活状态下发送Snipaste内置快捷键`Shift+ESC`销毁贴图）
-            WinActivate , ahk_id %hOldWND%
-            WinActivate , ahk_id %hWNDToolTip%
-            WinWaitActive , ahk_id %hWNDToolTip%, , 2
-            oldErrorLevel := ErrorLevel
-            Send +{ESC}
-            WinWaitClose , ahk_id %hWNDToolTip% , , 5
-            ;严格Snipaste是否管理员状态判断。
-            ;因为非管理员ahk脚本面临Snipaste在管理员状态时，可以贴图，但发出Snipaste内置快捷键无效。
-            ;这种情况对应: 也就是说oldErrorLevel非1，并且ErrorLevel为1。
-            if (oldErrorLevel != 1) and (ErrorLevel = 1){
-                MsgBox,
+    global snipaste  ;  snipaste是否安装并启动
+
+    if (not hWNDToolTip) {
+        ToolTip
+        return
+    }
+    if (not snipaste){
+        Gui, %hWNDToolTip%:Destroy
+        hWNDToolTip := 0
+        return
+    }
+
+    ; 关闭贴图（确保贴图在激活状态下发送Snipaste内置快捷键`Shift+ESC`销毁贴图）
+    WinActivate , ahk_id %hWNDToolTip%
+    WinWaitActive , ahk_id %hWNDToolTip%
+    hWND := WinExist("A")
+    Send +{ESC}
+    WinWaitNotActive, ahk_id %hWND% , , 5
+    if (ErrorLevel = 1){
+        MsgBox,
 (
 Snipaste以管理员状态运行，而本程序以非管理状态运行，程序无法继续！`n
 要么，请将Snipaste改为非管理员状态运行；【建议】
@@ -307,28 +308,26 @@ Snipaste以管理员状态运行，而本程序以非管理状态运行，程序
 总之，必须保证本程序和Snipaste的管理员状态一致。`n
 点击确认，程序将退出，务必设置好后重新启动本程序！
 )
-                ExitApp
-            }
-        */
-        Gui, %hWNDToolTip%:Destroy
-        hWNDToolTip := 0
-    }else{   ; if (not snipaste) {
-        ToolTip
+        ExitApp
     }
+    hWNDToolTip := 0
 }
 
 /*
     显示当前剪切板内容
 */
 showClip(){
-    ; global snipaste  ;  snipaste是否安装并启动
+    global snipaste  ;  snipaste是否安装并启动
 
-    ; 调用外部程序（toolTipSnipaste）浏览太慢，恢复原来的浏览方式
-    pBitmap := Gdip_CreateBitmapFromClipboard()
-    if (pBitmap < 0) {
-        toolTipClip(Clipboard)
-    }else{
-        toolTipImage(pBitmap)
+    if snipaste {
+        toolTipSnipaste()
+    }else {
+        pBitmap := Gdip_CreateBitmapFromClipboard()
+        if (pBitmap < 0) {
+            toolTipClip(Clipboard)
+        }else{
+            toolTipImage(pBitmap)
+        }
     }
 }    
 
@@ -391,7 +390,6 @@ toolTipSnipaste(){
     global tooltipPosX ; 跟随提示位置坐标X（Ctrl按下和松开之间保持不变）
     global tooltipPosY ; 跟随提示位置坐标Y（Ctrl按下和松开之间保持不变）
     global hWNDToolTip ; 用于跟随提示的显示位图的句柄
-    global hOldWND ; 记录Ctrl按下时的活动窗口
 
     if (not tooltipPosX){
         ; 当前光标或鼠标位置
@@ -419,20 +417,19 @@ toolTipSnipaste(){
             DllCall("CloseClipboard")
         }
     }
-    ; 贴图，并在确保激活状态下获取贴图句柄
-    ; 确保回到原始窗口
-    WinActivate , ahk_id %hOldWND%
-    WinWaitActive, ahk_id %hOldWND%
-    if (tag = "") or (not isText){
-        RunWait, % "Snipaste paste --clipboard --pos " tooltipPosX " " tooltipPosY
-    }else{
-        oldclip := ClipboardAll
+    ; 贴图，确保获取贴图句柄
+    oldclip := ClipboardAll
+    if (tag != "") and isText{
         Clipboard := tag Clipboard
-        RunWait, % "Snipaste paste --clipboard --pos " tooltipPosX " " tooltipPosY
-        Clipboard := oldclip
     }
-    WinWaitNotActive, ahk_id %hOldWND%
-    hWNDToolTip := WinExist("A")
+    RunWait, % "Snipaste paste --clipboard --pos " tooltipPosX " " tooltipPosY
+    ; 如果被浏览的clip和桌面已有贴图内容重复，会闪烁后处于非激活状态
+    ; 所以必须设置超时时间，假设2s等待激活超时，就是遇到了这种情况
+    WinWaitActive, Paster - Snipaste , , 2
+    ; 无论是否超时，这个贴图对应的窗口已经存在，所以可以直接获取窗口句柄
+    ; 并且这个贴图是最近激活过的，所以不会错误获取桌面其它已有的无关贴图窗口句柄
+    hWNDToolTip := WinExist("Paster - Snipaste")
+    Clipboard := oldclip
 }
 
 /*
@@ -523,7 +520,6 @@ SnipasteSP(){
     IF oldClip <> %newClip%
     {
         clipHist.addClip()
-        ; 鼠标选择截图 或 点击窗口截图  到 剪切板
         Run, % "Snipaste paste --clipboard"
     }
 }
