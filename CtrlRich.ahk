@@ -103,7 +103,7 @@ startCtrlCmdLoop(){
     ; 用于跟随提示的显示位图的句柄
     global hWNDToolTip := 0 
     global snipaste := False  ;  snipaste是否安装并启动
-    global hOldWND := 0 ; 记录Ctrl按下时的活动窗口
+    ;global hOldWND := 0 ; 记录Ctrl按下时的活动窗口
 
     ; 【这段注释掉的代码含有如何运行PowerShell.exe中的命令? 如何启动Win商店版程序，具有参考价值】
     ; 启动Snipaste
@@ -162,7 +162,7 @@ startCtrlCmdLoop(){
                 ; 进入工作状态
                 working := True
                 SetBatchLines -1
-                hOldWND := WinExist("A")
+                ; hOldWND := WinExist("A")
             }
             ; Ctrl+命令 （Ctrl未松开）
             execCtrlDownCmd()
@@ -173,7 +173,7 @@ startCtrlCmdLoop(){
             working := False
             clipHist.reset()
             ctrlCmd := ""
-            hOldWND := 0
+            ;hOldWND := 0
             tooltipPosX := 
             tooltipPosY :=
             SetBatchLines, 10ms
@@ -284,10 +284,10 @@ execCtrlDownUPCmd(){
 */
 clearToolTip(){
     global hWNDToolTip ; 用于跟随提示的显示位图的句柄
-    global hOldWND
-    global snipaste  ;  snipaste是否安装并启动
+    ; global hOldWND
+    ; global snipaste  ;  snipaste是否安装并启动
     if hWNDToolTip {
-        if snipaste {
+        /*
             ; 关闭贴图（确保贴图在激活状态下发送Snipaste内置快捷键`Shift+ESC`销毁贴图）
             WinActivate , ahk_id %hOldWND%
             WinActivate , ahk_id %hWNDToolTip%
@@ -295,11 +295,9 @@ clearToolTip(){
             oldErrorLevel := ErrorLevel
             Send +{ESC}
             WinWaitClose , ahk_id %hWNDToolTip% , , 5
-            /*
-            严格Snipaste是否管理员状态判断。
-            因为非管理员ahk脚本面临Snipaste在管理员状态时，可以贴图，但发出Snipaste内置快捷键无效。
-            这种情况对应: 也就是说oldErrorLevel非1，并且ErrorLevel为1。
-            */
+            ;严格Snipaste是否管理员状态判断。
+            ;因为非管理员ahk脚本面临Snipaste在管理员状态时，可以贴图，但发出Snipaste内置快捷键无效。
+            ;这种情况对应: 也就是说oldErrorLevel非1，并且ErrorLevel为1。
             if (oldErrorLevel != 1) and (ErrorLevel = 1){
                 MsgBox,
 (
@@ -311,11 +309,10 @@ Snipaste以管理员状态运行，而本程序以非管理状态运行，程序
 )
                 ExitApp
             }
-        }else{
-            Gui, %hWNDToolTip%:Destroy
-        }
+        */
+        Gui, %hWNDToolTip%:Destroy
         hWNDToolTip := 0
-    }else if (not snipaste) {
+    }else{   ; if (not snipaste) {
         ToolTip
     }
 }
@@ -324,17 +321,14 @@ Snipaste以管理员状态运行，而本程序以非管理状态运行，程序
     显示当前剪切板内容
 */
 showClip(){
-    global snipaste  ;  snipaste是否安装并启动
+    ; global snipaste  ;  snipaste是否安装并启动
 
-    if snipaste {
-        toolTipSnipaste()
+    ; 调用外部程序（toolTipSnipaste）浏览太慢，恢复原来的浏览方式
+    pBitmap := Gdip_CreateBitmapFromClipboard()
+    if (pBitmap < 0) {
+        toolTipClip(Clipboard)
     }else{
-        pBitmap := Gdip_CreateBitmapFromClipboard()
-        if (pBitmap < 0) {
-            toolTipClip(Clipboard)
-        }else{
-            toolTipImage(pBitmap)
-        }
+        toolTipImage(pBitmap)
     }
 }    
 
