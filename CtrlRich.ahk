@@ -519,8 +519,8 @@ SnipasteWhiteboard(){
     clipboard := ""
     RunWait, Snipaste whiteboard
     ; 等候白板启动后再关闭
-    WinWaitActive , Snipper - Snipaste, , 2
-    WinWaitNotActive , Snipper - Snipaste, , 2
+    WinWaitActive , Snipper - Snipaste
+    WinWaitNotActive , Snipper - Snipaste
     ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
     new_ := False
     if (ErrorLevel != 1) {
