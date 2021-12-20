@@ -490,10 +490,18 @@ saveTextToClipAndPaste(saveText){
 
 ; 【基于Snipaste】鼠标选择截图 或 点击窗口截图  到 剪切板
 SnipasteS(){
-    clipboard := "" ; 清空剪贴板
-    RunWait, % "Snipaste snip -o clipboard"
-    ClipWait, , 1
-    clipHist.addClip()
+    oldClip := clipboardAll
+    Run, % "Snipaste snip -o clipboard"
+    ; 先等待操作窗口激活，再等待该窗口消失，这个动作才算完成
+    ; 无论什么情况返回，如果剪切板有变化，则添加到clip历史记录中
+    WinWaitActive, Snipper - Snipaste
+    hWND := WinExist("A")
+    WinWaitNotActive, ahk_id %hWND%
+    newClip := clipboardAll
+    IF oldClip <> %newClip%
+    {
+        clipHist.addClip()
+    }
 }
 
 ; 【基于Snipaste】鼠标选择截图 或 点击窗口截图  到 剪切板
@@ -504,37 +512,35 @@ SnipasteP(){
 
 ; 【基于Snipaste】截图后直接贴图
 SnipasteSP(){
-    ; 鼠标选择截图 或 点击窗口截图  到 剪切板
-    clipboard := "" ; 清空剪贴板
-    RunWait, % "Snipaste snip -o clipboard"
-    ClipWait, , 1
-    clipHist.addClip()
-    ; 鼠标选择截图 或 点击窗口截图  到 剪切板
-    RunWait, % "Snipaste paste --clipboard"
+    oldClip := clipboardAll
+    Run, % "Snipaste snip -o clipboard"
+    ; 先等待操作窗口激活，再等待该窗口消失，这个动作才算完成
+    ; 无论什么情况返回，如果剪切板有变化，则添加到clip历史记录中
+    WinWaitActive, Snipper - Snipaste
+    hWND := WinExist("A")
+    WinWaitNotActive, ahk_id %hWND%
+    newClip := clipboardAll
+    IF oldClip <> %newClip%
+    {
+        clipHist.addClip()
+        ; 鼠标选择截图 或 点击窗口截图  到 剪切板
+        Run, % "Snipaste paste --clipboard"
+    }
 }
 
 ; 【基于Snipaste】启动白板
 SnipasteWhiteboard(){
-    clip1:=ClipboardAll
-    clipboard := ""
-    RunWait, Snipaste whiteboard
-    ; 等候白板启动后再关闭
-    WinWaitActive , Snipper - Snipaste
-    WinWaitNotActive , Snipper - Snipaste
-    ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
-    new_ := False
-    if (ErrorLevel != 1) {
-        clip2 := ClipboardAll
-        IF clip1 <> %clip2%
-        {
-            ; 如果白板被复制，则作为历史保存
-            clipHist.addClip()
-            new_ := True
-        }
-    }
-    if (not new_){
-        ;没有新的剪切数据，则复原
-        Clipboard := clip1
+    oldClip := clipboardAll
+    Run, Snipaste whiteboard
+    ; 先等待操作窗口激活，再等待该窗口消失，这个动作才算完成
+    ; 无论什么情况返回，如果剪切板有变化，则添加到clip历史记录中
+    WinWaitActive, Snipper - Snipaste
+    hWND := WinExist("A")
+    WinWaitNotActive, ahk_id %hWND%
+    newClip := clipboardAll
+    IF oldClip <> %newClip%
+    {
+        clipHist.addClip()
     }
 }
 
