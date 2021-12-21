@@ -14,6 +14,8 @@
 ## 启动
 
 > 建议配置成开机启动
+>
+> 为了可在任意环境下运行，建议以管理员身份运行。（比如 Ctrl-cf是选择翻译，如果是非管理员状态，有些环境会触发搜索快捷键Ctrl-f；用管理员身份运行可以避免这个问题: Ctrl-cf不会触发Ctrl-f搜索，只有Ctrl-f才能触发搜索）
 
 ```powershell
 git clone https://github.com/chaoskey/SharpKnife.git
