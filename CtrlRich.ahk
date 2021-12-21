@@ -37,66 +37,89 @@ return ; 自动运行段结束
 
 
 /*
-最终命令（Ctrl松开执行的命令）
-    【系统复制】Ctrl + c    
-    【系统粘贴】Ctrl + v
-    【系统剪切】Ctrl + x
+最终命令（RCtrl松开执行的命令）
+    【系统复制】RCtrl + c
+    【系统粘贴】RCtrl + v
+    【系统剪切】RCtrl + x
 
-    【截图复制】Ctrl + cc    
+    【截图复制】RCtrl + cc
         鼠标选择屏幕上任何矩形区域（先Ctrl+cc，后选择）
-    【图片粘贴】Ctrl + vv
+    【图片粘贴】RCtrl + vv
         鼠标选择粘贴屏幕任意位置，也可以将复制文本作为图片粘贴  （先Ctrl+cc，后选择）
 
-Clipboard浏览管理（Ctrl未松开执行的命令）
-    【下一个clip浏览】  Ctrl + vs(x)    如果以x结尾，则表示松开后也不执行（下同）
-    【上一个clip浏览】  Ctrl + vf(x)
-    【删除当前clip】       Ctrl + vd(x)
-    【删除全部】           Ctrl + va(x)
+Clipboard浏览管理（RCtrl未松开执行的命令）
+    【下一个clip浏览】  RCtrl + vs(x)    如果以x结尾，则表示松开后也不执行（下同）
+    【上一个clip浏览】  RCtrl + vf(x)
+    【删除当前clip】       RCtrl + vd(x)
+    【删除全部】           RCtrl + va(x)
 
 贴图管理（Ctrl未松开执行的命令）
-    【下一个贴图】  Ctrl + vvs(x)
-    【上一个贴图】  Ctrl + vvf(x)
-    【删除当前贴图】   Ctrl + vvd(x)
-    【删除全部贴图】   Ctrl + vva(x)
+    【下一个贴图】  RCtrl + vvs(x)
+    【上一个贴图】  RCtrl + vvf(x)
+    【删除当前贴图】   RCtrl + vvd(x)
+    【删除全部贴图】   RCtrl + vva(x)
 
 组合命令（Ctrl松开后）
-    Ctrl + c[a|s|d|f]*  = Ctrl + c      
-    Ctrl + v[a|s|d|f]*  = Ctrl + v
-    Ctrl + c[a|s|d|f]*c  = Ctrl + cc
-    Ctrl + v[a|s|d|f]*v  = Ctrl + vv
+    RCtrl + c[a|s|d|f]*  = RCtrl + c
+    RCtrl + v[a|s|d|f]*  = RCtrl + v
+    RCtrl + c[a|s|d|f]*c  = RCtrl + cc
+    RCtrl + v[a|s|d|f]*v  = RCtrl + vv
 */
-$^c::
-$^v::
-$^x::
-$^s::
-$^d::
-$^a::
-$^f::
-$^e::
-$^w::
-$^t::
-CtrlHandler()
+$>^c::
+$>^v::
+$>^x::
+$>^s::
+$>^d::
+$>^a::
+$>^f::
+$>^e::
+$>^w::
+$>^t::
+RCtrlHandler()
 return
 
 /*  
-    Ctrl+命令 拦截
+    RCtrl+命令 拦截
 */
-CtrlHandler(){
+RCtrlHandler(){
     Critical
 
-    global ctrlCmd ; Ctrl+命令
+    global rctrlCmd ; RCtrl+命令
     if (not ctlCmd){
         ctlCmd := ""
     }
-    ctrlCmd := ctrlCmd SubStr(A_ThisHotkey, 3) 
+    c_ := SubStr(A_ThisHotkey, 4)
+    rctrlCmd := rctrlCmd c_
+    ; 等待c_对应的字母键松开（增强程序稳定性）
+    KeyWait, %c_%
+}
+
+; 独立划词窗口关闭上下文条件
+HotkeyShouldTransClose(){
+    ; 获取翻译窗口关闭按钮的位置
+    WinGetPos , tX, tY, , , 独立翻译窗口 - 划词翻译
+    if (not tX){
+        return False
+    }
+    ControlGetPos , cX , cY , cWidth, cHeight, Intermediate D3D Window1, 独立翻译窗口 - 划词翻译
+    if (not cX){
+        return False
+    }
+    CoordMode, Mouse, Screen
+    MouseGetPos, mX, mY
+    return ((mX >  tX + cX + cWidth-46) and (mX < tX + cX +cWidth) and (mY > tY + cY)  and (mY < tY + cY + 29))
+}
+; 禁止独立划词窗口关闭，改为最小化
+disaTranslateWinClose(){
+    WinMinimize , 独立翻译窗口 - 划词翻译
 }
 
 /* 
     “Ctrl+命令”处理之死循环
 */
 startCtrlCmdLoop(){
-    ; Ctrl+命令
-    global ctrlCmd := ""
+    ; RCtrl+命令
+    global rctrlCmd := ""
     ; 跟随提示位置坐标（Ctrl按下和松开之间保持不变）
     global tooltipPosX
     global tooltipPosY
@@ -147,6 +170,14 @@ startCtrlCmdLoop(){
     if (not snipaste) {
         FollowToolTip("Snipaste尚未安装或不在运行路径下，不支持截图和贴图的功能！", 5000)
     }
+    ; 拦截独立翻译窗口的鼠标点击关闭的操作，改成最小化该窗口
+    ; 保证独立翻译窗口一旦打开，此扩展作为Chrome后台应用始终存在，即使谷歌浏览器已经关闭
+    fnHotkeyShouldTransClose := Func("HotkeyShouldTransClose")
+    Hotkey If, % fnHotkeyShouldTransClose
+    Hotkey LButton, disaTranslateWinClose
+    Hotkey, IfWinActive , 独立翻译窗口 - 划词翻译
+    Hotkey Esc, disaTranslateWinClose
+    Hotkey, IfWinActive
 
     working := False
     SetBatchLines, 10ms
@@ -155,22 +186,22 @@ startCtrlCmdLoop(){
             ; 等待CTRL按下
             KeyWait, Control, D
         }
-        keyIsDown := GetKeyState("CTRL" , "P")
+        keyIsDown := GetKeyState("RCTRL" , "P")
         if keyIsDown{
             if (not working){
                 ; 进入工作状态
                 working := True
                 SetBatchLines -1
             }
-            ; Ctrl+命令 （Ctrl未松开）
+            ; RCtrl+命令 （RCtrl未松开）
             execCtrlDownCmd()
         }else if working {
-            ; Ctrl+命令 （Ctrl松开）
+            ; RCtrl+命令 （RCtrl松开）
             execCtrlDownUPCmd()
             ; 工作完成，状态复原
             working := False
             clipHist.reset()
-            ctrlCmd := ""
+            rctrlCmd := ""
             tooltipPosX := 
             tooltipPosY :=
             SetBatchLines, 10ms
@@ -179,50 +210,83 @@ startCtrlCmdLoop(){
 }
 
 /*  
-    Ctrl+命令 （Ctrl未松开）
+    RCtrl+命令 （RCtrl未松开）
 */
 execCtrlDownCmd(){
-    global ctrlCmd ; Ctrl+命令
+    global rctrlCmd ; RCtrl+命令
 
-    if (ctrlCmd = "vs") or (ctrlCmd = "vvs"){  ; 显示下一个clip
-        ctrlCmd := SubStr(ctrlCmd, 1 , -1)
+    if (rctrlCmd = "vs") or (rctrlCmd = "vvs"){  ; 显示下一个clip
+        rctrlCmd := SubStr(rctrlCmd, 1 , -1)
         clearToolTip()
         clipHist.nextClip()
         showClip()
-    }if (ctrlCmd = "vf")  or (ctrlCmd = "vvf"){  ; 显示上一个clip
-        ctrlCmd := SubStr(ctrlCmd, 1 , -1)
+        return
+    }
+    if (rctrlCmd = "vf")  or (rctrlCmd = "vvf"){  ; 显示上一个clip
+        rctrlCmd := SubStr(rctrlCmd, 1 , -1)
         clearToolTip()
         clipHist.prevClip()
         showClip()
-    }else if (ctrlCmd = "vd")  or (ctrlCmd = "vvd"){  ; 删除当前clip
-        ctrlCmd := SubStr(ctrlCmd, 1 , -1)
+        return
+    }
+    if (rctrlCmd = "vd")  or (rctrlCmd = "vvd"){  ; 删除当前clip
+        rctrlCmd := SubStr(rctrlCmd, 1 , -1)
         clearToolTip()
         clipHist.deleteClip()
-    }else if (ctrlCmd = "va")  or (ctrlCmd = "vva"){ ; 删除所有clip
-        ctrlCmd := SubStr(ctrlCmd, 1 , -1)
+        return
+    }if (rctrlCmd = "va")  or (rctrlCmd = "vva"){ ; 删除所有clip
+        rctrlCmd := SubStr(rctrlCmd, 1 , -1)
         clearToolTip()
         clipHist.deleteClipAll()
+        return
     }
 }
 
 /*  
-    Ctrl+命令 （Ctrl松开）
+    RCtrl+命令 （RCtrl松开）
 */
 execCtrlDownUPCmd(){
-    global ctrlCmd ; Ctrl+命令
+    global rctrlCmd ; RCtrl+命令
     global snipaste  ;  snipaste是否安装并启动
+    global hWndTranslateWin
 
-    if (ctrlCmd = "vx") or (ctrlCmd = "vvx"){ ; 控制命令执行后补敲字符X，表示放弃系统粘贴或贴图
+    if (rctrlCmd = "ff"){  ; 弹出翻译框 ，所以命令不妨取 RCtrl-ff
         clearToolTip()
-    } else if (ctrlCmd = "tt"){  ; 修改当前剪切板标签
+        Send, ^+1
+        return
+    }
+    if (rctrlCmd = "cf"){  ; 翻译 = 选择-复制(c)-翻译(f) ，所以命令取 RCtrl-cf
+        clearToolTip()
+        ; 先复制
+        clip1 := ClipboardAll
+        Clipboard := ""
+        Send, ^c
+        ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
+        if (ErrorLevel = 0) {
+            StringReplace, clipboard, clipboard, `r, , All
+            StringReplace, clipboard, clipboard, `n, , All
+            clip2 :=  ClipboardAll
+            IF clip1 <> %clip2%
+            {
+                clipHist.addClip()
+            }
+        }else{
+            Clipboard := clip1
+        }
+        ; 再打开翻译窗口
+        Send, ^+1
+        return
+    }if (rctrlCmd = "ct"){  ; 修改当前剪切板(c)标签(t) , 所以命令取: RCtrl-ct
         clearToolTip()
         follSingleLineEdit.show(clipHist.getClipTag(), "setClipTag", clipHist)
-    }  else if (ctrlCmd = "ww"){  ; 进入白板模式
+        return
+    }if (rctrlCmd = "ww"){  ; 进入白板(w)模式, 所以命令取: RCtrl-ww
         clearToolTip()
         if snipaste {
             SnipasteWhiteboard()
         }
-    } else if (ctrlCmd = "ve"){  ; 进入当前剪切板编辑(只对文本内容进行编辑)
+        return
+    }if (rctrlCmd = "ce"){  ; 只对文本剪切板(c)编辑(e), 所以命令取: RCtrl-ce
         clearToolTip()
         clipHist.moveClip()
         clip := Trim(clipboard, "`r`n")
@@ -233,33 +297,38 @@ execCtrlDownUPCmd(){
             }
             follMultiLineEdit.show(tag clip, "saveTextToClipAndPaste")
         }
-    } else if (ctrlCmd = "ss"){  ; 进入搜索粘贴模式
+        return
+    }if (rctrlCmd = "sv"){  ; 进入搜索(s)粘贴(v)模式, 所以命令取: RCtrl-sv
         clearToolTip()
         follSingleLineEdit.show("", "searchTextClipForPaste")
-    } else if (ctrlCmd = "cc"){ ; Ctrl+cc 截图复制
+        return
+    }if (rctrlCmd = "cc"){ ; RCtrl+cc 截图复制, 命令取: RCtrl-cc 表示加强版复制
         clearToolTip()
         if snipaste {
             SnipasteS()
         }
-    }else if (ctrlCmd = "vv"){  ; Ctrl+vv 粘贴到屏幕
+        return
+    }if (rctrlCmd = "vv"){  ; RCtrl+vv 粘贴到屏幕, 命令取: RCtrl-vv 表示加强版复制粘贴
         clearToolTip()
         if snipaste {
             SnipasteP()
         }
-    }else if (ctrlCmd = "cv"){  ; Ctrl+cv 先截图然后直接粘贴到屏幕上
+        return
+    }if (rctrlCmd = "cv"){  ; RCtrl+cv 先截图复制(c)然后直接粘贴(v)到屏幕上, 所以命令取: RCtrl-cv 
         clearToolTip()
         if snipaste {
             SnipasteSP()
         }
-    }else if (StrLen(ctrlCmd) = 1) {  ; 保证拦截的“Ctrl+单字符命令”的系统原生功能不变
-        if (ctrlCmd = "c") or (ctrlCmd = "x"){  ; 复制剪切前清空剪贴板，方便后续判定
+        return
+    }if (StrLen(rctrlCmd) = 1) {  ; 保证拦截的“Ctrl+单字符命令”的系统原生功能不变
+        if (rctrlCmd = "c") or (rctrlCmd = "x"){  ; 复制剪切前清空剪贴板，方便后续判定
             clip1:=ClipboardAll
             clipboard := ""
-        }else if (ctrlCmd = "v"){
+        }else if (rctrlCmd = "v"){
             clearToolTip()
         }
-        Send, ^%ctrlCmd%
-        if (ctrlCmd = "c")  or (ctrlCmd = "x") { ; 如果新内容，则新加一条历史记录
+        Send, ^%rctrlCmd%
+        if (rctrlCmd = "c")  or (rctrlCmd = "x") { ; 如果新内容，则新加一条历史记录
             ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
             if (ErrorLevel = 1) {
                 return
@@ -269,9 +338,16 @@ execCtrlDownUPCmd(){
             {
                 clipHist.addClip()
             }
-        }else if (ctrlCmd = "v"){ ; 粘贴后的记录作为最新记录
-            clipHist.moveClip()       
+            return
+        }if (rctrlCmd = "v"){ ; 粘贴后的记录作为最新记录
+            clipHist.moveClip()
+            return
         }
+        return
+    }
+    if (SubStr(rctrlCmd, 0) = "x"){ ; 放弃(x)原本的动作，所以: RCtrl-[cvxsdafewt]+x 表示放弃
+        clearToolTip()
+        return
     }
     ; 其它的情况无动作
 }
