@@ -30,4 +30,6 @@ Ahk2Exe.exe /in LaTeXHelper.ahk /compress 1 /base %baseX64% /out released/LaTeXH
 Ahk2Exe.exe /in LaTeXHelper.ahk /compress 1 /base %baseX32% /out released/LaTeXHelper_x32.exe
 Ahk2Exe.exe /in CtrlRich.ahk /compress 1 /base %baseX64% /out released/CtrlRich_x64.exe
 Ahk2Exe.exe /in CtrlRich.ahk /compress 1 /base %baseX32% /out released/CtrlRich_x32.exe
-cmdow /run /hid autohotkey SharpKnife.ahk
+
+@echo off
+.\run.bat
