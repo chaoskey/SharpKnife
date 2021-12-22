@@ -126,7 +126,7 @@ startCtrlCmdLoop(){
     ; 用于跟随提示的显示位图的句柄
     global hWNDToolTip := 0 
     global runingSnipaste := False  ;  snipaste是否安装并启动
-    global runingChrome := False  ;  Chrome是否安装并启动
+    global runingTrans := False     ;  划词翻译扩展是否打开
 
     ; 【这段注释掉的代码含有如何运行PowerShell.exe中的命令? 如何启动Win商店版程序，具有参考价值】
     ; 启动Snipaste
@@ -174,6 +174,7 @@ startCtrlCmdLoop(){
     ; 尝试启动chrome.exe
     Clip_Saved:=ClipboardAll
     execChrome := False ; 是否尝试执行过chrome
+    runingChrome := False  ;  Chrome是否安装并启动
     Loop, 15  ; 大概15s钟内没启动Chrome， 可认为没有安装Chrome或不在运行路径(PATH)中
     {
         try{
@@ -197,14 +198,19 @@ startCtrlCmdLoop(){
     if runingChrome {
         ; 开机时，很多程序都运行很慢包括Send, ^+1的有效性
         ; 所以不得不采用轮询的方法而不是窗口等待。
-        loop {
+        loop, 7  ; 大概14s钟内没启动划词翻译， 可认为没有安装划词翻译这个扩展
+        {
             if WinExist("独立翻译窗口 - 划词翻译") {
                 WinMinimize , 独立翻译窗口 - 划词翻译
+                runingTrans := True
                 break
             }else{
+                Sleep, 2000
                 Send, ^+1
-                Sleep, 1000
             }
+        }
+        if (not runingTrans) {
+            FollowToolTip("安装了谷歌浏览器，但没安装划词翻译插件，不支持翻译的功能！", 5000)
         }
         if execChrome {
             ; 类似于按下 Alt+F4 或点击窗口标题栏的关闭按钮的效果:
@@ -212,6 +218,8 @@ startCtrlCmdLoop(){
             PostMessage, 0x0112, 0xF060,,, Google Chrome  ; 0x0112 = WM_SYSCOMMAND, 0xF060 = SC_CLOSE
             SetTitleMatchMode, 1 ; 恢复默认精确匹配
         }
+    }else{
+        FollowToolTip("谷歌浏览器尚未安装或不在运行路径下，不支持谷歌浏览器器扩展功能！", 5000)
     }
 
     ; 如果不是管理员身份脚本未提升，请以管理员身份终止当前实例并重新启动
@@ -308,11 +316,11 @@ execCtrlDownCmd(){
 execCtrlDownUPCmd(){
     global rctrlCmd ; RCtrl+命令
     global runingSnipaste  ;  snipaste是否安装并启动
-    global runingChrome  ;  Chrome是否安装并启动
+    global runingTrans  ;  Chrome是否安装并启动
 
     if (rctrlCmd = "ff"){  ; 弹出翻译框 ，所以命令不妨取 RCtrl-ff
         clearToolTip()
-        if runingChrome{
+        if runingTrans{
             clip := ClipboardAll
             Clipboard := ""
             Send, ^+1
@@ -323,24 +331,26 @@ execCtrlDownUPCmd(){
     }
     if (rctrlCmd = "cf"){  ; 翻译 = 选择-复制(c)-翻译(f) ，所以命令取 RCtrl-cf
         clearToolTip()
-        ; 先复制
-        clip1 := ClipboardAll
-        Clipboard := ""
-        Send, ^c
-        ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
-        if (ErrorLevel = 0) {
-            StringReplace, clipboard, clipboard, `r, , All
-            StringReplace, clipboard, clipboard, `n, , All
-            clip2 :=  ClipboardAll
-            IF clip1 <> %clip2%
-            {
-                clipHist.addClip()
+        if runingTrans{
+            ; 先复制
+            clip1 := ClipboardAll
+            Clipboard := ""
+            Send, ^c
+            ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
+            if (ErrorLevel = 0) {
+                StringReplace, clipboard, clipboard, `r, , All
+                StringReplace, clipboard, clipboard, `n, , All
+                clip2 :=  ClipboardAll
+                IF clip1 <> %clip2%
+                {
+                    clipHist.addClip()
+                }
+            }else{
+                Clipboard := clip1
             }
-        }else{
-            Clipboard := clip1
+            ; 再打开翻译窗口
+            Send, ^+1
         }
-        ; 再打开翻译窗口
-        Send, ^+1
         return
     }if (rctrlCmd = "ct"){  ; 修改当前剪切板(c)标签(t) , 所以命令取: RCtrl-ct
         clearToolTip()
