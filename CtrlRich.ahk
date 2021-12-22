@@ -125,7 +125,8 @@ startCtrlCmdLoop(){
     global tooltipPosY
     ; 用于跟随提示的显示位图的句柄
     global hWNDToolTip := 0 
-    global snipaste := False  ;  snipaste是否安装并启动
+    global runingSnipaste := False  ;  snipaste是否安装并启动
+    global runingChrome := False  ;  Chrome是否安装并启动
 
     ; 【这段注释掉的代码含有如何运行PowerShell.exe中的命令? 如何启动Win商店版程序，具有参考价值】
     ; 启动Snipaste
@@ -140,7 +141,7 @@ startCtrlCmdLoop(){
     ;   if RegExMatch(familyName, "O)PackageFamilyName\s+:\s+(.+)\r?\n", SubPat) {
     ;       familyName := Trim(SubPat.Value(1))
     ;       Run, explorer shell:AppsFolder\%familyName%!Snipaste
-    ;       snipaste := True
+    ;       runingSnipaste := True
     ; }
     ; }catch{}
 
@@ -153,8 +154,8 @@ startCtrlCmdLoop(){
             Clipboard := ""
             Run, %comSpec% /c "tasklist | find /i "snipaste" | CLIP",, hide
             ClipWait,2
-            snipaste := (Trim(Clipboard, " `t`r`n") != "")
-            if snipaste {
+            runingSnipaste := (Trim(Clipboard, " `t`r`n") != "")
+            if runingSnipaste {
                 break
             }
             if (not execSnipaste){
@@ -167,9 +168,68 @@ startCtrlCmdLoop(){
         }
     }
 	Clipboard:=Clip_Saved
-    if (not snipaste) {
+    if (not runingSnipaste) {
         FollowToolTip("Snipaste尚未安装或不在运行路径下，不支持截图和贴图的功能！", 5000)
     }
+    ; 尝试启动chrome.exe
+    Clip_Saved:=ClipboardAll
+    execChrome := False ; 是否尝试执行过chrome
+    Loop, 15  ; 大概15s钟内没启动Chrome， 可认为没有安装Chrome或不在运行路径(PATH)中
+    {
+        try{
+            Clipboard := ""
+            Run, %comSpec% /c "tasklist | find /i "chrome" | CLIP",, hide
+            ClipWait,2
+            runingChrome := (Trim(Clipboard, " `t`r`n") != "")
+            if runingChrome {
+                break
+            }
+            if (not execChrome){
+                Run, chrome.exe, ,Hide
+                execChrome := True
+            }
+            Sleep, 1000
+        }catch{
+            break
+        }
+    }
+	Clipboard:=Clip_Saved
+    if runingChrome {
+        ; 开机时，很多程序都运行很慢包括Send, ^+1的有效性
+        ; 所以不得不采用轮询的方法而不是窗口等待。
+        loop {
+            if WinExist("独立翻译窗口 - 划词翻译") {
+                WinMinimize , 独立翻译窗口 - 划词翻译
+                break
+            }else{
+                Send, ^+1
+                Sleep, 1000
+            }
+        }
+        if execChrome {
+            ; 类似于按下 Alt+F4 或点击窗口标题栏的关闭按钮的效果:
+            SetTitleMatchMode, 2 ; 临时改成部分匹配
+            PostMessage, 0x0112, 0xF060,,, Google Chrome  ; 0x0112 = WM_SYSCOMMAND, 0xF060 = SC_CLOSE
+            SetTitleMatchMode, 1 ; 恢复默认精确匹配
+        }
+    }
+
+    ; 如果不是管理员身份脚本未提升，请以管理员身份终止当前实例并重新启动
+    ; 之所以放这里，是因为前面的Chrome要求用普通权限运行
+    full_command_line := DllCall("GetCommandLine", "str")
+
+    if not (A_IsAdmin or RegExMatch(full_command_line, " /restart(?!\S)"))
+    {
+        try ; 导致脚本以管理员身份重新启动
+        {
+            if A_IsCompiled
+                Run *RunAs "%A_ScriptFullPath%" /restart
+            else
+                Run *RunAs "%A_AhkPath%" /restart "%A_ScriptFullPath%"
+        }
+        ExitApp
+    }
+
     ; 拦截独立翻译窗口的鼠标点击关闭的操作，改成最小化该窗口
     ; 保证独立翻译窗口一旦打开，此扩展作为Chrome后台应用始终存在，即使谷歌浏览器已经关闭
     fnHotkeyShouldTransClose := Func("HotkeyShouldTransClose")
@@ -247,12 +307,18 @@ execCtrlDownCmd(){
 */
 execCtrlDownUPCmd(){
     global rctrlCmd ; RCtrl+命令
-    global snipaste  ;  snipaste是否安装并启动
-    global hWndTranslateWin
+    global runingSnipaste  ;  snipaste是否安装并启动
+    global runingChrome  ;  Chrome是否安装并启动
 
     if (rctrlCmd = "ff"){  ; 弹出翻译框 ，所以命令不妨取 RCtrl-ff
         clearToolTip()
-        Send, ^+1
+        if runingChrome{
+            clip := ClipboardAll
+            Clipboard := ""
+            Send, ^+1
+            WinWaitActive, 独立翻译窗口 - 划词翻译
+            Clipboard := clip
+        }
         return
     }
     if (rctrlCmd = "cf"){  ; 翻译 = 选择-复制(c)-翻译(f) ，所以命令取 RCtrl-cf
@@ -282,7 +348,7 @@ execCtrlDownUPCmd(){
         return
     }if (rctrlCmd = "ww"){  ; 进入白板(w)模式, 所以命令取: RCtrl-ww
         clearToolTip()
-        if snipaste {
+        if runingSnipaste {
             SnipasteWhiteboard()
         }
         return
@@ -304,19 +370,19 @@ execCtrlDownUPCmd(){
         return
     }if (rctrlCmd = "cc"){ ; RCtrl+cc 截图复制, 命令取: RCtrl-cc 表示加强版复制
         clearToolTip()
-        if snipaste {
+        if runingSnipaste {
             SnipasteS()
         }
         return
     }if (rctrlCmd = "vv"){  ; RCtrl+vv 粘贴到屏幕, 命令取: RCtrl-vv 表示加强版复制粘贴
         clearToolTip()
-        if snipaste {
+        if runingSnipaste {
             SnipasteP()
         }
         return
     }if (rctrlCmd = "cv"){  ; RCtrl+cv 先截图复制(c)然后直接粘贴(v)到屏幕上, 所以命令取: RCtrl-cv 
         clearToolTip()
-        if snipaste {
+        if runingSnipaste {
             SnipasteSP()
         }
         return
@@ -357,13 +423,13 @@ execCtrlDownUPCmd(){
 */
 clearToolTip(){
     global hWNDToolTip ; 用于跟随提示的显示位图的句柄
-    global snipaste  ;  snipaste是否安装并启动
+    global runingSnipaste  ;  snipaste是否安装并启动
 
     if (not hWNDToolTip) {
         ToolTip
         return
     }
-    if (not snipaste){
+    if (not runingSnipaste){
         Gui, %hWNDToolTip%:Destroy
         hWNDToolTip := 0
         return
@@ -393,9 +459,9 @@ Snipaste以管理员状态运行，而本程序以非管理状态运行，程序
     显示当前剪切板内容
 */
 showClip(){
-    global snipaste  ;  snipaste是否安装并启动
+    global runingSnipaste  ;  snipaste是否安装并启动
 
-    if snipaste {
+    if runingSnipaste {
         toolTipSnipaste()
     }else {
         pBitmap := Gdip_CreateBitmapFromClipboard()

@@ -10,7 +10,7 @@
 
 - [LaTeX助手](docs/LaTeXHelper.md)（`\[命令|搜索]Tab`）
 
-- [Ctrl功能增强](docs/CtrlRich.md)（保留系统功能+剪切板浏览管理+截贴图及其管理）
+- [Ctrl功能增强](docs/CtrlRich.md)（保留系统功能+剪切板浏览管理+截贴图及其管理+翻译）
 
 - 动作播放（不完善打磨中...）
 
