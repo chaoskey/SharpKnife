@@ -370,7 +370,7 @@ class FollowMultiLineEdit
         ; 提示窗口热键处理
         Hotkey, IfWinExist, ahk_id %wndGui% ahk_class AutoHotkeyGUI
         Hotkey, ~LButton, % fnLButtonHandler
-        Hotkey, ^s, % fnCtrlSHandler
+        Hotkey, >^s, % fnCtrlSHandler
         Hotkey, IfWinExist
     }
 
