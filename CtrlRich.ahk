@@ -571,7 +571,11 @@ toolTipSnipaste(){
 searchTextClipForPaste(search){
     global matchedSingleLineClip := [] ; 匹配到的所有单行文本
     global matchedSingleLineClipIndex :=[] ; 匹配到的所有单行文本在cliparray中的索引
-    
+
+    ; 空值无动作
+    if (Trim(search) == ""){
+        return
+    }
     ; 搜索
     clipHist.searchClip(matchedSingleLineClip, matchedSingleLineClipIndex, search)
     ; 弹出建议窗口

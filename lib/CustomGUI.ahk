@@ -322,9 +322,7 @@ class FollowSingleLineEdit
         Gui, % this.wndGui ":Hide"
 
         ; 触发的动作函数
-        if (StrLen(Trim(varText)) > 0) {
-            this.callbackFun.call(varText)
-        }
+        this.callbackFun.call(Trim(varText))
     }
 }
 
