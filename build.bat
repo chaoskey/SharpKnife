@@ -1,4 +1,5 @@
 @echo off
+
 set baseX64="D:/scoop/apps/autohotkey/current/Compiler/Unicode 64-bit.bin"
 set baseX32="D:/scoop/apps/autohotkey/current/Compiler/Unicode 32-bit.bin"
 if not exist %baseX64% (
@@ -12,6 +13,7 @@ if not exist %baseX32% (
 if not exist released (
     md released
 )
+
 tasklist | find /i "autohotkey.exe" > NUL
 if "%errorlevel%"=="0"  (
     tskill autohotkey
@@ -20,6 +22,11 @@ tasklist | find /i "AutoHotkeyU64" > NUL
 if "%errorlevel%"=="0" (
     tskill AutoHotkeyU64
 )
+tasklist | find /i "SharpKnife" > NUL
+if "%errorlevel%"=="0" (
+    tskill SharpKnife
+)
+
 @echo on
 Ahk2Exe.exe /in SharpKnife.ahk /compress 1 /base %baseX64%
 Ahk2Exe.exe /in SharpKnife.ahk /compress 1 /base %baseX64% /out released/SharpKnife_x64.exe

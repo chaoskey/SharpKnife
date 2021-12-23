@@ -145,81 +145,45 @@ startCtrlCmdLoop(){
     ; }
     ; }catch{}
 
-    ; 判断Snipaste进程存在否，如果不存在尝试启动之
-    Clip_Saved:=ClipboardAll
-    execSnipaste := False ; 是否尝试执行过Snipaste
-    Loop, 10  ; 大概10s钟内没启动Snipaste， 可认为没有安装Snipaste或不在运行路径(PATH)中
-    {
-        try{
-            Clipboard := ""
-            Run, %comSpec% /c "tasklist | find /i "snipaste" | CLIP",, hide
-            ClipWait,2
-            runingSnipaste := (Trim(Clipboard, " `t`r`n") != "")
-            if runingSnipaste {
-                break
-            }
-            if (not execSnipaste){
-                Run, Snipaste.exe
-                execSnipaste := True
-            }
-            Sleep, 1000
-        }catch{
-            break
-        }
+    ; 检查“独立翻译窗口”和“谷歌浏览器”的存在性， 其中，谷歌浏览器确保普通权限
+    runingTrans := (WinExist("独立翻译窗口 - 划词翻译") > 0)
+    runingChrome := runingTrans
+    if (not runingChrome){
+        Clip_Saved:=ClipboardAll
+        Clipboard := ""
+        Run, %comSpec% /c "tasklist | find /i "chrome.exe" | CLIP",, hide
+        ClipWait,2
+        runingChrome := (Trim(Clipboard, " `t`r`n") != "")
+        Clipboard:=Clip_Saved
     }
-	Clipboard:=Clip_Saved
-    if (not runingSnipaste) {
-        FollowToolTip("Snipaste尚未安装或不在运行路径下，不支持截图和贴图的功能！", 5000)
-    }
-    ; 尝试启动chrome.exe
-    Clip_Saved:=ClipboardAll
-    execChrome := False ; 是否尝试执行过chrome
-    runingChrome := False  ;  Chrome是否安装并启动
-    Loop, 15  ; 大概15s钟内没启动Chrome， 可认为没有安装Chrome或不在运行路径(PATH)中
-    {
-        try{
-            Clipboard := ""
-            Run, %comSpec% /c "tasklist | find /i "chrome" | CLIP",, hide
-            ClipWait,2
-            runingChrome := (Trim(Clipboard, " `t`r`n") != "")
-            if runingChrome {
-                break
-            }
-            if (not execChrome){
-                Run, chrome.exe, ,Hide
-                execChrome := True
-            }
-            Sleep, 1000
-        }catch{
-            break
-        }
-    }
-	Clipboard:=Clip_Saved
-    if runingChrome {
-        ; 开机时，很多程序都运行很慢包括Send, ^+1的有效性
-        ; 所以不得不采用轮询的方法而不是窗口等待。
-        loop, 7  ; 大概14s钟内没启动划词翻译， 可认为没有安装划词翻译这个扩展
-        {
-            if WinExist("独立翻译窗口 - 划词翻译") {
-                WinMinimize , 独立翻译窗口 - 划词翻译
-                runingTrans := True
-                break
+    if (not runingTrans) {
+        ; 确保Chrome运行中
+        if (not runingChrome) and (not A_IsAdmin){
+            Run, Chrome.exe , , Hide UseErrorLevel
+            runingChrome := (ErrorLevel != "ERROR")
+            if (not runingChrome){
+                FollowToolTip("谷歌浏览器尚未安装或不在运行路径下，不支持谷歌浏览器器扩展功能！", 5000)
             }else{
-                Sleep, 2000
-                Send, ^+1
+                SetTitleMatchMode, 2 ; 临时改成部分匹配
+                WinWait, Google Chrome
+                SetTitleMatchMode, 1 ; 恢复默认精确匹配
             }
         }
-        if (not runingTrans) {
-            FollowToolTip("安装了谷歌浏览器，但没安装划词翻译插件，不支持翻译的功能！", 5000)
+        if runingChrome and A_IsAdmin{
+            ; 确保独立翻译窗口存在
+            Send, ^+1
+            WinWait, 独立翻译窗口 - 划词翻译, , 10
+            runingTrans := (ErrorLevel = 0)
+            if (not runingTrans) {
+                FollowToolTip("谷歌浏览器已安装但划词翻译扩展没安装，不支持谷歌浏览器器扩展功能！", 5000)
+            }else {
+                WinMinimize , 独立翻译窗口 - 划词翻译
+                ; 类似于按下 Alt+F4 或点击窗口标题栏的关闭按钮的效果:
+                SetTitleMatchMode, 2 ; 临时改成部分匹配
+                PostMessage, 0x0112, 0xF060,,, Google Chrome  ; 0x0112 = WM_SYSCOMMAND, 0xF060 = SC_CLOSE
+                SetTitleMatchMode, 1 ; 恢复默认精确匹配
+            }
         }
-        if execChrome {
-            ; 类似于按下 Alt+F4 或点击窗口标题栏的关闭按钮的效果:
-            SetTitleMatchMode, 2 ; 临时改成部分匹配
-            PostMessage, 0x0112, 0xF060,,, Google Chrome  ; 0x0112 = WM_SYSCOMMAND, 0xF060 = SC_CLOSE
-            SetTitleMatchMode, 1 ; 恢复默认精确匹配
-        }
-    }else{
-        FollowToolTip("谷歌浏览器尚未安装或不在运行路径下，不支持谷歌浏览器器扩展功能！", 5000)
     }
 
     ; 如果不是管理员身份脚本未提升，请以管理员身份终止当前实例并重新启动
@@ -236,6 +200,21 @@ startCtrlCmdLoop(){
                 Run *RunAs "%A_AhkPath%" /restart "%A_ScriptFullPath%"
         }
         ExitApp
+    }
+
+    ; 确保Snipaste运行中(确保管理员权限)
+    Clip_Saved:=ClipboardAll
+    Clipboard := ""
+    Run, %comSpec% /c "tasklist | find /i "snipaste.exe" | CLIP",, hide
+    ClipWait,2
+    runingSnipaste := (Trim(Clipboard, " `t`r`n") != "")
+    Clipboard:=Clip_Saved
+    if (not runingSnipaste){
+        Run, Snipaste.exe , , UseErrorLevel
+        runingSnipaste := (ErrorLevel != "ERROR")
+        if (not runingSnipaste) {
+            FollowToolTip("Snipaste尚未安装或不在运行路径下，不支持截图和贴图的功能！", 5000)
+        }
     }
 
     ; 拦截独立翻译窗口的鼠标点击关闭的操作，改成最小化该窗口

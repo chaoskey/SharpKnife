@@ -13,4 +13,3 @@ if "%errorlevel%"=="0" (
     tskill SharpKnife
 )
 cmdow /run /hid autohotkey SharpKnife.ahk
-REM .\SharpKnife.exe
