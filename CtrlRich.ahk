@@ -309,7 +309,7 @@ execCtrlDownUPCmd(){
         }
         return
     }
-    if (rctrlCmd = "cf"){  ; 翻译 = 选择-复制(c)-翻译(f) ，所以命令取 RCtrl-cf
+    if (rctrlCmd = "sf"){  ; 选择(s)翻译(f)  ，所以命令取 RCtrl-sf
         clearToolTip()
         if runingTrans{
             ; 先复制
