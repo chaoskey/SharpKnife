@@ -8,49 +8,26 @@ texts 多行文本
 https://www.autoahk.com/help/autohotkey/zh-cn/docs/commands/Gui.htm#Font
 Options := "s10"  字体选项
 FontName := "Courier New"  字体名称
+WrapWidth := 0 ; 自动换行宽度，默认0表示不自动换行
 */
-getTextsWidthHeight(ByRef width, ByRef height, texts, Options := "s10", FontName := "Courier New"){
+getTextsWidthHeight(ByRef width, ByRef height, texts, Options := "s10", FontName := "Courier New", WrapWidth := 0){
     global tmpedit
-
-    rows := 0
-    Loop, parse, texts, `n, `r  ; 在 `r 之前指定 `n, 这样可以同时支持对 Windows 和 Unix 文件的解析.
-    {
-        rows := rows + 1
-    }
-    if (rows = 0) or (StrLen(texts) = 0) {
-        width := 0
-        height := 0
-        return
-    }
+    global tmpedit1
     ; 创建一个临时控件（用于获取字符串的实际像素长宽）, 用完后立刻销毁
     Gui, TmpGui:New
     Gui, TmpGui:Font, %Options%, %FontName%
-    Gui, TmpGui:Add, Edit, x0 y0 r%rows% -Wrap -VScroll -HScroll vtmpedit,  %texts%
-    Gui, TmpGui:-Caption +ToolWindow +AlwaysOnTop +LastFound
+    Gui, TmpGui:Add, Edit, x0 y0 -Wrap -VScroll -HScroll vtmpedit,  %texts%
     GuiControlGet, tmp, Pos , tmpedit
     width := tmpW
     height := tmpH
-    Gui, TmpGui:Destroy
-}
-
-/*
-    估算文本列表所占像素宽高
-
-ByRef width  返回值:  像素宽
-ByRef height 返回值:  像素高
-ByRef texts 返回值:  多行文本
-textList 文本列表
-https://www.autoahk.com/help/autohotkey/zh-cn/docs/commands/Gui.htm#Font
-Options := "s10"  字体选项
-FontName := "Courier New"  字体名称
-*/
-getTextListWidthHeight(ByRef width, ByRef height, ByRef texts, textList , Options := "s10", FontName := "Courier New"){
-    texts := ""
-    for i_, v_ in textList{
-        texts := texts v_ "`n"
+    if WrapWidth and (width > WrapWidth)  {
+        width := WrapWidth
+        GuiControl, Hide, tmpedit
+        Gui, TmpGui:Add, Edit, x0 y0 w%width% -VScroll -HScroll vtmpedit1,  %texts%
+        GuiControlGet, tmp, Pos , tmpedit1
+        height := tmpH
     }
-    texts := Trim(texts, "`r`n")
-    getTextsWidthHeight(width, height, texts, Options, FontName)
+    Gui, TmpGui:Destroy
 }
 
 /*
@@ -142,7 +119,12 @@ class FollowListBox
         minWH := StrSplit(minWH, ",")
         maxWH := StrSplit(MaxWH, ",")
         ; 准备列表数据，并计算窗口的长宽
-        getTextListWidthHeight(width, height, texts, textList , this.fontOptions, this.fontName)
+        texts := ""
+        for i_, v_ in textList{
+            texts := texts v_ "`n"
+        }
+        texts := Trim(texts, "`r`n")
+        getTextsWidthHeight(width, height, texts, this.fontOptions, this.fontName)
         width := Min(Max(width,minWH[1]),maxWH[1])
         height := Min(Max(height,minWH[2]),maxWH[2])
         ; 当前光标或鼠标位置
@@ -354,7 +336,7 @@ class FollowMultiLineEdit
         ; 创建列表窗口获取窗口和控件句柄
         Gui, New
         Gui, Font, %fontOptions%, %fontName%
-        Gui, Add, Edit, x0 y0 r3 WantTab -Wrap -VScroll -HScroll HwndwndControl
+        Gui, Add, Edit, x0 y0 r3 WantTab -VScroll -HScroll HwndwndControl
         Gui, -Caption +ToolWindow +AlwaysOnTop +LastFound
         Gui, +HwndwndGui
         this.wndGui := wndGui
@@ -389,7 +371,7 @@ class FollowMultiLineEdit
         this.minHeight := minWH[2]
         this.maxHeight := maxWH[2]
         ; 编辑框的宽高
-        getTextsWidthHeight(width, height, texts, this.fontOptions, this.fontName)
+        getTextsWidthHeight(width, height, texts, this.fontOptions, this.fontName, this.maxWidth)
         width := Min(Max(width + 10,this.minWidth),this.maxWidth)
         height := Min(Max(height,this.minHeight),this.maxHeight)
         ; 当前光标或鼠标位置
@@ -420,7 +402,7 @@ class FollowMultiLineEdit
     UpdateAction(){
         ; 搜索框的宽
         GuiControlGet, varText , , % this.wndControl
-        getTextsWidthHeight(width, height, varText, this.fontOptions, this.fontName)
+        getTextsWidthHeight(width, height, varText, this.fontOptions, this.fontName, this.maxWidth)
         width := Min(Max(width + 10,this.minWidth),this.maxWidth)
         height := Min(Max(height,this.minHeight),this.maxHeight)
         ; 按指定宽重新显示窗口
