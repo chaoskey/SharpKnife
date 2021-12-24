@@ -222,6 +222,7 @@ startCtrlCmdLoop(){
     fnHotkeyShouldTransClose := Func("HotkeyShouldTransClose")
     Hotkey If, % fnHotkeyShouldTransClose
     Hotkey LButton, disaTranslateWinClose
+    Hotkey If
     Hotkey, IfWinActive , 独立翻译窗口 - 划词翻译
     Hotkey Esc, disaTranslateWinClose
     Hotkey, IfWinActive
