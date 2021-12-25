@@ -94,26 +94,6 @@ RCtrlHandler(){
     KeyWait, %c_%
 }
 
-; 独立划词窗口关闭上下文条件
-HotkeyShouldTransClose(){
-    ; 获取翻译窗口关闭按钮的位置
-    WinGetPos , tX, tY, , , 独立翻译窗口 - 划词翻译
-    if (not tX){
-        return False
-    }
-    ControlGetPos , cX , cY , cWidth, cHeight, Intermediate D3D Window1, 独立翻译窗口 - 划词翻译
-    if (not cX){
-        return False
-    }
-    CoordMode, Mouse, Screen
-    MouseGetPos, mX, mY
-    return ((mX >  tX + cX + cWidth-46) and (mX < tX + cX +cWidth) and (mY > tY + cY)  and (mY < tY + cY + 29))
-}
-; 禁止独立划词窗口关闭，改为最小化
-disaTranslateWinClose(){
-    WinMinimize , 独立翻译窗口 - 划词翻译
-}
-
 /* 
     “Ctrl+命令”处理之死循环
 */
@@ -126,7 +106,7 @@ startCtrlCmdLoop(){
     ; 用于跟随提示的显示位图的句柄
     global hWNDToolTip := 0 
     global runingSnipaste := False  ;  snipaste是否安装并启动
-    global runingTrans := False     ;  划词翻译扩展是否打开
+    global runingChrome := False     ;  谷歌浏览器是否安装并启动
 
     ; 【这段注释掉的代码含有如何运行PowerShell.exe中的命令? 如何启动Win商店版程序，具有参考价值】
     ; 启动Snipaste
@@ -145,44 +125,24 @@ startCtrlCmdLoop(){
     ; }
     ; }catch{}
 
-    ; 检查“独立翻译窗口”和“谷歌浏览器”的存在性， 其中，谷歌浏览器确保普通权限
-    runingTrans := (WinExist("独立翻译窗口 - 划词翻译") > 0)
-    runingChrome := runingTrans
+    ; 确保谷歌浏览器运行中(确保普通权限)
+    Clip_Saved:=ClipboardAll
+    Clipboard := ""
+    Run, %comSpec% /c "tasklist | find /i "chrome.exe" | CLIP",, hide
+    ClipWait,2
+    runingChrome := (Trim(Clipboard, " `t`r`n") != "")
+    Clipboard:=Clip_Saved
     if (not runingChrome){
-        Clip_Saved:=ClipboardAll
-        Clipboard := ""
-        Run, %comSpec% /c "tasklist | find /i "chrome.exe" | CLIP",, hide
-        ClipWait,2
-        runingChrome := (Trim(Clipboard, " `t`r`n") != "")
-        Clipboard:=Clip_Saved
-    }
-    if (not runingTrans) {
-        ; 确保Chrome运行中
-        if (not runingChrome) and (not A_IsAdmin){
-            Run, Chrome.exe , , Hide UseErrorLevel
-            runingChrome := (ErrorLevel != "ERROR")
-            if (not runingChrome){
-                FollowToolTip("谷歌浏览器尚未安装或不在运行路径下，不支持谷歌浏览器器扩展功能！", 5000)
-            }else{
-                SetTitleMatchMode, 2 ; 临时改成部分匹配
-                WinWait, Google Chrome
-                SetTitleMatchMode, 1 ; 恢复默认精确匹配
-            }
-        }
-        if runingChrome and A_IsAdmin{
-            ; 确保独立翻译窗口存在
-            Send, ^+1
-            WinWait, 独立翻译窗口 - 划词翻译, , 10
-            runingTrans := (ErrorLevel = 0)
-            if (not runingTrans) {
-                FollowToolTip("谷歌浏览器已安装但划词翻译扩展没安装，不支持谷歌浏览器器扩展功能！", 5000)
-            }else {
-                WinMinimize , 独立翻译窗口 - 划词翻译
-                ; 类似于按下 Alt+F4 或点击窗口标题栏的关闭按钮的效果:
-                SetTitleMatchMode, 2 ; 临时改成部分匹配
-                PostMessage, 0x0112, 0xF060,,, Google Chrome  ; 0x0112 = WM_SYSCOMMAND, 0xF060 = SC_CLOSE
-                SetTitleMatchMode, 1 ; 恢复默认精确匹配
-            }
+        Run, Chrome.exe , , Hide UseErrorLevel
+        runingChrome := (ErrorLevel != "ERROR")
+        if (not runingChrome) {
+            FollowToolTip("谷歌浏览器尚未安装或不在运行路径下，不支持谷歌浏览器器扩展功能！", 5000)
+        }else{
+            SetTitleMatchMode, 2 ; 临时改成部分匹配
+            WinWait, Google Chrome
+            ; 类似于按下 Alt+F4 或点击窗口标题栏的关闭按钮的效果:
+            PostMessage, 0x0112, 0xF060,,, Google Chrome  ; 0x0112 = WM_SYSCOMMAND, 0xF060 = SC_CLOSE
+            SetTitleMatchMode, 1 ; 恢复默认精确匹配
         }
     }
 
@@ -216,16 +176,6 @@ startCtrlCmdLoop(){
             FollowToolTip("Snipaste尚未安装或不在运行路径下，不支持截图和贴图的功能！", 5000)
         }
     }
-
-    ; 拦截独立翻译窗口的鼠标点击关闭的操作，改成最小化该窗口
-    ; 保证独立翻译窗口一旦打开，此扩展作为Chrome后台应用始终存在，即使谷歌浏览器已经关闭
-    fnHotkeyShouldTransClose := Func("HotkeyShouldTransClose")
-    Hotkey If, % fnHotkeyShouldTransClose
-    Hotkey LButton, disaTranslateWinClose
-    Hotkey If
-    Hotkey, IfWinActive , 独立翻译窗口 - 划词翻译
-    Hotkey Esc, disaTranslateWinClose
-    Hotkey, IfWinActive
 
     working := False
     SetBatchLines, 10ms
@@ -282,7 +232,8 @@ execCtrlDownCmd(){
         clearToolTip()
         clipHist.deleteClip()
         return
-    }if (rctrlCmd = "va")  or (rctrlCmd = "vva"){ ; 删除所有clip
+    }
+    if (rctrlCmd = "va")  or (rctrlCmd = "vva"){ ; 删除所有clip
         rctrlCmd := SubStr(rctrlCmd, 1 , -1)
         clearToolTip()
         clipHist.deleteClipAll()
@@ -296,22 +247,14 @@ execCtrlDownCmd(){
 execCtrlDownUPCmd(){
     global rctrlCmd ; RCtrl+命令
     global runingSnipaste  ;  snipaste是否安装并启动
-    global runingTrans  ;  Chrome是否安装并启动
+    global runingChrome  ;  Chrome是否安装并启动
 
-    if (rctrlCmd = "ff"){  ; 弹出翻译框 ，所以命令不妨取 RCtrl-ff
+    ; 沙拉查词-独立查词窗口， 命令不妨取 RCtrl-wf
+    ; 如果没有选择，则弹出空的查词窗口
+    ; 如果选择了，则对当前所选内容查词
+    if (rctrlCmd = "wf"){
         clearToolTip()
-        if runingTrans{
-            clip := ClipboardAll
-            Clipboard := ""
-            Send, ^+1
-            WinWaitActive, 独立翻译窗口 - 划词翻译
-            Clipboard := clip
-        }
-        return
-    }
-    if (rctrlCmd = "sf"){  ; 选择(s)翻译(f)  ，所以命令取 RCtrl-sf
-        clearToolTip()
-        if runingTrans{
+        if runingChrome{
             ; 先复制
             clip1 := ClipboardAll
             Clipboard := ""
@@ -325,24 +268,56 @@ execCtrlDownUPCmd(){
                 {
                     clipHist.addClip()
                 }
+                Send, ^+2
             }else{
+                Send, ^+2
+                WinWaitActive, 沙拉查词-独立查词窗口
                 Clipboard := clip1
             }
-            ; 再打开翻译窗口
-            Send, ^+1
         }
         return
-    }if (rctrlCmd = "ct"){  ; 修改当前剪切板(c)标签(t) , 所以命令取: RCtrl-ct
+    }
+    ; 独立翻译窗口 - 划词翻译， 命令不妨取 RCtrl-ff
+    ; 如果没有选择，则弹出空的翻译窗口
+    ; 如果选择了，则翻译当前所选内容
+    if (rctrlCmd = "ff"){
+        clearToolTip()
+        if runingChrome{
+            ; 先复制
+            clip1 := ClipboardAll
+            Clipboard := ""
+            Send, ^c
+            ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
+            if (ErrorLevel = 0) {
+                StringReplace, clipboard, clipboard, `r, , All
+                StringReplace, clipboard, clipboard, `n, , All
+                clip2 :=  ClipboardAll
+                IF clip1 <> %clip2%
+                {
+                    clipHist.addClip()
+                }
+                Send, ^+1
+            }else{
+                Send, ^+1
+                WinWaitActive, 独立翻译窗口 - 划词翻译
+                Clipboard := clip1
+            }
+        }
+        return
+    }
+    if (rctrlCmd = "ct"){  ; 修改当前剪切板(c)标签(t) , 所以命令取: RCtrl-ct
         clearToolTip()
         follSingleLineEdit.show(clipHist.getClipTag(), "setClipTag", clipHist)
         return
-    }if (rctrlCmd = "ww"){  ; 进入白板(w)模式, 所以命令取: RCtrl-ww
+    }
+    if (rctrlCmd = "ww"){  ; 进入白板(w)模式, 所以命令取: RCtrl-ww
         clearToolTip()
         if runingSnipaste {
             SnipasteWhiteboard()
         }
         return
-    }if (rctrlCmd = "ce"){  ; 只对文本剪切板(c)编辑(e), 所以命令取: RCtrl-ce
+    }
+    if (rctrlCmd = "ce"){  ; 只对文本剪切板(c)编辑(e), 所以命令取: RCtrl-ce
         clearToolTip()
         clipHist.moveClip()
         clip := Trim(clipboard, "`r`n")
@@ -354,29 +329,34 @@ execCtrlDownUPCmd(){
             follMultiLineEdit.show(tag clip, "saveTextToClipAndPaste")
         }
         return
-    }if (rctrlCmd = "sv"){  ; 进入搜索(s)粘贴(v)模式, 所以命令取: RCtrl-sv
+    }
+    if (rctrlCmd = "sv"){  ; 进入搜索(s)粘贴(v)模式, 所以命令取: RCtrl-sv
         clearToolTip()
         follSingleLineEdit.show("", "searchTextClipForPaste")
         return
-    }if (rctrlCmd = "cc"){ ; RCtrl+cc 截图复制, 命令取: RCtrl-cc 表示加强版复制
+    }
+    if (rctrlCmd = "cc"){ ; RCtrl+cc 截图复制, 命令取: RCtrl-cc 表示加强版复制
         clearToolTip()
         if runingSnipaste {
             SnipasteS()
         }
         return
-    }if (rctrlCmd = "vv"){  ; RCtrl+vv 粘贴到屏幕, 命令取: RCtrl-vv 表示加强版复制粘贴
+    }
+    if (rctrlCmd = "vv"){  ; RCtrl+vv 粘贴到屏幕, 命令取: RCtrl-vv 表示加强版复制粘贴
         clearToolTip()
         if runingSnipaste {
             SnipasteP()
         }
         return
-    }if (rctrlCmd = "cv"){  ; RCtrl+cv 先截图复制(c)然后直接粘贴(v)到屏幕上, 所以命令取: RCtrl-cv 
+    }
+    if (rctrlCmd = "cv"){  ; RCtrl+cv 先截图复制(c)然后直接粘贴(v)到屏幕上, 所以命令取: RCtrl-cv 
         clearToolTip()
         if runingSnipaste {
             SnipasteSP()
         }
         return
-    }if (StrLen(rctrlCmd) = 1) {  ; 保证拦截的“Ctrl+单字符命令”的系统原生功能不变
+    }
+    if (StrLen(rctrlCmd) = 1) {  ; 保证拦截的“Ctrl+单字符命令”的系统原生功能不变
         if (rctrlCmd = "c") or (rctrlCmd = "x"){  ; 复制剪切前清空剪贴板，方便后续判定
             clip1:=ClipboardAll
             clipboard := ""
