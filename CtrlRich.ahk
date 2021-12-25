@@ -125,23 +125,63 @@ startCtrlCmdLoop(){
     ; }
     ; }catch{}
 
+    ; ini文件
+    iniPath := A_ScriptFullPath
+    if (idx := InStr(iniPath, "." , , 0) ){
+        iniPath := SubStr(iniPath, 1 , idx-1)
+    }
+    iniPath := iniPath ".ini"
+    ; 读取Snipaste.exe路径
+    IniRead, snipastePath, %iniPath%, CtrlRich, snipaste
+    iniError1 := (snipastePath == "ERROR")
+    if iniError1 {
+        snipastePath := "Snipaste.exe"
+    }
+    ; 读取浏览器路径
+    IniRead, browserPath, %iniPath%, CtrlRich, browser
+    iniError2 := (browserPath == "ERROR")
+    if iniError2 {
+        browserPath := "Google Chrome|Chrome.exe"
+    }
+    if iniError1 or iniError2 {
+        IniWrite,
+(
+; 如果没有正确配置好，意味着对应的功能不被本程序（脚本）支持
+; Snipaste.exe默认在PATH路径中，否则需要自行配置全路径 【无窗口】
+snipaste=%snipastePath%
+; 浏览器启动后的窗口标题|浏览器路径, 默认是谷歌浏览器并且在PATH路径中，否则需要自行配置全路径
+; 目前谷歌浏览器和微软Edge浏览器已经通过测试
+browser=%browserPath%
+; 
+), %iniPath%, CtrlRich
+    }
+    tmp1 := StrSplit(browserPath, "|")
+    if (tmp1.Length() < 2){
+        MsgBox, [CtrlRich]中的browser请按“浏览器启动后的窗口标题|浏览器路径”格式配置！
+        ExitApp
+    }
+    browserWinTitle := tmp1[1]
+    browserPath := tmp1[2]
+    SplitPath, snipastePath , snipasteFileName
+    SplitPath, browserPath , browserFileName
+
     ; 确保谷歌浏览器运行中(确保普通权限)
     Clip_Saved:=ClipboardAll
     Clipboard := ""
-    Run, %comSpec% /c "tasklist | find /i "chrome.exe" | CLIP",, hide
+    Run, %comSpec% /c "tasklist | find /i "%browserFileName%" | CLIP",, hide
     ClipWait,2
     runingChrome := (Trim(Clipboard, " `t`r`n") != "")
     Clipboard:=Clip_Saved
     if (not runingChrome){
-        Run, Chrome.exe , , Hide UseErrorLevel
+        Run, %browserPath% , , Hide UseErrorLevel
         runingChrome := (ErrorLevel != "ERROR")
         if (not runingChrome) {
-            FollowToolTip("谷歌浏览器尚未安装或不在运行路径下，不支持谷歌浏览器器扩展功能！", 5000)
-        }else{
+            FollowToolTip(browserFileName "尚未安装或不在运行路径下，不支持其扩展功能！", 5000)
+        }else {
             SetTitleMatchMode, 2 ; 临时改成部分匹配
-            WinWait, Google Chrome
+            WinWait, %browserWinTitle%
             ; 类似于按下 Alt+F4 或点击窗口标题栏的关闭按钮的效果:
-            PostMessage, 0x0112, 0xF060,,, Google Chrome  ; 0x0112 = WM_SYSCOMMAND, 0xF060 = SC_CLOSE
+            PostMessage, 0x0112, 0xF060,,, %browserWinTitle%  ; 0x0112 = WM_SYSCOMMAND, 0xF060 = SC_CLOSE
             SetTitleMatchMode, 1 ; 恢复默认精确匹配
         }
     }
@@ -165,12 +205,12 @@ startCtrlCmdLoop(){
     ; 确保Snipaste运行中(确保管理员权限)
     Clip_Saved:=ClipboardAll
     Clipboard := ""
-    Run, %comSpec% /c "tasklist | find /i "snipaste.exe" | CLIP",, hide
+    Run, %comSpec% /c "tasklist | find /i "%snipasteFileName%" | CLIP",, hide
     ClipWait,2
     runingSnipaste := (Trim(Clipboard, " `t`r`n") != "")
     Clipboard:=Clip_Saved
     if (not runingSnipaste){
-        Run, Snipaste.exe , , UseErrorLevel
+        Run, %snipastePath% , , UseErrorLevel
         runingSnipaste := (ErrorLevel != "ERROR")
         if (not runingSnipaste) {
             FollowToolTip("Snipaste尚未安装或不在运行路径下，不支持截图和贴图的功能！", 5000)

@@ -140,6 +140,7 @@ loadHotlatex(){
 (
 ; LaTeX热键触发表
 CVS=%latexCvsPath%
+; 
 ), %iniPath%, LaTeXs
         }
         if FileExist(latexCvsPath){
