@@ -179,7 +179,11 @@ browser=%browserPath%
             FollowToolTip(browserFileName "尚未安装或不在运行路径下，不支持其扩展功能！", 5000)
         }else {
             SetTitleMatchMode, 2 ; 临时改成部分匹配
-            WinWait, %browserWinTitle%
+            WinWait, %browserWinTitle%, , 30
+            if (ErrorLevel = 1) {
+                MsgBox, %browserFileName%运行中，但没有标题为%browserWinTitle%的窗口，`n`n请在配置文件中设置正确的标题, 然后重新启动。
+                ExitApp
+            }
             ; 类似于按下 Alt+F4 或点击窗口标题栏的关闭按钮的效果:
             PostMessage, 0x0112, 0xF060,,, %browserWinTitle%  ; 0x0112 = WM_SYSCOMMAND, 0xF060 = SC_CLOSE
             SetTitleMatchMode, 1 ; 恢复默认精确匹配
