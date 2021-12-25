@@ -410,18 +410,7 @@ clearToolTip(){
     WinWaitActive , ahk_id %hWNDToolTip%
     hWND := WinExist("A")
     Send +{ESC}
-    WinWaitNotActive, ahk_id %hWND% , , 5
-    if (ErrorLevel = 1){
-        MsgBox,
-(
-Snipaste以管理员状态运行，而本程序以非管理状态运行，程序无法继续！`n
-要么，请将Snipaste改为非管理员状态运行；【建议】
-要么，请将本程序改为管理员状态运行。
-总之，必须保证本程序和Snipaste的管理员状态一致。`n
-点击确认，程序将退出，务必设置好后重新启动本程序！
-)
-        ExitApp
-    }
+    WinWaitNotActive, ahk_id %hWND%
     hWNDToolTip := 0
 }
 
