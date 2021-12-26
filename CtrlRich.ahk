@@ -315,7 +315,10 @@ execCtrlDownUPCmd(){
                 Send, ^+2
             }else{
                 Send, ^+2
-                WinWaitActive, 沙拉查词-独立查词窗口
+                WinWaitActive, 沙拉查词-独立查词窗口, , 10
+                if (ErrorLevel = 1){
+                    runingChrome := False
+                }
                 Clipboard := clip1
             }
         }
@@ -343,7 +346,10 @@ execCtrlDownUPCmd(){
                 Send, ^+1
             }else{
                 Send, ^+1
-                WinWaitActive, 独立翻译窗口 - 划词翻译
+                WinWaitActive, 独立翻译窗口 - 划词翻译, , 10
+                if (ErrorLevel = 1){
+                    runingChrome := False
+                }
                 Clipboard := clip1
             }
         }
