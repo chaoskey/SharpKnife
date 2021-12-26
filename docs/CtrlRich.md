@@ -12,7 +12,7 @@
 >
 > 20211218, 将自写简陋截图贴图功能，改成调用Snipaste软件实现，功能突然变强大（我这是投机取巧哦！）。
 
-![](../images/CtrlRich.jpg)
+![](../images/CtrlRich.png)
 
 
 ## 启动
