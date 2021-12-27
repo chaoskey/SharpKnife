@@ -75,6 +75,7 @@ $>^f::
 $>^e::
 $>^w::
 $>^t::
+$>^r::
 RCtrlHandler()
 return
 
@@ -107,6 +108,7 @@ startCtrlCmdLoop(){
     global hWNDToolTip := 0 
     global runingSnipaste := False  ;  snipaste是否安装并启动
     global runingChrome := False     ;  谷歌浏览器是否安装并启动
+    global runingTesseract := False     ;  OCR引擎tesseract是否安装并可调用
 
     ; 【这段注释掉的代码含有如何运行PowerShell.exe中的命令? 如何启动Win商店版程序，具有参考价值】
     ; 启动Snipaste
@@ -143,7 +145,13 @@ startCtrlCmdLoop(){
     if iniError2 {
         browserPath := "Google Chrome|Chrome.exe"
     }
-    if iniError1 or iniError2 {
+    ; 读取OCR引擎tesseract路径
+    IniRead, tesseractPath, %iniPath%, CtrlRich, tesseract
+    iniError3 := (tesseractPath == "ERROR")
+    if iniError3 {
+        tesseractPath := "tesseract.exe"
+    }
+    if iniError1 or iniError2 or iniError3 {
         IniWrite,
 (
 ; 如果没有正确配置好，意味着对应的功能不被本程序（脚本）支持
@@ -152,6 +160,9 @@ snipaste=%snipastePath%
 ; 浏览器启动后的窗口标题|浏览器路径, 默认是谷歌浏览器并且在PATH路径中，否则需要自行配置全路径
 ; 目前谷歌浏览器和微软Edge浏览器已经通过测试
 browser=%browserPath%
+; OCR引擎tesseract默认在tesseract在PATH路径中，否则需要自行修改为全路径
+; 如果指定位置（包括PATH路径中），意味着不支持OCR
+tesseract=%tesseractPath%
 ; 
 ), %iniPath%, CtrlRich
     }
@@ -164,6 +175,14 @@ browser=%browserPath%
     browserPath := tmp1[2]
     SplitPath, snipastePath , snipasteFileName
     SplitPath, browserPath , browserFileName
+
+    ; 检查OCR引擎tesseract是否可调用
+    Clip_Saved:=ClipboardAll
+    Clipboard := ""
+    Run, %comSpec% /c "which "%tesseractPath%" | CLIP",, hide
+    ClipWait,2
+    runingTesseract := (Trim(Clipboard, " `t`r`n") != "")
+    Clipboard:=Clip_Saved
 
     ; 确保谷歌浏览器运行中(确保普通权限)
     Clip_Saved:=ClipboardAll
@@ -292,7 +311,41 @@ execCtrlDownUPCmd(){
     global rctrlCmd ; RCtrl+命令
     global runingSnipaste  ;  snipaste是否安装并启动
     global runingChrome  ;  Chrome是否安装并启动
+    global runingTesseract     ;  OCR引擎tesseract是否安装并可调用
 
+    ; 截图OCR识别文字保存到剪切板， 命令不妨取 RCtrl-cr
+    if (rctrlCmd = "cr"){
+        if runingSnipaste and runingTesseract {
+            ; 清空旧的截图临时文件
+            tmpsnip :=  A_ScriptDir "\tmpsnip.png"
+            if FileExist(tmpsnip){
+                FileDelete, %tmpsnip%
+            }
+            ; 截图，并且确保已完成或已放弃
+            Run, %comSpec% /c "snipaste snip -o "%tmpsnip%,,hide
+            WinWaitActive, Snipper - Snipaste
+            WinWaitNotActive, Snipper - Snipaste
+            ; 截图临时文件存在则继续
+            if FileExist(tmpsnip){
+                clip1 := ClipboardAll
+                Clipboard := ""
+                ; OCR到剪切板，并且确保完成
+                Run, %comSpec% /c "tesseract "%tmpsnip%" stdout -l eng+chi_sim+chi_tra | CLIP",,hide
+                ClipWait, 2  ; 等待剪贴板中出现数据.
+                if (ErrorLevel = 0) {
+                    Clipboard := Trim(Clipboard, " `t`r`n")
+                    clip2 :=  ClipboardAll
+                    IF clip1 <> %clip2%
+                    {
+                        clipHist.addClip()
+                    }
+                }else{
+                    Clipboard := clip1
+                }
+            }
+        }
+        return
+    }
     ; 沙拉查词-独立查词窗口， 命令不妨取 RCtrl-wf
     ; 如果没有选择，则弹出空的查词窗口
     ; 如果选择了，则对当前所选内容查词
