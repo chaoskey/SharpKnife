@@ -327,7 +327,7 @@ execCtrlDownUPCmd(){
     if (rctrlCmd = "wf"){
         clearToolTip()
         if runingChrome{
-            ShaLaLookUp()
+            SelectTranslate("沙拉查词-独立查词窗口", "^+2")
         }
         return
     }
@@ -337,7 +337,7 @@ execCtrlDownUPCmd(){
     if (rctrlCmd = "ff"){
         clearToolTip()
         if runingChrome{
-            SelectTranslate()
+            SelectTranslate("独立翻译窗口 - 划词翻译", "^+1")
         }
         return
     }
@@ -681,8 +681,8 @@ SnipasteWhiteboard(){
     }
 }
 
-; 选择翻译
-SelectTranslate() {
+; 选择翻译, 如果没有选择则鼠标取词翻译
+SelectTranslate(WinName, HotKeyStr) {
     ; 先复制
     clip1 := ClipboardAll
     Clipboard := ""
@@ -696,36 +696,10 @@ SelectTranslate() {
         {
             clipHist.addClip()
         }
-        Send, ^+1
+        Send, %HotKeyStr%
     }else{
-        Send, ^+1
-        WinWaitActive, 独立翻译窗口 - 划词翻译, , 10
-        if (ErrorLevel = 1){
-            runingChrome := False
-        }
-        Clipboard := clip1
-    }
-}
-
-; 沙拉查词
-ShaLaLookUp(){
-    ; 先复制
-    clip1 := ClipboardAll
-    Clipboard := ""
-    Send, ^c
-    ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
-    if (ErrorLevel = 0) {
-        StringReplace, clipboard, clipboard, `r, , All
-        StringReplace, clipboard, clipboard, `n, , All
-        clip2 :=  ClipboardAll
-        IF clip1 <> %clip2%
-        {
-            clipHist.addClip()
-        }
-        Send, ^+2
-    }else{
-        Send, ^+2
-        WinWaitActive, 沙拉查词-独立查词窗口, , 10
+        Send, %HotKeyStr%
+        WinWaitActive, %WinName%, , 10
         if (ErrorLevel = 1){
             runingChrome := False
         }

@@ -51,17 +51,17 @@ browser=Google Chrome|Chrome.exe
 
 一般情况（没有用此脚本的情况）， `Ctrl-[任意单个字母]`， Ctrl按下、然后字母按下（哪怕都没松开）就会立刻触发。
 
-我现在希望增强RCtrl功能（用此脚本的情况），目前已增强的操形如: `RCtrl-[cvxsdafewt]+`, **RCtrl按下后必须松开才触发，每个字母必须是一次完整的点击(按下-松开)**。 如果RCtrl按下未松开的状态下，按下的字母键未松开，会等待该字母键松开，确保是一次完整点击。
+我现在希望增强RCtrl功能（用此脚本的情况），目前已增强的操形如: `RCtrl-[cvxsdafewrt]+`, **RCtrl按下后必须松开才触发，每个字母必须是一次完整的点击(按下-松开)**。 如果RCtrl按下未松开的状态下，按下的字母键未松开，会等待该字母键松开，确保是一次完整点击。
 
-`[cvxsdafewt]+`的含义是使用正则表达式描述的，意思是：`[cvxsdafewt]`代表一个特定字母(`cvxsdafewt`之一), 而`+`代表至少一个字母点击。
+`[cvxsdafewrt]+`的含义是使用正则表达式描述的，意思是：`[cvxsdafewrt]`代表一个特定字母(`cvxsdafewrt`之一), 而`+`代表至少一个字母点击。
 
-这说明，只有`RCtrl-[cvxsdafewt]+`相关的Ctrl功能被增强，除此之外没有任何影响或改变。
+这说明，只有`RCtrl-[cvxsdafewrt]+`相关的Ctrl功能被增强，除此之外没有任何影响或改变。
 
-之所以增强RCtrl功能，是因为我和大部分人都是“右撇子”；同样道理，这些特殊字字母`cvxsdafewt`选用是因为它们都在键盘左边（如前图）。 “一左一右”符合快捷操作的习惯。
+之所以增强RCtrl功能，是因为我和大部分人都是“右撇子”；同样道理，这些特殊字字母`cvxsdafewrt`选用是因为它们都在键盘左边（如前图）。 “一左一右”符合快捷操作的习惯。
 
-如果是`RCtrl+[单字符]` = `RCtrl-[cvxsdafewt]`, 本脚本保证RCtrl松开后不改变系统的默认操作结果（当然本脚本可能会有额外的记录或动作，但不影响系统结果）。
+如果是`RCtrl+[单字符]` = `RCtrl-[cvxsdafewrt]`, 本脚本保证RCtrl松开后不改变系统的默认操作结果（当然本脚本可能会有额外的记录或动作，但不影响系统结果）。
 
-`RCtrl`按下但尚未松开时， 可以反复输入字符`[cvxsdafewt]`，相关能触发特定动作的命令，我称之为【控制命令】。
+`RCtrl`按下但尚未松开时， 可以反复输入字符`[cvxsdafewrt]`，相关能触发特定动作的命令，我称之为【控制命令】。
 
 `RCtrl`按下然后松开后，才触发特定动作的命令，我称之为【功能命令】。
 
@@ -91,11 +91,13 @@ browser=Google Chrome|Chrome.exe
 
 - `RCtrl-wf`        查词(wf) 【需要谷歌浏览器和沙拉查词插件支持】
 
+- `RCtrl-cr`        截图OCR(cr) 【需要tesseract-ocr支持】
+
 然后是控制命令, RCtrl按下后松开前执行
 
 - `RCtrl-v[asdf]+` 或 `RCtrl-vv[asdf]+`  全部删除(a)，浏览下一条(s)，删除当前(d)，浏览上一条(f)
 
-- `RCtrl-[cvxsdafewt]+x`    标记放弃(x)
+- `RCtrl-[cvxsdafewrt]+x`    标记放弃(x)
 
 一旦RCtrl松开后
 
@@ -105,7 +107,7 @@ browser=Google Chrome|Chrome.exe
 
 - `RCtrl-v[asdf]+v` = `RCtrl-vv`  屏幕贴图 
 
-- `RCtrl-[cvxsdafewt]+x` = `RCtrl` 放弃
+- `RCtrl-[cvxsdafewrt]+x` = `RCtrl` 放弃
 
 ![](../images/Ctrl增强帮助.png)
 
@@ -259,6 +261,25 @@ browser=Google Chrome|Chrome.exe
 
 2021-12-25 我意外发现一个额外的功效: 如果你选择了一段文字A，然后`RCtrl-ff`翻译，同时本脚本会将这段文字A复制剪切板，这时您在弹出的翻译面板的翻译结果上的“复制图标”，那么当前真实剪切板的内容就是翻译之后的内容，但是作为剪切板历史的当前“剪切板”内容还是翻译前的文字A。这是我们可以对当前真实剪切板的内容进行编辑（`RCtrl-ce`），编辑后（`Ctrl-s`）会将当前真实剪切板的内容（包括修改后的内容）保存到剪切板历史的当前“剪切板”内容，然后在当前光标位置粘贴翻译的结果。 这一条操作下来“行云流水”:  选择文字(手工)-翻译(`RCtrl-ff`)-复制翻译结果（手工点击）-编辑翻译结果（`RCtrl-ce`）-保存并粘贴（`Ctrl-s`）。
 
+### 截图OCR
+
+> 需要tesseract-ocr支持
+
+**功能命令**： `RCtrl-cr`
+
+此功能的前置条件: 
+
+已经安装了[tesseract-ocr](https://github.com/UB-Mannheim/tesseract/wiki)
+
+强烈推荐用scoop安装:
+
+```powershell
+scoop install tesseract
+scoop install tesseract-languages
+```
+
+
+
 ## 控制命令
 
 > 控制命令, 是在`RCtrl`按下后松开前执行的命令。
@@ -287,7 +308,7 @@ browser=Google Chrome|Chrome.exe
 
 ### 放弃原定目标
 
-`RCtrl-[cvxsdafewt]+x`, 意味着放弃`RCtrl-[cvxsdafewt]`原本的动作，不做任何事放弃。
+`RCtrl-[cvxsdafewrt]+x`, 意味着放弃`RCtrl-[cvxsdafewrt]`原本的动作，不做任何事放弃。
 
 比如:  `RCtrl-vv[asdf]+` = `RCtrl-vv` 表示:执行完控制命令后贴图； 而 `RCtrl-vv[asdf]+x` = `RCtrl-vvx` 表示: 只执行完控制命令
 
