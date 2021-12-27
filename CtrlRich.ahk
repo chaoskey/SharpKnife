@@ -315,34 +315,9 @@ execCtrlDownUPCmd(){
 
     ; 截图OCR识别文字保存到剪切板， 命令不妨取 RCtrl-cr
     if (rctrlCmd = "cr"){
+        clearToolTip()
         if runingSnipaste and runingTesseract {
-            ; 清空旧的截图临时文件
-            tmpsnip :=  A_ScriptDir "\tmpsnip.png"
-            if FileExist(tmpsnip){
-                FileDelete, %tmpsnip%
-            }
-            ; 截图，并且确保已完成或已放弃
-            Run, %comSpec% /c "snipaste snip -o "%tmpsnip%,,hide
-            WinWaitActive, Snipper - Snipaste
-            WinWaitNotActive, Snipper - Snipaste
-            ; 截图临时文件存在则继续
-            if FileExist(tmpsnip){
-                clip1 := ClipboardAll
-                Clipboard := ""
-                ; OCR到剪切板，并且确保完成
-                Run, %comSpec% /c "tesseract "%tmpsnip%" stdout -l eng+chi_sim+chi_tra | CLIP",,hide
-                ClipWait, 2  ; 等待剪贴板中出现数据.
-                if (ErrorLevel = 0) {
-                    Clipboard := Trim(Clipboard, " `t`r`n")
-                    clip2 :=  ClipboardAll
-                    IF clip1 <> %clip2%
-                    {
-                        clipHist.addClip()
-                    }
-                }else{
-                    Clipboard := clip1
-                }
-            }
+            Ocr2Clip()
         }
         return
     }
@@ -352,28 +327,7 @@ execCtrlDownUPCmd(){
     if (rctrlCmd = "wf"){
         clearToolTip()
         if runingChrome{
-            ; 先复制
-            clip1 := ClipboardAll
-            Clipboard := ""
-            Send, ^c
-            ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
-            if (ErrorLevel = 0) {
-                StringReplace, clipboard, clipboard, `r, , All
-                StringReplace, clipboard, clipboard, `n, , All
-                clip2 :=  ClipboardAll
-                IF clip1 <> %clip2%
-                {
-                    clipHist.addClip()
-                }
-                Send, ^+2
-            }else{
-                Send, ^+2
-                WinWaitActive, 沙拉查词-独立查词窗口, , 10
-                if (ErrorLevel = 1){
-                    runingChrome := False
-                }
-                Clipboard := clip1
-            }
+            ShaLaLookUp()
         }
         return
     }
@@ -383,28 +337,7 @@ execCtrlDownUPCmd(){
     if (rctrlCmd = "ff"){
         clearToolTip()
         if runingChrome{
-            ; 先复制
-            clip1 := ClipboardAll
-            Clipboard := ""
-            Send, ^c
-            ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
-            if (ErrorLevel = 0) {
-                StringReplace, clipboard, clipboard, `r, , All
-                StringReplace, clipboard, clipboard, `n, , All
-                clip2 :=  ClipboardAll
-                IF clip1 <> %clip2%
-                {
-                    clipHist.addClip()
-                }
-                Send, ^+1
-            }else{
-                Send, ^+1
-                WinWaitActive, 独立翻译窗口 - 划词翻译, , 10
-                if (ErrorLevel = 1){
-                    runingChrome := False
-                }
-                Clipboard := clip1
-            }
+            SelectTranslate()
         }
         return
     }
@@ -745,6 +678,94 @@ SnipasteWhiteboard(){
     IF oldClip <> %newClip%
     {
         clipHist.addClip()
+    }
+}
+
+; 选择翻译
+SelectTranslate() {
+    ; 先复制
+    clip1 := ClipboardAll
+    Clipboard := ""
+    Send, ^c
+    ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
+    if (ErrorLevel = 0) {
+        StringReplace, clipboard, clipboard, `r, , All
+        StringReplace, clipboard, clipboard, `n, , All
+        clip2 :=  ClipboardAll
+        IF clip1 <> %clip2%
+        {
+            clipHist.addClip()
+        }
+        Send, ^+1
+    }else{
+        Send, ^+1
+        WinWaitActive, 独立翻译窗口 - 划词翻译, , 10
+        if (ErrorLevel = 1){
+            runingChrome := False
+        }
+        Clipboard := clip1
+    }
+}
+
+; 沙拉查词
+ShaLaLookUp(){
+    ; 先复制
+    clip1 := ClipboardAll
+    Clipboard := ""
+    Send, ^c
+    ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
+    if (ErrorLevel = 0) {
+        StringReplace, clipboard, clipboard, `r, , All
+        StringReplace, clipboard, clipboard, `n, , All
+        clip2 :=  ClipboardAll
+        IF clip1 <> %clip2%
+        {
+            clipHist.addClip()
+        }
+        Send, ^+2
+    }else{
+        Send, ^+2
+        WinWaitActive, 沙拉查词-独立查词窗口, , 10
+        if (ErrorLevel = 1){
+            runingChrome := False
+        }
+        Clipboard := clip1
+    }
+}
+
+; 截图OCR识别文字保存到剪切板
+Ocr2Clip(options := "-l eng+chi_sim+chi_tra") {
+    ; 清空旧的截图临时文件
+    tmpsnip :=  A_ScriptDir "\tmpsnip.png"
+    if FileExist(tmpsnip){
+        FileDelete, %tmpsnip%
+    }
+    ; 截图，并且确保已完成或已放弃
+    Run, %comSpec% /c "snipaste snip -o "%tmpsnip%,,hide
+    WinWaitActive, Snipper - Snipaste
+    WinWaitNotActive, Snipper - Snipaste
+    ; 截图临时文件存在则继续
+    if FileExist(tmpsnip){
+        clip1 := ClipboardAll
+        Clipboard := ""
+        ; OCR到剪切板，并且确保完成
+        Run, % comSpec " /c tesseract " tmpsnip " stdout " options " | CLIP",,hide
+        ClipWait, 2  ; 等待剪贴板中出现数据.
+        if (ErrorLevel = 0) {
+            Clipboard := Trim(Clipboard, " `t`r`n")
+            clip :=  Clipboard
+            if (clip = ""){
+                Clipboard := clip1
+                return    
+            }
+            clip2 :=  ClipboardAll
+            IF clip1 <> %clip2%
+            {
+                clipHist.addClip()
+            }
+        }else{
+            Clipboard := clip1
+        }
     }
 }
 
