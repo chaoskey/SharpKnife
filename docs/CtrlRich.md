@@ -46,6 +46,9 @@ snipaste=Snipaste.exe
 ; 浏览器启动后的窗口标题|浏览器路径, 默认是谷歌浏览器并且在PATH路径中，否则需要自行配置全路径
 ; 目前谷歌浏览器和微软Edge浏览器已经通过测试
 browser=Google Chrome|Chrome.exe
+; OCR引擎tesseract默认在tesseract在PATH路径中，否则需要自行修改为全路径
+; 如果指定位置（包括PATH路径中），意味着不支持OCR
+tesseract=tesseract.exe
 ;
 ```
 
