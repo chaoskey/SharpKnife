@@ -95,6 +95,10 @@ RCtrlHandler(){
     KeyWait, %c_%
 }
 
+#IfWinActive 沙拉查词-独立查词窗口
+Esc::WinClose
+#IfWinActive
+
 /* 
     “Ctrl+命令”处理之死循环
 */
