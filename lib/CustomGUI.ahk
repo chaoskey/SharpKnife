@@ -318,6 +318,7 @@ class FollowMultiLineEdit
 {
     wndGui :=           ; 窗口句柄
     wndControl :=       ; 控件句柄
+    picControl :=       ; 鼠标拖拽移动窗口的“把手”控件
     callbackFun :=      ; 回调函数
     fontOptions :=      ; 字体选项
     fontName :=         ; 字体名
@@ -333,9 +334,11 @@ class FollowMultiLineEdit
         fnUpdateAction := ObjBindMethod(this, "UpdateAction")
         fnLButtonHandler := ObjBindMethod(this, "LButtonHandler")
         fnCtrlSHandler := ObjBindMethod(this, "CtrlSHandler")
+        fnMoveWin := ObjBindMethod(this, "MoveWin")
         ; 创建列表窗口获取窗口和控件句柄
         Gui, New
         Gui, Font, %fontOptions%, %fontName%
+        Gui, Color, EEAA99 ; 为后面窗口背景透明化准备
         Gui, Add, Edit, x0 y0 r3 WantTab -VScroll -HScroll HwndwndControl
         Gui, -Caption +ToolWindow +AlwaysOnTop +LastFound
         Gui, +HwndwndGui
@@ -345,13 +348,29 @@ class FollowMultiLineEdit
         GuiControl, +g, %wndControl% , % fnUpdateAction     
         ; 确保窗口大小和控件大小一样
         GuiControlGet, tmp, Pos , %wndControl%
-        Gui, Show, w%tmpW% h%tmpH% Hide
+        ; 创建用于鼠标拖拽窗口移动的"把手"
+        if A_IsCompiled {
+            Gui, Add, Picture, x%tmpW% y0 w20 h20 HwndpicControl, %A_ScriptFullPath%
+        }else{
+            Gui, Add, Picture, x%tmpW% y0 w20 h20 HwndpicControl, images\knife.ico
+        }
+        this.picControl := picControl
+        ; 绑定控件g函数
+        GuiControl, +g, %picControl% , % fnMoveWin
+        WinSet, TransColor, EEAA99  ; 窗口背景透明化
+        ww := tmpW + 20 ; 窗口宽度 = 编辑控件宽度+"把手"宽度
+        Gui, Show, w%ww% h%tmpH% Hide
         Gui, %wndGui%:Hide
         ; 提示窗口热键处理
         Hotkey, IfWinExist, ahk_id %wndGui% ahk_class AutoHotkeyGUI
         Hotkey, ~LButton, % fnLButtonHandler
         Hotkey, >^s, % fnCtrlSHandler
         Hotkey, IfWinExist
+    }
+
+    MoveWin(){
+        wndGui := this.wndGui
+        PostMessage, 0xA1, 2, , , ahk_id %wndGui%
     }
 
     show(texts, callbackFun, obj := False, minWH := "100,20", maxWH := "600,200"){
@@ -372,7 +391,7 @@ class FollowMultiLineEdit
         this.maxHeight := maxWH[2]
         ; 编辑框的宽高
         getTextsWidthHeight(width, height, texts, this.fontOptions, this.fontName, this.maxWidth)
-        width := Min(Max(width + 10,this.minWidth),this.maxWidth)
+        width := Min(Max(width + 10,this.minWidth),this.maxWidth) + 20
         height := Min(Max(height,this.minHeight),this.maxHeight)
         ; 当前光标或鼠标位置
         CoordMode, Caret, Screen
@@ -393,7 +412,9 @@ class FollowMultiLineEdit
         ; 窗口显示
         Gui, % this.wndGui ":Default"
         GuiControl,, % this.wndControl, %texts%
-        GuiControl, Move, % this.wndControl , w%width% h%height% ;设置控件宽高
+        ww := width - 20
+        GuiControl, Move, % this.wndControl , w%ww% h%height% ;设置控件宽高
+        GuiControl, Move, % this.picControl , x%ww% ;设置控件宽高
         Gui, Show, x%posX% y%posY% w%width% h%height% ;  NoActivate
 
     }
@@ -403,11 +424,13 @@ class FollowMultiLineEdit
         ; 搜索框的宽
         GuiControlGet, varText , , % this.wndControl
         getTextsWidthHeight(width, height, varText, this.fontOptions, this.fontName, this.maxWidth)
-        width := Min(Max(width + 10,this.minWidth),this.maxWidth)
+        width := Min(Max(width + 10,this.minWidth),this.maxWidth) + 20
         height := Min(Max(height,this.minHeight),this.maxHeight)
         ; 按指定宽重新显示窗口
         Gui, % this.wndGui ":Default"
-        GuiControl, Move, % this.wndControl, w%width% h%height% ;设置搜索框控件宽
+        ww := width - 20
+        GuiControl, Move, % this.wndControl, w%ww% h%height% ;设置搜索框控件宽
+        GuiControl, Move, % this.picControl, x%ww% ;设置控件宽高
         Gui, Show, w%width% h%height%
     }
     
