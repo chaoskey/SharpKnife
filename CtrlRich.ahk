@@ -747,7 +747,7 @@ Ocr2Clip(options := "-l eng+chi_sim+chi_tra") {
             installedMagick := (ErrorLevel != "ERROR")
         }
         clip1 := ClipboardAll
-        ; 第一次尝试OCR
+        ; 第一次尝试OCR 【大范围截图往往第一次尝试就能成功】
         Clipboard := ""
         Run, % comSpec " /c tesseract " tmpsnip " stdout " options " | CLIP",,hide
         ClipWait, 2  ; 等待剪贴板中出现数据.
@@ -755,10 +755,12 @@ Ocr2Clip(options := "-l eng+chi_sim+chi_tra") {
         if (ErrorLevel = 0) {
             clip := Trim(Clipboard, " `t`r`n")
         }
-        ; 第一次尝试OCR没有结果，改变参数第二次尝试OCR
+        ; 第一次尝试OCR没有结果，改变参数第二次尝试OCR 【小范围截图可能需要第二次尝试】
         if (clip = "") and (InStr(options, "--psm") = 0){
             Clipboard := ""
-            Run, % comSpec " /c tesseract " tmpsnip " stdout " options " --psm 4 | CLIP",,hide
+            ; --psm 4  假设有一列可变大小的文本。
+            ; --psm 6  假设有一个统一的文本块。 【对小范围截图OCR，似乎--psm 6 比 --psm 4更可靠】
+            Run, % comSpec " /c tesseract " tmpsnip " stdout " options " --psm 6 | CLIP",,hide
             ClipWait, 2  ; 等待剪贴板中出现数据. 
             if (ErrorLevel = 0) {
                 clip := Trim(Clipboard, " `t`r`n")
