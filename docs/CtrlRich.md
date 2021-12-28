@@ -2,7 +2,7 @@
 
 > 本工具是[SharpKnife(利刃)](../README.md)效率工具库的成员
 >
-> 20211228 1）支持OCR前进行图片二值化处理，可以增强OCR识别的准确度。 2） 新增命令: 截图OCR即刻查词 “RCtrl-crwf” = “RCtrl-cr”  + “RCtrl-wf” ； 截图OCR即刻翻译 “RCtrl-crff” = “RCtrl-cr”  + “RCtrl-ff”; 剪切板查词 "RCtrl-cwf"
+> 20211228 1）支持OCR前进行图片二值化处理，可以增强OCR识别的准确度。 2） 新增命令: 截图OCR即刻查词 “RCtrl-crwf” = “RCtrl-cr”  + “RCtrl-wf” ； 截图OCR即刻翻译 “RCtrl-crff” = “RCtrl-cr”  + “RCtrl-ff”; 剪切板查词 "RCtrl-cwf" ; 剪切板翻译 "RCtrl-cff"
 >
 > 20211227 新增截图OCR到剪切板: `RCtrl-cr`
 >
