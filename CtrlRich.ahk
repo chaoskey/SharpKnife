@@ -742,8 +742,8 @@ Ocr2Clip(options := "-l eng+chi_sim+chi_tra") {
         if installedMagick {
             ; 需要先对图片进行二值化
             ; https://imagemagick.org/script/command-line-options.php#auto-threshold
-            ; Kapur(合适) OTSU(太细) Triangle(太粗)
-            RunWait, % comSpec " /c magick convert  -auto-threshold Kapur " tmpsnip " " tmpsnip,,hide UseErrorLevel      
+            ; Kapur(区分度有点差) OTSU(还是用这个效果好) Triangle(太粗)
+            RunWait, % comSpec " /c magick convert  -auto-threshold OTSU " tmpsnip " " tmpsnip,,hide UseErrorLevel
             installedMagick := (ErrorLevel != "ERROR")
         }
         clip1 := ClipboardAll
