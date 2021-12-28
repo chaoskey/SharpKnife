@@ -254,11 +254,11 @@ tesseract=tesseract.exe
 
 现在只要谷歌浏览器打开过，全局快捷键: Ctrl+Shift+1 和 Ctrl+Shift+2就自动生效，哪怕谷歌浏览器的相关窗口全部关闭。
 
-- 1) **翻译** 【功能命令： `RCtrl-ff`】
+- 1) **翻译** 【功能命令： `RCtrl-ff`  或 剪切板翻译 `RCtrl-cff`】
 
 **翻译**的程序流程是: 采用“划词翻译”扩展全局快捷键: Ctrl+Shift+1。如果没有选择，则翻译上次所选内容; 如果选择了，则翻译当前所选内容
 
-- 2) **查词** 【功能命令： `RCtrl-wf`】
+- 2) **查词** 【功能命令： `RCtrl-wf` 或 剪切板查词 `RCtrl-cwf`】
 
 **查词**的程序流程是: 采用“沙拉查词”扩展全局快捷键: Ctrl+Shift+2。如果没有选择，则翻译上次所选内容; 如果选择了，则翻译当前所选内容
 
@@ -268,19 +268,27 @@ tesseract=tesseract.exe
 
 ### 截图OCR
 
-> 需要tesseract-ocr支持
+> 需要tesseract-ocr支持; 【可选】需要imagemagick支持
 
-**功能命令**： `RCtrl-cr`
+**功能命令1**： 截图OCR进剪切板: `RCtrl-cr`
+
+**功能命令2**： 截图OCR进剪切板，然后查词（基于沙拉查词扩展） `RCtrl-crwf`
+
+**功能命令3**： 截图OCR进剪切板，然后翻译（基于划词查词扩展） `RCtrl-crff`
 
 此功能的前置条件: 
 
 已经安装了[tesseract-ocr](https://github.com/UB-Mannheim/tesseract/wiki)
+
+【可选】已经安装了[imagemagick](https://imagemagick.org/)， 目前只用到图片二值化功能，可以增强OCR识别的准确度。
 
 强烈推荐用scoop安装:
 
 ```powershell
 scoop install tesseract
 scoop install tesseract-languages
+# 可选安装，可以增强Tesseract-OCR识别的准确度
+scoop install imagemagick
 ```
 
 

@@ -108,7 +108,8 @@ startCtrlCmdLoop(){
     global hWNDToolTip := 0 
     global runingSnipaste := False  ;  snipaste是否安装并启动
     global runingChrome := False     ;  谷歌浏览器是否安装并启动
-    global runingTesseract := False     ;  OCR引擎tesseract是否安装并可调用
+    global installedTesseract := False  ;  OCR引擎tesseract是否安装并可调用
+    global installedMagick := True     ; imagemagick是否已经安装
 
     ; 【这段注释掉的代码含有如何运行PowerShell.exe中的命令? 如何启动Win商店版程序，具有参考价值】
     ; 启动Snipaste
@@ -181,7 +182,7 @@ tesseract=%tesseractPath%
     Clipboard := ""
     Run, %comSpec% /c "which "%tesseractPath%" | CLIP",, hide
     ClipWait,2
-    runingTesseract := (Trim(Clipboard, " `t`r`n") != "")
+    installedTesseract := (Trim(Clipboard, " `t`r`n") != "")
     Clipboard:=Clip_Saved
 
     ; 确保谷歌浏览器运行中(确保普通权限)
@@ -311,33 +312,47 @@ execCtrlDownUPCmd(){
     global rctrlCmd ; RCtrl+命令
     global runingSnipaste  ;  snipaste是否安装并启动
     global runingChrome  ;  Chrome是否安装并启动
-    global runingTesseract     ;  OCR引擎tesseract是否安装并可调用
+    global installedTesseract     ;  OCR引擎tesseract是否安装并可调用
+
+    TransClip := False ; 默认不翻译剪切板
 
     ; 截图OCR识别文字保存到剪切板， 命令不妨取 RCtrl-cr
-    if (rctrlCmd = "cr"){
+    if (SubStr(rctrlCmd, 1, 2) = "cr") and (SubStr(rctrlCmd, 0) != "x"){
         clearToolTip()
-        if runingSnipaste and runingTesseract {
+        if runingSnipaste and installedTesseract {
             Ocr2Clip()
         }
-        return
+        rctrlCmd := SubStr(rctrlCmd, 3)
+        if (rctrlCmd = ""){
+            return
+        }
+        TransClip := True ; 翻译剪切板
     }
     ; 沙拉查词-独立查词窗口， 命令不妨取 RCtrl-wf
     ; 如果没有选择，则弹出空的查词窗口
     ; 如果选择了，则对当前所选内容查词
+    if (rctrlCmd = "cwf"){
+        rctrlCmd := "wf"
+        TransClip := True ; 剪切板查词
+    }
     if (rctrlCmd = "wf"){
         clearToolTip()
         if runingChrome{
-            SelectTranslate("沙拉查词-独立查词窗口", "^+2")
+            SelectTranslate("沙拉查词-独立查词窗口", "^+2", TransClip)
         }
         return
     }
     ; 独立翻译窗口 - 划词翻译， 命令不妨取 RCtrl-ff
     ; 如果没有选择，则弹出空的翻译窗口
     ; 如果选择了，则翻译当前所选内容
+    if (rctrlCmd = "cff"){
+        rctrlCmd := "ff"
+        TransClip := True ; 剪切板翻译
+    }
     if (rctrlCmd = "ff"){
         clearToolTip()
         if runingChrome{
-            SelectTranslate("独立翻译窗口 - 划词翻译", "^+1")
+            SelectTranslate("独立翻译窗口 - 划词翻译", "^+1", TransClip)
         }
         return
     }
@@ -681,12 +696,14 @@ SnipasteWhiteboard(){
     }
 }
 
-; 选择翻译, 如果没有选择则鼠标取词翻译
-SelectTranslate(WinName, HotKeyStr) {
+; 选择翻译, 如果没有选择则鼠标取词翻译（默认不翻译剪切板）
+SelectTranslate(WinName, HotKeyStr, TransClip := False) {
     ; 先复制
     clip1 := ClipboardAll
-    Clipboard := ""
-    Send, ^c
+    if (not TransClip) {
+        Clipboard := ""
+        Send, ^c
+    }
     ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
     if (ErrorLevel = 0) {
         StringReplace, clipboard, clipboard, `r, , All
@@ -709,6 +726,8 @@ SelectTranslate(WinName, HotKeyStr) {
 
 ; 截图OCR识别文字保存到剪切板
 Ocr2Clip(options := "-l eng+chi_sim+chi_tra") {
+    global installedMagick     ; imagemagick是否已经安装
+
     ; 清空旧的截图临时文件
     tmpsnip :=  A_ScriptDir "\tmpsnip.png"
     if FileExist(tmpsnip){
@@ -720,24 +739,39 @@ Ocr2Clip(options := "-l eng+chi_sim+chi_tra") {
     WinWaitNotActive, Snipper - Snipaste
     ; 截图临时文件存在则继续
     if FileExist(tmpsnip){
+        if installedMagick {
+            ; 需要先对图片进行二值化
+            ; https://imagemagick.org/script/command-line-options.php#auto-threshold
+            ; Kapur(合适) OTSU(太细) Triangle(太粗)
+            RunWait, % comSpec " /c magick convert  -auto-threshold Kapur " tmpsnip " " tmpsnip,,hide UseErrorLevel      
+            installedMagick := (ErrorLevel != "ERROR")
+        }
         clip1 := ClipboardAll
+        ; 第一次尝试OCR
         Clipboard := ""
-        ; OCR到剪切板，并且确保完成
         Run, % comSpec " /c tesseract " tmpsnip " stdout " options " | CLIP",,hide
         ClipWait, 2  ; 等待剪贴板中出现数据.
+        clip := ""
         if (ErrorLevel = 0) {
-            Clipboard := Trim(Clipboard, " `t`r`n")
-            clip :=  Clipboard
-            if (clip = ""){
-                Clipboard := clip1
-                return    
-            }
+            clip := Trim(Clipboard, " `t`r`n")
+        }
+        ; 第一次尝试OCR没有结果，改变参数第二次尝试OCR
+        if (clip = "") and (InStr(options, "--psm") = 0){
+            Clipboard := ""
+            Run, % comSpec " /c tesseract " tmpsnip " stdout " options " --psm 4 | CLIP",,hide
+            ClipWait, 2  ; 等待剪贴板中出现数据. 
+            if (ErrorLevel = 0) {
+                clip := Trim(Clipboard, " `t`r`n")
+            }      
+        }
+        if (clip != "") {  ; OCR若有结果，则存入剪切板
+            Clipboard := clip
             clip2 :=  ClipboardAll
             IF clip1 <> %clip2%
             {
                 clipHist.addClip()
             }
-        }else{
+        }else{  ; OCR若无结果，则恢复旧的剪切板
             Clipboard := clip1
         }
     }
