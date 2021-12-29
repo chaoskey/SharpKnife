@@ -49,9 +49,9 @@ return ; 自动运行段结束
 ;@Ahk2Exe-IgnoreEnd
 
 ;@Ahk2Exe-SetProductName    SharpKnife(利刃) 
-;@Ahk2Exe-SetProductVersion 2021.12.27
+;@Ahk2Exe-SetProductVersion 2021.12.29
 ;@Ahk2Exe-SetDescription SharpKnife(利刃) 
-;@Ahk2Exe-SetFileVersion    2021.12.27
+;@Ahk2Exe-SetFileVersion    2021.12.29
 ;@Ahk2Exe-SetCopyright @2021-2025
 ;@Ahk2Exe-SetLanguage 0x0804
 ;@Ahk2Exe-SetOrigFilename SharpKnife

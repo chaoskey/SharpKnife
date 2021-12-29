@@ -1,7 +1,7 @@
 ;@Ahk2Exe-SetProductName    Ctrl增强 
-;@Ahk2Exe-SetProductVersion 2021.12.27
+;@Ahk2Exe-SetProductVersion 2021.12.29
 ;@Ahk2Exe-SetDescription Ctrl增强 
-;@Ahk2Exe-SetFileVersion    2021.12.27
+;@Ahk2Exe-SetFileVersion    2021.12.29
 ;@Ahk2Exe-SetCopyright @2021-2025
 ;@Ahk2Exe-SetLanguage 0x0804
 ;@Ahk2Exe-SetOrigFilename CtrlRich
@@ -747,10 +747,23 @@ Ocr2Clip(options := "-l eng+chi_sim+chi_tra") {
             ; 需要先对图片进行二值化
             ; https://imagemagick.org/script/command-line-options.php#auto-threshold
             ; Kapur(区分度有点差) OTSU(还是用这个效果好) Triangle(太粗)
-            RunWait, % comSpec " /c magick convert  -auto-threshold OTSU " tmpsnip " " tmpsnip,,hide UseErrorLevel
+            RunWait, % comSpec " /c magick mogrify  -auto-threshold OTSU " tmpsnip,,hide UseErrorLevel
             installedMagick := (ErrorLevel != "ERROR")
         }
         clip1 := ClipboardAll
+        if installedMagick {
+            ; 判断二值化后是白底黑字还是黑底白字
+            ; https://imagemagick.org/script/escape.php
+            Clipboard := ""
+            RunWait, % comSpec " /c magick identify -format ""%[min] %[mean] %[max]"" " tmpsnip " | CLIP",,hide
+            ClipWait, 1  ; 等待剪贴板中出现数据.
+            clips :=  StrSplit(Trim(Clipboard, " `t`r`n"), " ")
+            if (clips.Length() = 3) and (clips[2] < (clips[1] + clips[3])/2) {
+                ; 将黑底白字转换称白底黑字
+                ; https://imagemagick.org/script/color-thresholding.php
+                RunWait, % comSpec " /c magick mogrify -color-threshold 'sRGB(0,0,0)-sRGB(127,127,127)' " tmpsnip,,hide
+            }
+        }
         ; 第一次尝试OCR 【大范围截图: 全自动页面分割，但没有 OSD。 对大部分情况有效】
         Clipboard := ""
         RunWait, % comSpec " /c tesseract " tmpsnip " stdout " options " | CLIP",,hide
