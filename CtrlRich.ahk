@@ -113,7 +113,7 @@ startCtrlCmdLoop(){
     global runingSnipaste := False  ;  snipaste是否安装并启动
     global runingChrome := False     ;  谷歌浏览器是否安装并启动
     global installedTesseract := False  ;  OCR引擎tesseract是否安装并可调用
-    global installedMagick := True     ; imagemagick是否已经安装
+    global installedMagick := False     ; imagemagick是否已经安装  【关闭相关处理，因为tesseract5支持二值化处理】
 
     ; 【这段注释掉的代码含有如何运行PowerShell.exe中的命令? 如何启动Win商店版程序，具有参考价值】
     ; 启动Snipaste

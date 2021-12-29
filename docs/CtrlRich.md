@@ -2,6 +2,8 @@
 
 > 本工具是[SharpKnife(利刃)](../README.md)效率工具库的成员
 >
+> 20211229 Tesseract5这个最新版本，本身就支持二值化处理，所以关闭通过imagemagick调用的二值化处理功能。
+>
 > 20211228 1）支持OCR前进行图片二值化处理，可以增强OCR识别的准确度。 2） 新增命令: 截图OCR即刻查词 “RCtrl-crwf” = “RCtrl-cr”  + “RCtrl-wf” ； 截图OCR即刻翻译 “RCtrl-crff” = “RCtrl-cr”  + “RCtrl-ff”; 剪切板查词 "RCtrl-cwf" ; 剪切板翻译 "RCtrl-cff"
 >
 > 20211227 新增截图OCR到剪切板: `RCtrl-cr`
@@ -271,6 +273,8 @@ tesseract=tesseract.exe
 ### 截图OCR
 
 > 需要tesseract-ocr支持; 【可选】需要imagemagick支持
+> 
+> 20211229 Tesseract5这个最新版本，本身就支持二值化处理，所以关闭通过imagemagick调用的二值化处理功能。
 
 **功能命令1**： 截图OCR进剪切板: `RCtrl-cr`
 
@@ -282,7 +286,7 @@ tesseract=tesseract.exe
 
 已经安装了[tesseract-ocr](https://github.com/UB-Mannheim/tesseract/wiki)
 
-【可选】已经安装了[imagemagick](https://imagemagick.org/)， 目前只用到图片二值化功能，可以增强OCR识别的准确度。
+~~【可选】已经安装了[imagemagick](https://imagemagick.org/)， 目前只用到图片二值化功能，可以增强OCR识别的准确度。~~
 
 强烈推荐用scoop安装:
 
@@ -290,10 +294,9 @@ tesseract=tesseract.exe
 scoop install tesseract
 scoop install tesseract-languages
 # 可选安装，可以增强Tesseract-OCR识别的准确度
-scoop install imagemagick
+# > 20211229 Tesseract5这个最新版本，本身就支持二值化处理，所以关闭通过imagemagick调用的二值化处理功能。
+# scoop install imagemagick
 ```
-
-
 
 ## 控制命令
 
