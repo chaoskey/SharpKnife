@@ -121,7 +121,7 @@ HotlatexHandler()
     indexPrefix := indexPrefix + 1
     
     ; 等候输入
-    Input, search, V C , {tab}{space}{enter}{esc}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}{Up}{Down}{Home}{End}{PgUp}{PgDn}{CapsLock}{NumLock}{PrintScreen}{Pause}{vkFF}
+    Input, search, V C , {tab}{space}{enter}{esc}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}{Up}{Down}{Home}{End}{PgUp}{PgDn}{CapsLock}{NumLock}{PrintScreen}{Pause}{Ctrl}{Alt}{Shift}{LWin}{RWin}{vkFF}
     if (not lastErrorLevel)
         lastErrorLevel := ErrorLevel
     ; 比如: 前面输入“_abc\efg”, 然后tab, _先处理efg， 后处理abc\
