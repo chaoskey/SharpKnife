@@ -179,10 +179,9 @@ HotlatexHandler()
     n := StrLen(prefix) + StrLen(search)
 
     flag := False ; 默认是不完全匹配模式
-    ; 如果输入的字符数小于2然后[tab]，则要求完全匹配（防止菜单过长）
-    if (n < StrLen(prefix) + 2 + 1)
+    ; 如果输入的字符数小于2，则要求完全匹配（防止菜单过长）
+    if (StrLen(search) < 2)
         flag := True
-
     ; 搜索匹配的索引
     global matches := []
     for index, value in latexHotstring
@@ -208,7 +207,7 @@ HotlatexHandler()
         
 
         ; 如果是完全匹配，跳过字符数过大的部分（基于已排序的情况）
-        if flag and (StrLen(prefix)+StrLen(key) > n-1)
+        if flag and (StrLen(key) > StrLen(search))
             Break
         
         if  InStr(key, search) {
