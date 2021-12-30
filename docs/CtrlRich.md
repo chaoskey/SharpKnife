@@ -2,6 +2,8 @@
 
 > 本工具是[SharpKnife(利刃)](../README.md)效率工具库的成员
 >
+> 20211230 确保【Ctrl功能增强】进入命令循环后，输入的相关命令才有效
+>
 > 20211229 Tesseract5这个最新版本，本身就支持二值化处理，所以关闭通过imagemagick调用的二值化处理功能。
 >
 > 20211228 1）支持OCR前进行图片二值化处理，可以增强OCR识别的准确度。 2） 新增命令: 截图OCR即刻查词 “RCtrl-crwf” = “RCtrl-cr”  + “RCtrl-wf” ； 截图OCR即刻翻译 “RCtrl-crff” = “RCtrl-cr”  + “RCtrl-ff”; 剪切板查词 "RCtrl-cwf" ; 剪切板翻译 "RCtrl-cff"

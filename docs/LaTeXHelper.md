@@ -9,6 +9,8 @@
 > 参考Katex:  https://katex.org/docs/supported.html
 >
 > 本工具是[SharpKnife(利刃)](../README.md)效率工具库的成员
+>
+> 20211230 1） 确保在英文状态，【LaTex助手】才有效 2）确保在【LaTex助手】接受输入时，禁用系统Tab功能。
 
 ## 启动
 
