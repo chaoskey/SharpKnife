@@ -1,7 +1,7 @@
 ;@Ahk2Exe-SetProductName    LaTex助手
-;@Ahk2Exe-SetProductVersion 2021.12.01
+;@Ahk2Exe-SetProductVersion 2021.12.30
 ;@Ahk2Exe-SetDescription LaTex助手
-;@Ahk2Exe-SetFileVersion    2021.12.01
+;@Ahk2Exe-SetFileVersion    2021.12.30
 ;@Ahk2Exe-SetCopyright @2021-2025
 ;@Ahk2Exe-SetLanguage 0x0804
 ;@Ahk2Exe-SetOrigFilename LaTexHelper
@@ -48,6 +48,18 @@ loadTriggerHotKey()
 global followList := new FollowListBox()
 return ; 自动运行段结束
 
+; 如果是在输入状态中，禁用系统Tab快捷键(转义成一个肯定用不到的虚拟键{vkFFscFFF})
+IsWaitInputComplete(){
+    global  waitInputComplete ; 等候输入完成的过程中
+    if not waitInputComplete{
+        waitInputComplete := False
+    }
+    return waitInputComplete
+}
+#if IsWaitInputComplete()
+Tab::Send {vkFFscFFF}
+#if
+
 ;------------------------------------------------------------------------------------------------------
 ;        latex热键处理 (完全用Input接管)
 ;------------------------------------------------------------------------------------------------------
@@ -74,28 +86,13 @@ HotlatexHandler()
         unicodeMode := 0
     }
 
-    ; 如果已经加载im_switch模块，支持在中文输入状态下直接输入，会自动切换倒英文状态
+    ; 如果已经加载IMSwitch模块，则可控制只在英文状态下有效，中文状态下无效
     _getImState := "getImState"
-    _setImState := "setImState"
-    _IMToolTip := "IMToolTip"
     if isFunc(_getImState)
     {
         imState := %_getImState%()
         if (imState = 1){
-            ; 确保只在中文状态下动作
-            prefix := LTrim(prefix, "~")
-            ; _ 在微软中文下显示 ——(两个字符)
-            ; ^ 在微软中文下显示 ……(两个字符)
-            ; \ 在微软中文下显示 、(一个字符)
-            ; : 在微软中文下显示 ：(一个字符)
-            ; $ 在微软中文下显示 ￥(一个字符)
-            ; 所以，_和^有点特殊，需要退两格
-            nBS := 1
-            if (prefix == "_") or (prefix == "^") {
-                nBS := 2
-            }
-            Send ^{Space}{BS %nBS%}{text}%prefix%
-            %_IMToolTip%(0)
+            return
         }
     }
 
@@ -108,6 +105,7 @@ HotlatexHandler()
     global  searchs
     global  indexPrefix
     global  lastErrorLevel
+    global  waitInputComplete ; 等候输入完成的过程中
 
     ; 比如: 如果输入“_abc\efg”, _先等候输入， \后等候输入
     if (not prefixs)
@@ -115,14 +113,17 @@ HotlatexHandler()
         prefixs := []
         indexPrefix := 0
     }
+    if (prefixs.Length() = 0){
+        ; 进入等候状态
+        waitInputComplete := True ;  等候输入
+    }
     prefixs.Push(prefix)
     indexPrefix := indexPrefix + 1
     
     ; 等候输入
-    Input, search, V C , {tab}{space}{enter}{esc}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}{Up}{Down}{Home}{End}{PgUp}{PgDn}{CapsLock}{NumLock}{PrintScreen}{Pause}
+    Input, search, V C , {tab}{space}{enter}{esc}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}{Up}{Down}{Home}{End}{PgUp}{PgDn}{CapsLock}{NumLock}{PrintScreen}{Pause}{vkFF}
     if (not lastErrorLevel)
         lastErrorLevel := ErrorLevel
-
     ; 比如: 前面输入“_abc\efg”, 然后tab, _先处理efg， 后处理abc\
     ; 后处理的插前面，确保和prefixs对应
     if not searchs
@@ -159,9 +160,11 @@ HotlatexHandler()
     prefixs := []
     searchs := []
     indexPrefix := 0
+    waitInputComplete := False ;  输入完成
     ; 非tab终止符触发，表示放弃
-    if (lastErrorLevel != "EndKey:tab")
-    {
+    ; 为了防止系统Tab的干扰，在输入完全前将Tab转义成一个肯定用不到的虚拟键{vkFFscFFF}
+    ; 所以非{vkFF}也就是非tab终止符
+    if (lastErrorLevel != "EndKey:vkFF"){
         lastErrorLevel := ""
         return
     }
@@ -172,8 +175,8 @@ HotlatexHandler()
     ;--------------------------------------------
     latexHotstring := getLaTeXHotstring() 
 
-    ; 需要删除的字符数:  前缀数 + 输入字符数 + `t字符数
-    n := StrLen(prefix) + StrLen(search) + 1
+    ; 需要删除的字符数:  前缀数 + 输入字符数
+    n := StrLen(prefix) + StrLen(search)
 
     flag := False ; 默认是不完全匹配模式
     ; 如果输入的字符数小于2然后[tab]，则要求完全匹配（防止菜单过长）
@@ -231,10 +234,7 @@ HotlatexHandler()
         latexBlock := getLaTeXBlock(matches[1])
         if (not unicodeMode) and (latexBlock=="") {
             ; latex助手模式 and 非letex块
-            if flag {
-                ; 完全匹配
-                Send, {bs}
-            }else{
+            if (not flag) {
                 ; 不完全匹配
                 value := getLaTeXHot(matches[1])
                 Send, {bs %n%}%value%
@@ -275,9 +275,6 @@ HotlatexHandler()
         followList.show(suggList, "SelectHandler")
         return
     }
-
-    ; 不匹配， 只需要退1格复原
-    Send, {bs}
 }
 
 SelectHandler(index){    ; 菜单选择处理

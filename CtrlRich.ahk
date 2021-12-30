@@ -1,7 +1,7 @@
 ;@Ahk2Exe-SetProductName    Ctrl增强 
-;@Ahk2Exe-SetProductVersion 2021.12.29
+;@Ahk2Exe-SetProductVersion 2021.12.30
 ;@Ahk2Exe-SetDescription Ctrl增强 
-;@Ahk2Exe-SetFileVersion    2021.12.29
+;@Ahk2Exe-SetFileVersion    2021.12.30
 ;@Ahk2Exe-SetCopyright @2021-2025
 ;@Ahk2Exe-SetLanguage 0x0804
 ;@Ahk2Exe-SetOrigFilename CtrlRich
@@ -84,10 +84,13 @@ return
 */
 RCtrlHandler(){
     Critical
-
+    global runingCtrlRich  ; CtrlRich模块运行状态
     global rctrlCmd ; RCtrl+命令
     if (not ctlCmd){
         ctlCmd := ""
+    }
+    if (not runingCtrlRich){
+        return
     }
     c_ := SubStr(A_ThisHotkey, 4)
     rctrlCmd := rctrlCmd c_
@@ -114,6 +117,7 @@ startCtrlCmdLoop(){
     global runingChrome := False     ;  谷歌浏览器是否安装并启动
     global installedTesseract := False  ;  OCR引擎tesseract是否安装并可调用
     global installedMagick := False     ; imagemagick是否已经安装  【关闭相关处理，因为tesseract5支持二值化处理】
+    global runingCtrlRich := False     ;  本模块是否已经启动
 
     ; 【这段注释掉的代码含有如何运行PowerShell.exe中的命令? 如何启动Win商店版程序，具有参考价值】
     ; 启动Snipaste
@@ -245,6 +249,7 @@ tesseract=%tesseractPath%
         }
     }
 
+    runingCtrlRich := True  ; CtrlRich模块运行中
     working := False
     SetBatchLines, 10ms
     loop{
