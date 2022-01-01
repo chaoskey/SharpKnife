@@ -4,8 +4,9 @@ FileEncoding , UTF-8-RAW
 
 ; 托盘提示
 Menu, Tray,Tip , SharpKnife（利刃）
-if FileExist("images\knife.ico"){
-    Menu, Tray, Icon, images\knife.ico
+icoName := "images\" StrReplace(A_ScriptName, ".ahk" , ".ico")
+if FileExist(icoName){
+    Menu, Tray, Icon, %icoName%
 }
 
 ; 启动GDI+支持
@@ -57,5 +58,5 @@ return ; 自动运行段结束
 ;@Ahk2Exe-SetOrigFilename SharpKnife
 ;@Ahk2Exe-SetLegalTrademarks chaoskey
 ;@Ahk2Exe-SetCompanyName chaoskey
-;@Ahk2Exe-SetMainIcon images\knife.ico
+;@Ahk2Exe-SetMainIcon images\SharpKnife.ico
 

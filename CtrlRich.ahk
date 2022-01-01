@@ -7,7 +7,7 @@
 ;@Ahk2Exe-SetOrigFilename CtrlRich
 ;@Ahk2Exe-SetLegalTrademarks chaoskey
 ;@Ahk2Exe-SetCompanyName chaoskey
-;@Ahk2Exe-SetMainIcon images\ctrl.ico
+;@Ahk2Exe-SetMainIcon images\CtrlRich.ico
 
 #SingleInstance, force
 
@@ -19,8 +19,9 @@ FileEncoding , UTF-8-RAW
 
 ; 托盘提示
 Menu, Tray,Tip , Ctrl增强
-if FileExist("images\ctrl.ico"){
-    Menu, Tray, Icon, images\ctrl.ico
+icoName := "images\" StrReplace(A_ScriptName, ".ahk" , ".ico")
+if FileExist(icoName){
+    Menu, Tray, Icon, %icoName%
 }
 
 ; 启动GDI+支持

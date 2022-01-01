@@ -7,7 +7,7 @@
 ;@Ahk2Exe-SetOrigFilename LaTexHelper
 ;@Ahk2Exe-SetLegalTrademarks chaoskey
 ;@Ahk2Exe-SetCompanyName chaoskey
-;@Ahk2Exe-SetMainIcon images\tab.ico
+;@Ahk2Exe-SetMainIcon images\LaTeXHelper.ico
 
 ; ----------------------------------------------
 ; 参考Katex，尽可能使用latex触发出对应的unicode字符
@@ -36,8 +36,9 @@ FileEncoding , UTF-8-RAW
 
 ; 托盘提示
 Menu, Tray,Tip , LaTeX助手
-if FileExist("images\tab.ico"){
-    Menu, Tray, Icon, images\tab.ico
+icoName := "images\" StrReplace(A_ScriptName, ".ahk" , ".ico")
+if FileExist(icoName){
+    Menu, Tray, Icon, %icoName%
 }
 
 ; 加载热LaTeX

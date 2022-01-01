@@ -7,7 +7,7 @@
 ;@Ahk2Exe-SetOrigFilename IMSwitch
 ;@Ahk2Exe-SetLegalTrademarks chaoskey
 ;@Ahk2Exe-SetCompanyName chaoskey
-;@Ahk2Exe-SetMainIcon images\im.ico
+;@Ahk2Exe-SetMainIcon images\IMSwitch.ico
 
 ; -----------------------------------------------
 ; 中英文切换辅助
@@ -28,10 +28,10 @@ FileEncoding , UTF-8-RAW
 
 ; 托盘提示
 Menu, Tray,Tip , 输入法助手
-if FileExist("images\im.ico"){
-    Menu, Tray, Icon, images\im.ico
+icoName := "images\" StrReplace(A_ScriptName, ".ahk" , ".ico")
+if FileExist(icoName){
+    Menu, Tray, Icon, %icoName%
 }
-
 
 ; 启动GDI+支持
 startupGdip()

@@ -352,7 +352,12 @@ class FollowMultiLineEdit
         if A_IsCompiled {
             Gui, Add, Picture, x%tmpW% y0 w20 h20 HwndpicControl, %A_ScriptFullPath%
         }else{
-            Gui, Add, Picture, x%tmpW% y0 w20 h20 HwndpicControl, images\knife.ico
+            icoName := "images\" StrReplace(A_ScriptName, ".ahk" , ".ico")
+            if FileExist(icoName) {
+                Gui, Add, Picture, x%tmpW% y0 w20 h20 HwndpicControl, %icoName%
+            }else{
+                Gui, Add, Picture, x%tmpW% y0 w20 h20 HwndpicControl, %A_AhkPath%
+            }
         }
         this.picControl := picControl
         ; 绑定控件g函数
