@@ -30,6 +30,7 @@ class ClipHistory
 
     reset(){
         this.activeclip := 0
+        this.deleteAndHoldClip()
     }
 
     ; 将当前clip读入Clipboard
@@ -107,6 +108,34 @@ class ClipHistory
         }
         ; 重新索引并重新编号
         this.indexClipAndRenumber()
+    }
+
+    ; 已标记不能被删除
+    ; 如果未标记的clip数量大于maxNum, 则最近minNum个未标记clip也不能被删除
+    ; 除此之外的clip全部删除
+    deleteAndHoldClip(maxNum := 500, minNum := 100){
+        ; 计算未标记的clip总数
+        unTagNum := this.cliparray.Length() - StrSplit(Trim(this.tagcliparray,"`n"),"`n").Length()
+        if (unTagNum > maxNum){
+            holdedUnTagNum := 0
+            _cliparray := []
+            for i_, v_ in this.cliparray {
+                ; 已标记的clip必须保留
+                if (InStr(this.tagcliparray, "`n" v_ "|") > 0){
+                    _cliparray.Push(v_)
+                    Continue
+                }
+                ; 没有标记的只保留最近的minNum个
+                if (holdedUnTagNum < minNum){
+                    _cliparray.Add(v_)
+                    holdedUnTagNum := holdedUnTagNum + 1
+                }else{
+                    ; 多余的删除
+                    Filedelete, % this.clipDir "\" v_ ".clip"
+                }
+            }
+            this.cliparray := _cliparray
+        }
     }
 
     ;  新加clip
