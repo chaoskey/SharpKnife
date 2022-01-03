@@ -113,6 +113,7 @@ class ClipHistory
     ; 已标记不能被删除
     ; 如果未标记的clip数量大于maxNum, 则最近minNum个未标记clip也不能被删除
     ; 除此之外的clip全部删除
+    ; 并且重新标号
     deleteAndHoldClip(maxNum := 500, minNum := 100){
         ; 计算未标记的clip总数
         unTagNum := this.cliparray.Length() - StrSplit(Trim(this.tagcliparray,"`n"),"`n").Length()
@@ -127,7 +128,7 @@ class ClipHistory
                 }
                 ; 没有标记的只保留最近的minNum个
                 if (holdedUnTagNum < minNum){
-                    _cliparray.Add(v_)
+                    _cliparray.Push(v_)
                     holdedUnTagNum := holdedUnTagNum + 1
                 }else{
                     ; 多余的删除
@@ -135,6 +136,24 @@ class ClipHistory
                 }
             }
             this.cliparray := _cliparray
+            ; 重新编号
+            ; 批量文件改名，并保证和tagcliparray一致（重新从1开始编号）
+            newIndex := 0
+            len_ := this.cliparray.Length()
+            i_ := len_
+            Loop, %len_%
+            {
+                v_ := this.cliparray[i_]
+                newIndex := newIndex + 1
+                if (newIndex != v_) {
+                    FileMove, % this.clipDir "\" v_ ".clip", % this.clipDir "\" newIndex ".clip" , 1
+                    this.cliparray[i_] := newIndex
+                    this.tagcliparray := StrReplace(this.tagcliparray, "`n" v_ "|" , "`n" newIndex "|")
+                }
+                i_ := i_ - 1
+            }
+            FileDelete, % this.clipDir "\clip.tag"
+            FileAppend , %  SubStr(this.tagcliparray, 2) , % this.clipDir "\clip.tag"
         }
     }
 
