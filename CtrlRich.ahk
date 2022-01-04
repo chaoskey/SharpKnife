@@ -717,7 +717,7 @@ SelectTranslate(WinName, HotKeyStr, TransClip := False) {
     ClipWait, 1 , 1  ; 等待剪贴板中出现数据.
     if (ErrorLevel = 0) {
         StringReplace, clipboard, clipboard, `r, , All
-        StringReplace, clipboard, clipboard, `n, , All
+        StringReplace, clipboard, clipboard, `n, %A_Space% , All
         clip2 :=  ClipboardAll
         IF clip1 <> %clip2%
         {
