@@ -1,0 +1,1018 @@
+﻿; 				LaTeX热键触发表
+
+; 每行用Tab键，最多分出3个字段
+; 第1个字段代表LaTex“键”
+; 第2个字段代表LaTex对应“Unicode”或“文字描述”
+; 第3个字段（如果存在的话）代表LaTex对应“LaTex块”
+; 如果第2个字段以:开头，表明只适用于unicode模式. 【这种情况下禁止“第1个字段”在“第2个字段”中完整出现】
+; “第1个字段”在“第2个字段”中完整出现，表明只适用于latex助手模式. 【这种情况下禁止如果第2个字段以:开头】
+
+
+
+; 下标和上标 https://katex.org/docs/supported.html#line-breaks
+
+_0	:₀
+^0	:⁰
+_1	:₁
+^1	:¹
+_2	:₂
+^2	:²
+_3	:₃
+^3	:³
+_4	:₄
+^4	:⁴
+_5	:₅
+^5	:⁵
+_6	:₆
+^6	:⁶
+_7	:₇
+^7	:⁷
+_8	:₈
+^8	:⁸
+_9	:₉
+^9	:⁹
+_+	:₊
+^+	:⁺
+_-	:₋
+^-	:⁻
+_=	:₌
+^=	:⁼
+_(	:₍
+^(	:⁽
+_)	:₎
+^)	:⁾
+_a	:ₐ
+^a	:ᵃ
+^b	:ᵇ
+^c	:ᶜ
+^d	:ᵈ
+_e	:ₑ
+^e	:ᵉ
+^f	:ᶠ
+^g	:ᵍ
+_h	:ₕ
+^h	:ʰ
+_i	:ᵢ
+^i	:ⁱ
+_j	:ⱼ
+^j	:ʲ
+_k	:ₖ
+^k	:ᵏ
+_l	:ₗ
+^l	:ˡ
+_m	:ₘ
+^m	:ᵐ
+_n	:ₙ
+^n	:ⁿ
+_o	:ₒ
+^o	:ᵒ
+_p	:ₚ
+^p	:ᵖ
+_r	:ᵣ
+^r	:ʳ
+_s	:ₛ
+^s	:ˢ
+_t	:ₜ
+^t	:ᵗ
+_u	:ᵤ
+^u	:ᵘ
+_v	:ᵥ
+^v	:ᵛ
+^w	:ʷ
+_x	:ₓ
+^x	:ˣ
+^y	:ʸ
+^z	:ᶻ
+_\beta	:ᵦ
+^\beta	:ᵝ
+_\gamma	:ᵧ
+^\gamma	:ᵞ
+_\chi	:ᵪ
+^\chi	:ᵡ
+^\theta	:ᶿ
+_\rho	:ᵨ
+_\psi	:ᵩ
+_\partial	:ₔ
+^\delta	:ᵟ
+^\phi	:ᵠ
+
+; 分割符 https://katex.org/docs/supported.html#delimiters
+
+\vert	∣
+\Vert	∥
+\|	∥
+\lVert	∥
+\rVert	∥
+\langle	⟨
+\rangle	⟩
+\lceil	⌈
+\rceil	⌉
+\lfloor	⌊
+\rfloor	⌋
+\lmoustache	⎰
+\rmoustache	⎱
+\lgroup	⟮
+\rgroup	⟯
+\ulcorner	┌
+\urcorner	┐
+\llcorner	└
+\lrcorner	┘
+\lang	⟨
+\rang	⟩
+\backslash	\
+\lbrace	{
+\rbrace	}
+\lbrack	[
+\rbrack	]
+\lvert	∣
+\rvert	∣
+
+
+; 希腊字母
+
+\alpha	α
+\Alpha	Α
+\beta	β
+\Beta	Β
+\Gamma	Γ
+\gamma	γ
+\Delta	Δ
+\delta	δ
+\Epsilon	E
+\epsilon	ϵ
+\Zeta	Ζ
+\zeta	ζ
+\Eta	Η
+\eta	η
+\Theta	Θ
+\theta	θ
+\Iota	Ι
+\iota	ι
+\Kappa	Κ
+\kappa	κ
+\Lambda	Λ
+\lambda	λ
+\Mu	Μ
+\mu	μ
+\Nu	Ν
+\nu	ν
+\Xi	Ξ
+\xi	ξ
+\Omicron	Ο
+\omicron	ο
+\Pi	Π
+\pi	π
+\rho	ρ
+\Rho	Ρ
+\Sigma	Σ
+\sigma	σ
+\Tau	Τ
+\tau	τ
+\Upsilon	Υ
+\upsilon	υ
+\Phi	Φ
+\phi	ϕ
+\Chi	Χ
+\chi	χ
+\Psi	Ψ
+\psi	ψ
+\Omega	Ω
+\omega	ω
+\varGamma	Γ
+\varDelta	Δ
+\varTheta	Θ
+\varLambda	Λ
+\varXi	Ξ
+\varPi	Π
+\varSigma	Σ
+\varUpsilon	Υ
+\varPhi	Φ
+\varPsi	Ψ
+\varOmega	Ω
+\varepsilon	ε
+\varkappa	ϰ
+\vartheta	ϑ
+\thetasym	ϑ
+\varpi	ϖ
+\varrho	ϱ
+\varsigma	ς
+\varphi	φ
+\digamma	ϝ
+
+
+; 一些特殊符号
+
+\Im	ℑ
+\Reals	ℝ
+\partial	∂
+\image	ℑ
+\wp	℘
+\aleph	ℵ
+\Game	⅁
+\weierp	℘
+\O	Ø
+\alef	ℵ
+\Finv	Ⅎ
+\alefsym	ℵ
+\cnums	ℂ
+\natnums	ℕ
+\beth	ℶ
+\Complex	ℂ
+\gimel	ℷ
+\ell	ℓ
+\Re	ℜ
+\daleth	ℸ
+\hbar	ℏ
+\real	ℜ
+\eth	ð
+\hslash	ℏ
+\reals	ℝ
+\AA	Å
+\imath	ı
+\jmath	ȷ
+\Bbbk	𝕜
+\N	ℕ
+\R	ℝ
+\Z	ℤ
+\And	∧
+\bull	•
+\diagdown	╲
+\diagup	╱
+\colon	:
+
+
+; 逻辑和集合
+
+\forall	∀
+\exists	∃
+\exist	∃
+\nexists	∄
+\complement	∁
+\therefore	∴
+\because	∵
+\emptyset	∅
+\empty	∅
+\varnothing	∅
+\neg	¬
+\lnot	¬
+\ni	∋
+
+
+; 大运算符
+
+\sum	∑
+\prod	∏
+\bigotimes	⊗
+\bigvee	⋁
+\int	∫
+\intop	∫
+\smallint	∫
+\iint	∬
+\iiint	∭
+\oint	∮
+\oiint	∯
+\oiiint	∰
+\coprod	∐
+\bigoplus	⨁
+\bigwedge	⋀
+\bigodot	⊙
+\bigcap	⋂
+\biguplus	⨄
+\bigcup	⋃
+\bigsqcup	⨆
+
+
+; 二元运算符
+
+\cdot	⋅
+\cdotp	⋅
+\gtrdot	⋗
+\intercal	⊺
+\centerdot	⋅
+\land	∧
+\rhd	⊳
+\circ	∘
+\leftthreetimes	⋋
+\rightthreetimes	⋌
+\amalg	⨿
+\circledast	⊛
+\ldotp	.
+\rtimes	⋊
+\circledcirc	⊚
+\lor	∨
+\ast	∗
+\circleddash	⊝
+\lessdot	⋖
+\barwedge	⊼
+\Cup	⋓
+\lhd	⊲
+\sqcap	⊓
+\bigcirc	◯
+\cup	∪
+\ltimes	⋉
+\sqcup	⊔
+\curlyvee	⋎
+\times	×
+\boxdot	⊡
+\curlywedge	⋏
+\pm	±
+\plusmn	±
+\mp	∓
+\unlhd	⊴
+\boxminus	⊟
+\div	÷
+\odot	⨀
+\unrhd	⊵
+\boxplus	⊞
+\divideontimes	⋇
+\ominus	⊖
+\uplus	⊎
+\boxtimes	⊠
+\dotplus	∔
+\oplus	⊕
+\vee	∨
+\bullet	•
+\doublebarwedge	⩞
+\otimes	⨂
+\veebar	⊻
+\Cap	⋒
+\doublecap	⋒
+\oslash	⊘
+\wedge	∧
+\cap	∩
+\doublecup	⋓
+\wr	≀
+
+
+; 一些特殊数学运算符
+
+\sqrt	√
+\frac	分数 \frac{a}{b}	{Text}\frac{a}{b}##{Left 4}
+\tfrac	分数 \tfrac{a}{b}	{Text}\tfrac{a}{b}##{Left 4}
+\genfrac	复杂分数 \genfrac ( ] {2pt}{1}a{a+1}	{Text}\genfrac ( ] {2pt}{1}a{a+1}##{Left 5}
+\over	分数 {a \over b}	{Text}{a \over b}##{Left 9}
+\dfrac	大分数 \dfrac{a}{b}	{Text}\dfrac{a}{b}##{Left 4}
+\above	粗杠分数 {a \above{2pt} b+1}	{Text}{a \above{2pt} b+1}##{Left 17}
+\cfrac	连分数 \cfrac{a}{1 + \cfrac{1}{b}}	{Text}\cfrac{a}{1 + \cfrac{1}{b}}##{Left 19}
+\binom	组合数 \binom{n}{k}	{Text}\binom{n}{k}##{Left 4}
+\dbinom	大组合数 \dbinom{n}{k}	{Text}\dbinom{n}{k}##{Left 4}
+\brace	花括组合数 {n\brace k}	{Text}{n\brace k}##{Left 9}
+\choose	组合数 {n \choose k}	{Text}{n \choose k}##{Left 11}
+\tbinom	组合数 \tbinom{n}{k}	{Text}\tbinom{n}{k}##{Left 4}
+\brack	方括组合数 {n\brack k}	{Text}{n\brack k}##{Left 9}
+
+
+; 关系
+
+\doteqdot	≑
+\Doteq	≑
+\lessapprox	⪅
+\smile	⌣
+\smallsmile	⌣
+\eqcirc	≖
+\lesseqgtr	⋚
+\sqsubset	⊏
+\lesseqqgtr	⪋
+\sqsubseteq	⊑
+\lessgtr	≶
+\sqsupset	⊐
+\approx	≈
+\lesssim	≲
+\sqsupseteq	⊒
+\ll	≪
+\Subset	⋐
+\eqsim	≂
+\lll	⋘
+\subset	⊂
+\sub	⊂
+\approxeq	≊
+\eqslantgtr	⪖
+\llless	⋘
+\subseteq	⊆
+\sube	⊆
+\asymp	≍
+\eqslantless	⪕
+\subseteqq	⫅
+\backepsilon	∍
+\equiv	≡
+\mid	∣
+\succ	≻
+\backsim	∽
+\fallingdotseq	≒
+\models	⊨
+\succapprox	⪸
+\backsimeq	⋍
+\frown	⌢
+\multimap	⊸
+\succcurlyeq	≽
+\between	≬
+\geq	≥
+\ge	≥
+\succeq	⪰
+\bowtie	⋈
+\owns	∋
+\succsim	≿
+\bumpeq	≏
+\geqq	≧
+\parallel	∥
+\Supset	⋑
+\Bumpeq	≎
+\geqslant	⩾
+\perp	⊥
+\supset	⊃
+\circeq	≗
+\gg	≫
+\pitchfork	⋔
+\supseteq	⊇
+\supe	⊇
+\ggg	⋙
+\prec	≺
+\supseteqq	⫆
+\gggtr	⋙
+\precapprox	⪷
+\thickapprox	≈
+\preccurlyeq	≼
+\gtrapprox	⪆
+\preceq	⪯
+\trianglelefteq	⊴
+\gtreqless	⋛
+\precsim	≾
+\triangleq	≜
+\gtreqqless	⪌
+\propto	∝
+\trianglerighteq	⊵
+\gtrless	≷
+\risingdotseq	≓
+\varpropto	∝
+\gtrsim	≳
+\vartriangle	△
+\cong	≅
+\shortparallel	∥
+\vartriangleleft	⊲
+\curlyeqprec	⋞
+\in	∈
+\isin	∈
+\vartriangleright	⊳
+\curlyeqsucc	⋟
+\Join	⋈
+\dashv	⊣
+\le	≤
+\vdash	⊢
+\leq	≤
+\simeq	≃
+\vDash	⊨
+\doteq	≐
+\leqq	≦
+\smallfrown	⌢
+\Vdash	⊩
+\leqslant	⩽
+\Vvdash	⊪
+\not	≠
+\gnapprox	⪊
+\gneq	⪈
+\gneqq	≩
+\gnsim	⋧
+\gvertneqq	≩
+\lnapprox	⪉
+\lneq	⪇
+\lneqq	≨
+\lnsim	⋦
+\lvertneqq	≨
+\ncong	≆
+\ne	≠
+\neq	≠
+\ngeq	≱
+\ngtr	≯
+\nleq	≰
+\nless	≮
+\nmid	∤
+\notin	∉
+\nparallel	∦
+\nprec	⊀
+\npreceq	⋠
+\nshortmid	∤
+\nshortparallel	∦
+\nsim	≁
+\nsubseteq	⊈
+\nsucc	⊁
+\nsucceq	⋡
+\nsupseteq	⊉
+\ntriangleleft	⋪
+\ntrianglelefteq	⋬
+\ntriangleright	⋫
+\ntrianglerighteq	⋭
+\nvdash	⊬
+\nvDash	⊭
+\nVDash	⊯
+\nVdash	⊮
+\precnapprox	⪹
+\precneqq	⪵
+\precnsim	⋨
+\subsetneq	⊊
+\subsetneqq	⫋
+\succnapprox	⪺
+\succneqq	⪶
+\succnsim	⋩
+\supsetneq	⊋
+\supsetneqq	⫌
+\varsubsetneq	⊊
+\varsubsetneqq	⫋
+\varsupsetneq	⊋
+\varsupsetneqq	⫌
+\sim	∼
+\thicksim	∼
+\shortmid	∣
+\gt	>
+\lt	<
+\ngeqq	≩
+\ngeqslant	≱
+\nleqq	≨
+\nleqslant	≰
+\nsubseteqq	⊈
+\nsupseteqq	⊉
+
+
+; 箭头 https://katex.org/docs/supported.html#arrows
+
+\circlearrowleft	↺
+\circlearrowright	↻
+\curvearrowleft	↶
+\curvearrowright	↷
+\Darr	⇓
+\dArr	⇓
+\darr	↓
+\dashleftarrow	⇠
+\dashrightarrow	⇢
+\downarrow	↓
+\Downarrow	⇓
+\downdownarrows	⇊
+\downharpoonleft	⇃
+\downharpoonright	⇂
+\gets	←
+\hookleftarrow	↩
+\hookrightarrow	↪
+\iff	⟺
+\impliedby	⟸
+\implies	⟹
+\Harr	⇔
+\harr	↔
+\leadsto	⇝
+\leftarrow	←
+\Leftarrow	⇐
+\leftarrowtail	↢
+\leftharpoondown	↽
+\leftharpoonup	↼
+\leftleftarrows	⇇
+\leftrightarrow	↔
+\Leftrightarrow	⇔
+\leftrightarrows	⇆
+\leftrightharpoons	⇋
+\leftrightsquigarrow	↭
+\Lleftarrow	⇚
+\longleftarrow	⟵
+\Longleftarrow	⟸
+\longleftrightarrow	⟷
+\Longleftrightarrow	⟺
+\longmapsto	⟼
+\longrightarrow	⟶
+\Longrightarrow	⟹
+\looparrowleft	↫
+\looparrowright	↬
+\Lrarr	⇔
+\lrArr	⇔
+\lrarr	↔
+\Lsh	↰
+\mapsto	↦
+\nearrow	↗
+\nleftarrow	↚
+\nLeftarrow	⇍
+\nleftrightarrow	↮
+\nLeftrightarrow	⇎
+\nrightarrow	↛
+\nRightarrow	⇏
+\nwarrow	↖
+\Rarr	⇒
+\rArr	⇒
+\rarr	→
+\restriction	↾
+\rightarrow	→
+\Rightarrow	⇒
+\rightarrowtail	↣
+\rightharpoondown	⇁
+\rightharpoonup	⇀
+\rightleftarrows	⇄
+\rightleftharpoons	⇌
+\rightrightarrows	⇉
+\rightsquigarrow	⇝
+\Rrightarrow	⇛
+\Rsh	↱
+\searrow	↘
+\swarrow	↙
+\to	→
+\twoheadleftarrow	↞
+\twoheadrightarrow	↠
+\Uarr	⇑
+\uArr	⇑
+\uarr	↑
+\uparrow	↑
+\Uparrow	⇑
+\updownarrow	↕
+\Updownarrow	⇕
+\upharpoonleft	↿
+\upharpoonright	↾
+\upuparrows	⇈
+
+
+; 其它常用符号 https://katex.org/docs/supported.html#symbols-and-punctuation
+
+\backprime	‵
+\prime	′
+\blacklozenge	⧫
+\P	¶
+\S	§
+\sect	§
+\circledR	®
+\circledS	Ⓢ
+\dots	…
+\cdots	⋯
+\ddots	⋱
+\ldots	…
+\vdots	⋮
+\dotsb	⋯
+\dotsc	…
+\dotsi	⋯
+\dotsm	⋯
+\dotso	…
+\sdot	⋅
+\Box	□
+\square	□
+\blacksquare	■
+\triangle	△
+\triangledown	▽
+\triangleleft	◃
+\triangleright	▹
+\bigtriangledown	▽
+\bigtriangleup	△
+\blacktriangle	▲
+\blacktriangledown	▼
+\blacktriangleleft	◀
+\blacktriangleright	▶
+\diamond	⋄
+\Diamond	◊
+\lozenge	◊
+\star	⋆
+\bigstar	★
+\clubsuit	♣
+\clubs	♣
+\diamondsuit	♢
+\diamonds	♢
+\spadesuit	♠
+\maltese	✠
+\nabla	∇
+\infty	∞
+\infin	∞
+\checkmark	✓
+\dagger	†
+\ddagger	‡
+\Dagger	‡
+\angle	∠
+\measuredangle	∡
+\sphericalangle	∢
+\top	⊤
+\bot	⊥
+\yen	¥
+\surd	√
+\mho	℧
+\flat	♭
+\natural	♮
+\sharp	♯
+\heartsuit	♡
+\hearts	♡
+\spades	♠
+
+
+; 重音符  https://katex.org/docs/supported.html#accents
+
+\hat	̂
+\dot	̇
+\ddot	̈
+\tilde	̃
+\bar	̄
+\mathring	ͦ
+\acute	́
+\vec	上短箭头 \vec{F}	{Text}\vec{F}##{Left 1}
+\breve	̆
+\check	̌
+\grave	̀
+\widetilde	上宽波浪 \widetilde{ac}
+\overleftarrow	上宽左箭头 \overleftarrow{AB}
+\overrightarrow	上宽右箭头 \overrightarrow{AB}
+\underleftarrow	下宽左箭头 \underleftarrow{AB}
+\underrightarrow	下宽右箭头 \underrightarrow{AB}
+\overleftrightarrow	上宽双箭头 \overleftrightarrow{AB}
+\overbrace	上宽花括号 \overbrace{AB}
+\underleftrightarrow	下宽双箭头 \underleftrightarrow{AB}
+\underbrace	下宽花括号 \underbrace{AB}
+\overline	上宽横杠 \overline{AB}
+\underline	下宽横杠 \underline{AB}
+\widehat	上宽帽 \widehat{ac}
+
+
+; Unicode数学斜体符号
+
+\mathrm	罗马正体 \mathrm{R}
+\mathbf	正粗体 \mathbf{R}
+\mathit	意大利斜体 ℝ \mathit{R}
+\mathnormal	默认字体 \mathnormal{R}
+\textbf	正粗体 \textbf{R}
+\textit	意大利斜体 \textit{R}
+\textrm	罗马正体 ℝ \textrm{R}
+\bf	正粗体 \bf R
+\it	意大利斜体 \it R
+\rm	罗马正体 \rm R
+\bold	加粗 \bold{R}
+\textup	直立文本 \textup{R}
+\textnormal	默认字体 \textnormal{R}
+\boldsymbol	加粗斜体 \boldsymbol{R}
+\Bbb	黑板粗体 ℝ \Bbb{R}
+\text	等宽字体 \text{R}
+\mathsf	无衬线字体 \mathsf{R}
+\frak	哥特体 ℜ \frak{R}
+\textsf	无衬线字体 \textsf{R}
+\mathtt	等宽字体 \mathtt{R}
+\sf	无衬线字体 \sf R
+\texttt	等宽字体 \texttt{R}
+\tt	等宽字体 \tt R
+\cal	手写体 𝓡 \cal R
+\mathscr	 花体 \mathscr{R}
+
+
+; \mathbb{x}  用 \mathbbx 代替
+
+\mathbb	黑板粗体 ℝ \mathbb{R}
+\mathbba	:𝕒
+\mathbbA	:𝔸
+\mathbbb	:𝕓
+\mathbbB	:𝔹
+\mathbbc	:𝕔
+\mathbbC	:ℂ
+\mathbbd	:𝕕
+\mathbbD	:𝔻
+\mathbbe	:𝕖
+\mathbbE	:𝔼
+\mathbbf	:𝕗
+\mathbbF	:𝔽
+\mathbbg	:𝕘
+\mathbbG	:𝔾
+\mathbbh	:𝕙
+\mathbbH	:ℍ
+\mathbbi	:𝕚
+\mathbbI	:𝕀
+\mathbbj	:𝕛
+\mathbbJ	:𝕁
+\mathbbk	:𝕜
+\mathbbK	:𝕂
+\mathbbl	:𝕝
+\mathbbL	:𝕃
+\mathbbm	:𝕞
+\mathbbM	:𝕄
+\mathbbn	:𝕟
+\mathbbN	:ℕ
+\mathbbo	:𝕠
+\mathbbO	:𝕆
+\mathbbp	:𝕡
+\mathbbP	:ℙ
+\mathbbq	:𝕢
+\mathbbQ	:ℚ
+\mathbbr	:𝕣
+\mathbbR	:ℝ
+\mathbbs	:𝕤
+\mathbbS	:𝕊
+\mathbbt	:𝕥
+\mathbbT	:𝕋
+\mathbbu	:𝕦
+\mathbbU	:𝕌
+\mathbbv	:𝕧
+\mathbbV	:𝕍
+\mathbbw	:𝕨
+\mathbbW	:𝕎
+\mathbbx	:𝕩
+\mathbbX	:𝕏
+\mathbby	:𝕪
+\mathbbY	:𝕐
+\mathbbz	:𝕫
+\mathbbZ	:ℤ
+\mathbb0	:𝟘
+\mathbb1	:𝟙
+\mathbb2	:𝟚
+\mathbb3	:𝟛
+\mathbb4	:𝟜
+\mathbb5	:𝟝
+\mathbb6	:𝟞
+\mathbb7	:𝟟
+\mathbb8	:𝟠
+\mathbb9	:𝟡
+
+
+; \mathfrak{x}  用 \mathfrakx 代替
+
+\mathfrak	哥特体 ℜ \mathfrak{R}
+\mathfraka	:𝔞
+\mathfrakA	:𝔄
+\mathfrakb	:𝔟
+\mathfrakB	:𝔅
+\mathfrakc	:𝔠
+\mathfrakC	:ℭ
+\mathfrakd	:𝔡
+\mathfrakD	:𝔇
+\mathfrake	:𝔢
+\mathfrakE	:𝔈
+\mathfrakf	:𝔣
+\mathfrakF	:𝔉
+\mathfrakg	:𝔤
+\mathfrakG	:𝔊
+\mathfrakh	:𝔥
+\mathfrakH	:ℌ
+\mathfraki	:𝔦
+\mathfrakI	:ℑ
+\mathfrakj	:𝔧
+\mathfrakJ	:𝔍
+\mathfrakk	:𝔨
+\mathfrakK	:𝔎
+\mathfrakl	:𝔩
+\mathfrakL	:𝔏
+\mathfrakm	:𝔪
+\mathfrakM	:𝔐
+\mathfrakn	:𝔫
+\mathfrakN	:𝔑
+\mathfrako	:𝔬
+\mathfrakO	:𝔒
+\mathfrakp	:𝔭
+\mathfrakP	:𝔓
+\mathfrakq	:𝔮
+\mathfrakQ	:𝔔
+\mathfrakr	:𝔯
+\mathfrakR	:ℜ
+\mathfraks	:𝔰
+\mathfrakS	:𝔖
+\mathfrakt	:𝔱
+\mathfrakT	:𝔗
+\mathfraku	:𝔲
+\mathfrakU	:𝔘
+\mathfrakv	:𝔳
+\mathfrakV	:𝔙
+\mathfrakw	:𝔴
+\mathfrakW	:𝔚
+\mathfrakx	:𝔵
+\mathfrakX	:𝔛
+\mathfraky	:𝔶
+\mathfrakY	:𝔜
+\mathfrakz	:𝔷
+\mathfrakZ	:ℨ
+
+
+; \mathcal{x}  用 \mathcalx 代替
+
+\mathcal	手写体 𝓡 \mathcal{R}
+\mathcala	:𝓪
+\mathcalA	:𝓐
+\mathcalb	:𝓫
+\mathcalB	:𝓑
+\mathcalc	:𝓬
+\mathcalC	:𝓒
+\mathcald	:𝓭
+\mathcalD	:𝓓
+\mathcale	:𝓮
+\mathcalE	:𝓔
+\mathcalf	:𝓯
+\mathcalF	:𝓕
+\mathcalg	:𝓰
+\mathcalG	:𝓖
+\mathcalh	:𝓱
+\mathcalH	:𝓗
+\mathcali	:𝓲
+\mathcalI	:𝓘
+\mathcalj	:𝓳
+\mathcalJ	:𝓙
+\mathcalk	:𝓴
+\mathcalK	:𝓚
+\mathcall	:𝓵
+\mathcalL	:𝓛
+\mathcalm	:𝓶
+\mathcalM	:𝓜
+\mathcaln	:𝓷
+\mathcalN	:𝓝
+\mathcalo	:𝓸
+\mathcalO	:𝓞
+\mathcalp	:𝓹
+\mathcalP	:𝓟
+\mathcalq	:𝓺
+\mathcalQ	:𝓠
+\mathcalr	:𝓻
+\mathcalR	:𝓡
+\mathcals	:𝓼
+\mathcalS	:𝓢
+\mathcalt	:𝓽
+\mathcalT	:𝓣
+\mathcalu	:𝓾
+\mathcalU	:𝓤
+\mathcalv	:𝓿
+\mathcalV	:𝓥
+\mathcalw	:𝔀
+\mathcalW	:𝓦
+\mathcalx	:𝔁
+\mathcalX	:𝓧
+\mathcaly	:𝔂
+\mathcalY	:𝓨
+\mathcalz	:𝔃
+\mathcalZ	:𝓩
+
+
+; 批注
+
+\cancel	右斜删除符 \cancel{5}
+\bcancel	左斜删除符 \bcancel{5}
+\xcancel	叉删除符 \xcancel{ABC}
+\boxed	方框符 \boxed{\pi=\frac c d}
+
+
+; 垂直布局
+
+\stackrel	上标记 \stackrel{!}{=}	{Text}\stackrel{!}{=}##{Left 4}
+\overset	上标记 \overset{!}{=}	{Text}\overset{!}{=}##{Left 4}
+\underset	下标记 \underset{!}{=}	{Text}\underset{!}{=}##{Left 4}
+
+
+; 一些块结构
+
+; ##将字符串分成多个部分，每个部分都可设置成不同的“特殊模式”
+; 比如: 盲从模式{Blind} 【默认】；原始模式{Raw}； 文本模式{Text}
+; https://www.autoahk.com/help/autohotkey/zh-cn/docs/commands/Send.htm#Special_modes
+
+\array	数组 \begin{array} ...	{Text}\begin{array}{cc} a & b \\ c & d \end{array}##{Left 25}
+\subarray	上下标数组 \begin{subarray}{l} ...	{Text}\begin{subarray}{l} i \\ j \end{subarray}##{Left 20}
+\arraystretch	表格数组 \def\arraystretch{1.5} ...	{Text}\def\arraystretch{1.5}\begin{array}{c:c:c} a & b & c \\ \hline d & e & f \\ \hdashline g & h & i \end{array}##{Left 64}
+\matrix	无定界矩阵 \begin{matrix} ...	{Text}\begin{matrix} a & b \\ c & d \end{matrix}##{Left 26}
+\pmatrix	圆括号矩阵 \begin{pmatrix} ...	{Text}\begin{pmatrix} a & b \\ c & d \end{pmatrix}##{Left 27}
+\bmatrix	方括号矩阵 \begin{bmatrix} ...	{Text}\begin{bmatrix} a & b \\ c & d \end{bmatrix}##{Left 27}
+\vmatrix	竖括号矩阵(行列式) \begin{vmatrix} ...	{Text}\begin{vmatrix} a & b \\ c & d \end{vmatrix}##{Left 27}
+\Vmatrix	双竖括号矩阵 \begin{Vmatrix} ...	{Text}\begin{Vmatrix} a & b \\ c & d \end{Vmatrix}##{Left 27}
+\Bmatrix	花括号矩阵 \begin{Bmatrix} ...	{Text}\begin{Bmatrix} a & b \\ c & d \end{Bmatrix}##{Left 27}
+\cases	左条件分支 \begin{cases} ...	{Text}\begin{cases} a &\text{if } b \\ c &\text{if } d \end{cases}##{Left 45}
+\align	对齐 begin{align} ...	{Text}\begin{align} a&=b+c \\ d+e&=f \end{align}##{Left 27}
+\alignat	紧凑对齐 begin{alignat} ...	{Text}\begin{alignat}{1} 10&x+&3&y=2\\ 3&x+&13&y=4 \end{alignat}##{Left 37}
+\gather	居中对齐 begin{gather} ...	{Text}\begin{gather} a=b \\ e=b+c \end{gather}##{Left 24}
+
+
+; 补全G：可延伸箭头（可加可选参数）
+\xleftarrow	上标记左箭头 \xleftarrow{abc}	{Text}\xleftarrow{abc}##{Left 4}
+\xrightarrow	上标记右箭头 \xrightarrow{abc}	{Text}\xrightarrow{abc}##{Left 4}
+\xtwoheadleftarrow	上标记左二头箭头 \xtwoheadleftarrow{abc}	{Text}\xtwoheadleftarrow{abc}##{Left 4}
+\xtwoheadrightarrow	上标记右二头箭头 \xtwoheadrightarrow{abc}	{Text}\xtwoheadrightarrow{abc}##{Left 4}
+\xtofrom	上标记往返箭头 \xtofrom{abc}	{Text}\xtofrom{abc}##{Left 4}
+\xmapsto	上标记映射箭头 \xmapsto{abc}	{Text}\xmapsto{abc}##{Left 4}
+\xlongequal	上标记等号 \xlongequal{abc}	{Text}\xlongequal{abc}##{Left 4}
+
+; 补全J：颜色
+\color	颜色切换 \color{blue}	{Text}\color{blue}##{Left 5}
+\textcolor	文本颜色 \textcolor{blue}{F=ma}	{Text}\textcolor{blue}{F=ma}##{Left 11}
+\colorbox	颜色框 \colorbox{aqua}{text}	{Text}\colorbox{aqua}{text}##{Left 11}
+\fcolorbox	边框颜色框 \fcolorbox{red}{aqua}{text}	{Text}\fcolorbox{red}{aqua}{text}##{Left 16}
+
+; 补全K：Bra-ket 括号矢量
+\bra	左矢 \bra{\phi}	{Text}\bra{\phi}##{Left 5}
+\ket	右矢 \ket{\psi}	{Text}\ket{\psi}##{Left 5}
+\braket	内积 \braket{\phi|\psi}	{Text}\braket{\phi|\psi}##{Left 10}
+\Bra	左矢 \Bra{\phi}	{Text}\Bra{\phi}##{Left 5}
+\Ket	右矢 \Ket{\psi}	{Text}\Ket{\psi}##{Left 5}
+\Braket	内积 \Braket{\phi|\psi}	{Text}\Braket{\phi|\psi}##{Left 10}
+
+; 补全L：批注补充
+\fbox	方框 \fbox{text}	{Text}\fbox{text}##{Left 5}
+\pmb	粗体模拟 \pmb{\mu}	{Text}\pmb{\mu}##{Left 4}
+\rule	横线 \rule[6pt]{2ex}{1ex}	{Text}\rule[6pt]{2ex}{1ex}##{Left 14}
+\vcenter	垂直居中 \vcenter{\frac{\frac a b}c}	{Text}\vcenter{\frac{\frac a b}c}##{Left 18}
+
+
+; 补全O：环境（含星号变体）
+\aligned	对齐环境 \begin{aligned} a&=b+c \\ d+e&=f \end{aligned}	{Text}\begin{aligned} a&=b+c \\ d+e&=f \end{aligned}##{Left 29}
+\alignedat	紧凑对齐 \begin{alignedat}{2} a&=b+c \\ d+e&=f \end{alignedat}	{Text}\begin{alignedat}{2} a&=b+c \\ d+e&=f \end{alignedat}##{Left 31}
+\gathered	居中环境 \begin{gathered} a=b \\ e=b+c \end{gathered}	{Text}\begin{gathered} a=b \\ e=b+c \end{gathered}##{Left 26}
+\split	拆分环境 \begin{split} a&=b+c \\ &=e+f \end{split}	{Text}\begin{split} a&=b+c \\ &=e+f \end{split}##{Left 26}
+\equation	公式环境 \begin{equation} a=b+c \end{equation}	{Text}\begin{equation} a=b+c \end{equation}##{Left 19}
+\smallmatrix	小矩阵 \begin{smallmatrix} a & b \\ c & d \end{smallmatrix}	{Text}\begin{smallmatrix} a & b \\ c & d \end{smallmatrix}##{Left 31}
+\darray	显示数组 \begin{darray}{cc} a & b \\ c & d \end{darray}	{Text}\begin{darray}{cc} a & b \\ c & d \end{darray}##{Left 26}
+\cd	交换图 \begin{CD} A @>a>> B \\ @VbVV @AAcA \\ C @= D \end{CD}	{Text}\begin{CD} A @>a>> B \\ @VbVV @AAcA \\ C @= D \end{CD}##{Left 42}
+\alignstar	无编号对齐 \begin{align*} a&=b+c \\ d+e&=f \end{align*}	{Text}\begin{align*} a&=b+c \\ d+e&=f \end{align*}##{Left 28}
+\gatherstar	无编号居中 \begin{gather*} a=b \\ e=b+c \end{gather*}	{Text}\begin{gather*} a=b \\ e=b+c \end{gather*}##{Left 25}
+\alignatstar	无编号紧凑对齐 \begin{alignat*}{2} 10&x+&3&y=2\\ 3&x+&13&y=4 \end{alignat*}	{Text}\begin{alignat*}{2} 10&x+&3&y=2\\ 3&x+&13&y=4 \end{alignat*}##{Left 39}
+\equationstar	无编号公式 \begin{equation*} a=b+c \end{equation*}	{Text}\begin{equation*} a=b+c \end{equation*}##{Left 20}
+
+; 补全P：HTML/链接（需 trust 选项）
+\href	链接 \href	{Text}\href{https://www.google.com}{google}##{Left 9}
+
+
+; 补全S：集合与堆叠
+\Set	集合 \Set{x | x<5}	{Text}\Set{x | x<5}##{Left 8}
+\set	集合 \set{x | x<5}	{Text}\set{x | x<5}##{Left 8}
+\substack	多行堆叠 \substack{0<i<m\\0<j<n}	{Text}\substack{0<i<m\\0<j<n}##{Left 13}

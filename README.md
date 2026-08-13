@@ -1,0 +1,230 @@
+# SharpKnife —— LaTeX / Unicode / AI / TikZ 四模式补全（AutoHotkey v2）
+
+一个基于 AutoHotkey v2 的全局 **LaTeX 命令 / Unicode 符号** 快速补全工具。在任何文本编辑框中按下 `Ctrl+J`，即可把光标前刚输入的 LaTeX 键补全为完整的 LaTeX 命令、Unicode 字符或环境模板。默认情况下所有数据来自本地触发表 `latexs.cvs`，**不联网、不需要任何 API**（仅 AI 模式需要 API）。
+
+---
+
+## 1. 项目文件
+
+| 文件 | 作用 |
+|------|------|
+| `SharpKnife.ahk` | 主脚本（启动它） |
+| `latexs.cvs` | 触发表（数据源，Tab 分隔，最多 3 字段） |
+| `config.ini` | 配置（快捷键、打字延迟、UI、AI 等） |
+| `README.md` | 本文档 |
+| `debug.log` | 调试日志（由 `config.ini` 的 `[debug] enabled` 控制，默认关闭不生成） |
+
+---
+
+## 2. 安装与启动
+
+1. 安装 **AutoHotkey v2**（https://www.autohotkey.com/ ，必须是 v2，不是 v1），要求 Windows 10。
+2. 双击 `SharpKnife.ahk`。托盘区出现图标即就绪，启动时会弹出中文提示（当前模式、补全/循环切换/直接切换/模式列表快捷键）。
+3. 修改 `config.ini` 后，右键托盘图标 → `重新加载(&R)` 生效。
+4. 如需使用 **tikz 模式**（把 TikZ 代码渲染为图片），还需安装：**MiKTeX**（或其他 TeX 发行版）+ **Ghostscript** + **Snipaste**（https://www.snipaste.com/ ，贴图展示依赖，需保持后台运行）。
+
+---
+
+## 3. 整体逻辑
+
+```
+触发命令  →  上下文选择（空上下文 / 非法上下文 → 直接返回，无操作）
+          →  上下文匹配（没有匹配上 → 直接返回，无操作）
+          →  动作触发（用户取消 → 直接返回，无操作）
+
+切换命令  →  模式切换（latex（默认）→ unicode → AI → tikz → latex 循环）
+
+直接切换命令  →  模式切换（直接切换到指定模式：0=latex，1=unicode，2=AI，3=tikz）
+
+触发模式列表  →  弹出无边框列表  →  上下键移动选择  →  模式切换（直接切换到指定模式）
+```
+
+---
+
+## 4. 快捷键（均可通过 config.ini 修改）
+
+| 命令 | 默认 | 配置项 |
+|------|------|--------|
+| 触发命令 | `Ctrl+J` | `[trigger] hotkey` |
+| 循环切换命令 | `Ctrl+Shift+J` | `[trigger] toggle_hotkey` |
+| 直接切换命令 | `Ctrl+Shift+0`（latex）/ `Ctrl+Shift+1`（unicode）/ `Ctrl+Shift+2`（AI）/ `Ctrl+Shift+3`（tikz） | `[trigger] direct_prefix`（前缀） |
+| 触发模式列表 | `Ctrl+Shift+\`（弹出无框列表，上下键选择模式后 Enter 切换） | `[trigger] mode_list_hotkey` |
+
+### 模式切换
+
+- **latex 模式**（默认）：把上下文补全为 LaTeX 命令 / 环境模板。
+- **unicode 模式**：把上下文替换为对应的 Unicode 字符。
+- **AI 模式**：把 AI 生成的结果追加到上下文之后（两个内容之间隔一行）；思考模式（`[ai] thinking=enabled`）且流式请求（`[ai] stream=true`）下，会弹出一个无边框窗口**实时**滚动呈现思考过程，思考完毕后自动离开（窗口保留，可随时通过任务栏回到窗口按 Esc 关闭），随后才输出正式结果（默认非流式，不弹思考窗口）。思考窗口**可拖动**（按住空白处拖动，移到不遮挡编辑区的位置）；思考过程中置顶，思考完毕离开后**不再置顶**——焦点回到编辑器时窗口被编辑器盖住（不可见但仍存在）。
+- **tikz 模式**：把选中的 TikZ 绘图代码自动编译渲染为图片，并复制到剪贴板、通过 **Snipaste 贴图**展示（Snipaste 自带拖动 / 缩放 / 编辑 / 标注能力）。
+- 循环切换命令在四个模式之间**循环切换**（latex → unicode → AI → tikz → latex）；直接切换命令可**一步直达**指定模式（`Ctrl+Shift+0/1/2/3`）；触发模式列表命令弹出**无框列表**（`latex 模式（0）` / `unicode 模式（1）` / `AI 模式（2）` / `tikz 模式（3）`），通过**上下键移动选择**、回车切换到指定模式（Esc 取消则无操作）。托盘菜单也可直接选择模式（`latex 模式` / `unicode 模式` / `AI 模式` / `tikz 模式`）。
+
+---
+
+## 5. 上下文选择
+
+**优先使用触发前人工选择的内容**作为上下文（选区优先）；否则取**文字光标前的非空连续字符串**（即光标前紧邻的一段不含空格 / Tab 的连续文本）。
+
+- 上下文为空（光标前是空白或行首）→ 直接返回，无操作。
+
+### 合法上下文（latex / unicode 模式）
+
+`<前缀><待匹配字符串>`：
+
+- `<前缀>` ∈ { `_` , `^` , `_\` , `^\` , `\` }（按最长优先匹配）
+- `<待匹配字符串>`：**非空**，由 **英文字母 / 数字 / 除 `_ ^ \` 之外的符号** 组成，**区分大小写**
+- **非法上下文**（不以合法前缀开头、或只有前缀无内容、或待匹配字符串含 `_` `^` `\`）→ 直接返回，无操作
+
+AI 模式和 tikz 模式**不存在上下文匹配**：任何非空上下文都合法——AI 模式直接作为 AI 提示语；tikz 模式把选中内容作为 TikZ 绘图代码（优先使用选区，否则取光标前连续字符串）。
+
+---
+
+## 6. 上下文匹配（基于 latexs.cvs，仅 latex / unicode 模式）
+
+### 触发表格式
+
+`latexs.cvs` 每行用 **Tab** 分隔，最多 3 个字段；以 `;` 开头或空行为注释：
+
+- 第 1 字段：LaTeX 键（如 `\alpha`、`_0`）
+- 第 2 字段：Unicode 或文字描述（以 `:` 开头 = 仅 unicode 模式）
+- 第 3 字段（可选）：LaTeX 块模板（如 `{Text}\begin{array}...##{Left 25}`）
+
+### 模式过滤
+
+- **unicode 模式**：第 2 字段中间不能含空格（含空格的条目被排除）
+- **latex 模式**：第 2 字段不能以 `:` 开头（以 `:` 开头的条目被排除）
+
+### 匹配模式
+
+`<前缀>*<待匹配字符串>*`，其中 `*` 代表**非空的英文字母 / 数字 / 非 `_ ^ \` 的符号**组成的**区分大小写**的字符串，**或空字符串**。
+
+### 四种匹配类型
+
+| 类型 | 含义 | 条件 |
+|------|------|------|
+| `=` 精确匹配 | 两个 `*` 都是空字符串 | L 空 且 R 空 |
+| `<` 头对齐匹配 | 第一个 `*` 空，第二个 `*` 非空 | L 空 且 R 非空 |
+| `>` 尾对齐匹配 | 第一个 `*` 非空，第二个 `*` 空 | L 非空 且 R 空 |
+| `~` 中间匹配 | 两个 `*` 都非空 | L 非空 且 R 非空 |
+
+### 匹配结果
+
+- **只匹配出 1 项** → 直接动作触发
+- **匹配出 2 项及以上** → 弹出**无框列表**：
+  - 最多显示 10 项，通过上下键移动可滚动查看所有匹配项
+  - 回车选择要触发的项 → 动作触发
+  - 按 Esc（取消键）取消 → 无操作
+  - 列表项格式：`<匹配类型> <第1字段> <第2字段>`（第 2 字段剔除 `:` 前缀）
+  - 列表字体大小由 `config.ini → [ui] font_size` 控制（默认 15）
+
+---
+
+## 7. 动作触发
+
+### 动作触发（latex / unicode：先删除上下文，再插入替换文本；AI：追加到上下文之后）
+
+- **latex 模式 · 2 字段**：删除上下文（选区整体删除；光标前上下文先选中再删除），用第 1 字段替换上下文，并在**尾部追加一个空格**
+- **latex 模式 · 3 字段**：删除上下文，用第 3 字段解析后的模板替换上下文，并将**光标左移指定格数**（`##{Left N}`）
+- **unicode 模式**：删除上下文，用第 2 字段（剔除 `:` 前缀）替换上下文，并在**尾部追加一个空格**
+- **AI 模式**：上下文保持不变，把 AI 生成的结果追加到上下文之后——两个内容之间**隔一行**（即一个空行）。思考模式（`[ai] thinking=enabled`）且流式请求（`[ai] stream=true`）下，弹出无边框窗口**实时**滚动呈现思考过程，思考完毕后自动离开（窗口保留，可随时通过任务栏回到窗口按 Esc 关闭），随后才输出正式结果（默认非流式，不弹思考窗口）。思考窗口**可拖动**（按住空白处拖动）；思考过程中置顶，思考完毕离开后**不再置顶**——焦点回到编辑器时窗口被编辑器盖住（不可见但仍存在）
+- **tikz 模式**：把上下文作为 TikZ 绘图代码 → 自动包装为完整 LaTeX 文档 → `pdflatex` 编译 → 转 PNG → 复制到剪贴板并通过 **Snipaste 贴图**展示（未运行 Snipaste 时自动启动）。编译失败显示 `main.log` 错误行；超时自动终止并提示。触发时记录调试日志（`[debug] enabled=true` 时）
+
+### 3 字段模板解析
+
+`{Text}...##{Left N}`：
+
+- 剔除前缀 `{Text}`
+- 剔除后缀 `##{Left N}`，解析出数字 `N`，触发后光标左移 `N` 格
+
+### AI 模式对返回结果的规范性要求（默认提示语已满足，可配置）
+
+1. 默认必须是完整的 LaTeX 片段或范例（可合法渲染成数学公式或符号）；
+2. 若上下文提示语中有特别要求，结果也可以是 Unicode 符号或由 Unicode 符号组成的公式；
+3. 若上下文提示语要求输出 Markdown 格式，行内公式用一对 `$` 包围、行间公式用一对 `$$` 包围（`$$` 独占一行），不使用 Markdown 代码块围栏；
+4. 若上下文提示语要求输出绘图代码：若输出包含 `\begin{document}`，必须使用 standalone 文档类；若是 3D 绘图输出，优先采用 `tikz-3dplot` 宏包，具体根据上下文提示语涉及的任务，也可以改用 `pgfplots` 或纯 TikZ 的 `3d` 库；
+5. 若满足要求的结果有 2 种或多种可能，返回全部候选的 JSON 数组，客户端弹出无框列表供选择（与本地多匹配列表行为一致）。
+
+---
+
+## 8. 配置说明（config.ini）
+
+```ini
+[trigger]
+hotkey = ^j            ; 触发命令（^=Ctrl, !=Alt, +=Shift, #=Win）
+toggle_hotkey = ^+j    ; 循环切换命令
+direct_prefix = ^+     ; 直接切换命令的前缀（前缀+0/1/2/3：0=latex，1=unicode，2=AI，3=tikz）
+mode_list_hotkey = ^+\ ; 触发模式列表（弹出无框列表，上下键选择模式）
+
+[context]
+type_delay_ms = 3      ; 每插入一个字符的延迟（毫秒）
+
+[ui]
+show_progress = true   ; 是否显示进度提示（AI 请求期间）
+progress_text = 正在生成...   ; 进度提示文字
+font_size = 15         ; 多选列表字体大小（磅，最小 6）
+max_typing_chars = 2000 ; 单次插入最大字符数（超出截断并提示，Ctrl+Z 可撤销）
+
+[ai]                   ; —— 仅对 AI 模式有效 ——
+api_key = ...          ; DeepSeek API 密钥（必填，AI 模式才能工作）
+base_url = https://opencode.ai/zen/go/v1   ; API 地址
+endpoint = /chat/completions               ; 接口路径
+api_style = chat       ; chat=聊天补全接口（默认）；completion=原生补全接口（若服务支持可切换）
+model = deepseek-v4-flash                  ; 默认采用官方 Deepseek v4 flash 模型
+temperature = 0.3      ; 采样温度（0~2）
+max_tokens = 4096      ; 生成的最大 token 数
+thinking = enabled     ; 是否启用思考（enabled / disabled / 留空不发送）
+reasoning_effort = low ; 推理强度（low / medium / high / 留空不发送）
+stream = false         ; 是否流式请求（true=边接收边输出，思考模式下实时滚动呈现思考过程；false=非流式默认）
+timeout_ms = 30000     ; 请求超时（毫秒）
+system_prompt = ...    ; 约束提示语（可选；不填则使用内置默认，已满足规范性要求）
+
+[tikz]                  ; —— 仅对 tikz 模式有效 ——
+pdflatex_path =         ; pdflatex 路径（留空自动探测 PATH 中的 pdflatex.exe）
+converter = auto        ; PDF 转 PNG 工具：auto=自动探测（pdftoppm / mutool / gswin64c / magick 任一可用者）
+dpi = 150               ; 输出 PNG 分辨率（像素/英寸）
+border = 5pt            ; standalone 文档四周留白
+extra_packages =        ; 额外宏包（逗号分隔，自动注入导言区 \usepackage{...}）
+timeout_ms = 30000      ; 编译超时（毫秒，超时自动终止进程）
+snipaste_path =         ; Snipaste 路径（留空自动探测 PATH / 常见安装路径；贴图功能依赖 Snipaste 已安装并运行）
+```
+
+> 注：`config.ini` 为 UTF-16 LE + BOM 编码（AutoHotkey `IniRead` 原生支持），如需手工修改请用支持该编码的编辑器。
+
+---
+
+## 9. 实现要点（供复现）
+
+- `cvsEntries`：启动时读取 `latexs.cvs` 得到条目数组 `{key, f2, f3, hasF3}`；`hasF3` 表示是否为 3 列条目；模式过滤在触发时进行
+- `GetContext()` / `GetContextAI()`：上下文选择（选区优先 + 光标前连续串），返回 `{text, fromSelection}`
+- `GetContextInfo(context)`：解析合法上下文，返回 `{prefix, search}`；非法返回 0
+- `IsValidStar(s)`：`*` 通配符校验（空串，或仅含英文字母 / 数字 / 非 `_ ^ \` 符号）
+- `FindMatches(info)`：按当前模式过滤后，按 `<前缀>*<S>*` 匹配，返回 `{key, f2, f3, hasF3, type}` 数组；排序 `=` > `>` > `<` > `~`，同类型按键长升序
+- `ProcessLatexTemplate(f3)`：解析 `{Text}` 与 `##{Left N}`
+- `ShowMultiSelection()` / `ShowList()`：无框列表（深色背景、最多 10 行、上下键滚动、Esc 取消、Enter 选择）
+- `GetCaretScreenPos()`：多层级获取光标屏幕坐标（AHK 原生 → GetGUIThreadInfo → EM_POSFROMCHAR → UIA → 鼠标位置）
+- `AIRequest()`：非流式 WinHttp 请求，响应体按 UTF-8 字节解码（避免中文乱码）；chat / completion 两种风格；`thinking` / `reasoning_effort` 附加参数；返回 `result`（最终补全文本）与 `reasoning`（思考过程）；推理型模型 `content` 为空时回退读取 `reasoning_content`
+- `AIRequestStream()`：流式请求（`[ai] stream=true`，仅 chat 风格）——用 `curl.exe -N` 发起、`stream=true` 请求体，响应写临时文件并用 `SetTimer` 轮询增量解析 SSE（`data:` 行）；`delta.content` 累积为 `result`，`delta.reasoning_content` / `delta.reasoning` 实时追加到思考窗口；`StreamProcessFile()` 按字节偏移 + 完整行边界读取，规避 UTF-8 半字符 / 半行截断
+- `ShowThinkingWindow()` / `AppendThinkingText()` / `ThinkingWindowDrag()` / `LeaveThinkingWindow()` / `CloseThinkingWindow()`：思考模式下弹出无框窗口（进任务栏，标题“AI 思考过程”，便于随时回到），`AppendThinkingText()` 把思考增量实时追加并滚动到底（`WM_VSCROLL` + `SB_BOTTOM`）；`ThinkingWindowDrag()` 在按住窗口空白处（Edit 之外）时发送 `WM_NCLBUTTONDOWN` + `HTCAPTION` 让系统接管拖动，使无边框窗口**可拖动**；思考完毕后 `LeaveThinkingWindow()` 先**取消置顶**（`WinSetAlwaysOnTop 0`）再自动离开（窗口保留、焦点还给原编辑器继续输出正式结果，窗口被编辑器盖住；用户可点击窗口按 Esc 触发 `CloseThinkingWindow()` 关闭）。窗口以 `Show("NA")` 显示，不抢焦点，避免插入结果按键发错窗口
+- 文本插入使用 `SendText` 逐字符（受 `type_delay_ms` 控制），避免 `^` `{` `+` 等被解释为修饰键
+- 触发 / 循环切换 / 直接切换 / 模式列表热键均通过 config.ini 配置，启动时注册（`Hotkey` 指令）；直接切换为 `direct_prefix` + 数字 0/1/2/3；模式列表复用 `ShowList()` 无框列表（`ShowModeList()`），选择后调用 `SetModeDirect()` 直达对应模式
+- `CompleteTikz()`：tikz 模式主流程——建临时目录 → `WrapTikzDocument()` 包装（裸语句 / 含 `tikzpicture` / 含 `document` 三形态自动识别，`\usepackage` / `\usetikzlibrary` / `\tikzset` / `\pgfplotsset` 开头行自动提取到导言区）→ `CompileTikz()`（`Run` + `ProcessExist` 轮询实现超时保护——`ProcessWaitClose` 对已退出进程会假超时、不能用；失败读 `main.log` 错误行）→ `ConvertPdfToPng()`（按配置顺序尝试 pdftoppm / mutool / gswin64c / magick）→ `PasteTikzImage()` 把图片复制到剪贴板（PNG + CF_DIB 双格式）并通过 Snipaste 贴图展示；`FindSnipaste()` 自动探测 Snipaste 路径（配置 → PATH → 常见安装路径），未运行时自动启动并等待就绪；`TikzCopyPng()` 复制图片到剪贴板（`HbmToDib()` 生成 CF_DIB）；贴图成功后延迟 8 秒清理临时目录
+- 调试日志由 `config.ini` 的 `[debug] enabled` 开关控制（默认 `false` 不输出）；设为 `true` 时写入 `debug.log`，启动时清空旧日志
+
+---
+
+## 10. 目录结构
+
+```
+SharpKnife/
+    SharpKnife.ahk   ← 主脚本（启动它）
+    latexs.cvs       ← 触发表（数据源）
+    config.ini       ← 配置
+    README.md        ← 本文档
+    debug.log        ← 调试日志（由 [debug] enabled 控制，默认关闭不生成）
+    images/          ← 托盘图标
+```
+
+---
+
+## 许可
+
+个人使用。
