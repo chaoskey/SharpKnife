@@ -37,6 +37,9 @@
 直接切换命令  →  模式切换（直接切换到指定模式：0=latex，1=unicode，2=AI，3=tikz）
 
 触发模式列表  →  弹出无边框列表  →  上下键移动选择  →  模式切换（直接切换到指定模式）
+
+步进执行命令  →  play 模式：关闭状态（未绑定脚本）弹出脚本文件选择窗口并绑定；
+                 开启状态（已绑定脚本）执行下一步（当前占位，仅记录调试日志）
 ```
 
 ---
@@ -49,6 +52,7 @@
 | 循环切换命令 | `Ctrl+Shift+J` | `[trigger] toggle_hotkey` |
 | 直接切换命令 | `Ctrl+Shift+0`（latex）/ `Ctrl+Shift+1`（unicode）/ `Ctrl+Shift+2`（AI）/ `Ctrl+Shift+3`（tikz） | `[trigger] direct_prefix`（前缀） |
 | 触发模式列表 | `Ctrl+Shift+\`（弹出无框列表，上下键选择模式后 Enter 切换） | `[trigger] mode_list_hotkey` |
+| 步进执行命令 | `Ctrl+R`（play 模式专属，无论处于哪个状态都有效） | `[trigger] step_hotkey` |
 
 ### 模式切换
 
@@ -57,6 +61,7 @@
 - **AI 模式**：把 AI 生成的结果追加到上下文之后（两个内容之间隔一行）；思考模式（`[ai] thinking=enabled`）且流式请求（`[ai] stream=true`）下，会弹出一个无边框窗口**实时**滚动呈现思考过程，思考完毕后自动离开（窗口保留，可随时通过任务栏回到窗口按 Esc 关闭），随后才输出正式结果（默认非流式，不弹思考窗口）。思考窗口**可拖动**（按住空白处拖动，移到不遮挡编辑区的位置）；思考过程中置顶，思考完毕离开后**不再置顶**——焦点回到编辑器时窗口被编辑器盖住（不可见但仍存在）。
 - **tikz 模式**：把选中的 TikZ 绘图代码自动编译渲染为图片，并复制到剪贴板、通过 **Snipaste 贴图**展示（Snipaste 自带拖动 / 缩放 / 编辑 / 标注能力）。
 - 循环切换命令在四个模式之间**循环切换**（latex → unicode → AI → tikz → latex）；直接切换命令可**一步直达**指定模式（`Ctrl+Shift+0/1/2/3`）；触发模式列表命令弹出**无框列表**（`latex 模式（0）` / `unicode 模式（1）` / `AI 模式（2）` / `tikz 模式（3）`），通过**上下键移动选择**、回车切换到指定模式（Esc 取消则无操作）。托盘菜单也可直接选择模式（`latex 模式` / `unicode 模式` / `AI 模式` / `tikz 模式`）。
+- **play 模式**：**独立模式**，不与上述四种互斥模式共用切换命令；可与当前生效的互斥模式**并存**，拥有独立的 *步进执行命令*（`Ctrl+R`）。play 模式没有独立的开启/关闭操作，其状态由**是否绑定脚本文件**自然决定——已绑定脚本文件即处于开启状态，脚本执行完毕后自动解绑回到关闭状态。
 
 ---
 
@@ -75,6 +80,8 @@
 - **非法上下文**（不以合法前缀开头、或只有前缀无内容、或待匹配字符串含 `_` `^` `\`）→ 直接返回，无操作
 
 AI 模式和 tikz 模式**不存在上下文匹配**：任何非空上下文都合法——AI 模式直接作为 AI 提示语；tikz 模式把选中内容作为 TikZ 绘图代码（优先使用选区，否则取光标前连续字符串）。
+
+play 模式**不参与上下文选择与上下文匹配**（步进执行完全依赖自定义格式脚本，与文本上下文无关）。
 
 ---
 
@@ -127,6 +134,7 @@ AI 模式和 tikz 模式**不存在上下文匹配**：任何非空上下文都�
 - **unicode 模式**：删除上下文，用第 2 字段（剔除 `:` 前缀）替换上下文，并在**尾部追加一个空格**
 - **AI 模式**：上下文保持不变，把 AI 生成的结果追加到上下文之后——两个内容之间**隔一行**（即一个空行）。思考模式（`[ai] thinking=enabled`）且流式请求（`[ai] stream=true`）下，弹出无边框窗口**实时**滚动呈现思考过程，思考完毕后自动离开（窗口保留，可随时通过任务栏回到窗口按 Esc 关闭），随后才输出正式结果（默认非流式，不弹思考窗口）。思考窗口**可拖动**（按住空白处拖动）；思考过程中置顶，思考完毕离开后**不再置顶**——焦点回到编辑器时窗口被编辑器盖住（不可见但仍存在）
 - **tikz 模式**：把上下文作为 TikZ 绘图代码 → 自动包装为完整 LaTeX 文档 → `pdflatex` 编译 → 转 PNG → 复制到剪贴板并通过 **Snipaste 贴图**展示（未运行 Snipaste 时自动启动）。编译失败显示 `main.log` 错误行；超时自动终止并提示。触发时记录调试日志（`[debug] enabled=true` 时）
+- **play 模式**：根据**自定义格式脚本**步进式执行，与上述互斥模式并存、状态由是否绑定脚本文件决定。关闭状态下触发 *步进执行命令* 弹出脚本文件选择窗口、选定后绑定进入开启状态；开启状态下触发则执行脚本下一步（当前为占位——脚本格式尚未定义，仅记录调试日志，无实际操作；`[debug] enabled=true` 时）
 
 ### 3 字段模板解析
 
@@ -153,6 +161,7 @@ hotkey = ^j            ; 触发命令（^=Ctrl, !=Alt, +=Shift, #=Win）
 toggle_hotkey = ^+j    ; 循环切换命令
 direct_prefix = ^+     ; 直接切换命令的前缀（前缀+0/1/2/3：0=latex，1=unicode，2=AI，3=tikz）
 mode_list_hotkey = ^+\ ; 触发模式列表（弹出无框列表，上下键选择模式）
+step_hotkey = ^r      ; 步进执行命令（play 模式专属，无论处于哪个状态都有效）
 
 [context]
 type_delay_ms = 3      ; 每插入一个字符的延迟（毫秒）
@@ -206,6 +215,7 @@ snipaste_path =         ; Snipaste 路径（留空自动探测 PATH / 常见安�
 - `ShowThinkingWindow()` / `AppendThinkingText()` / `ThinkingWindowDrag()` / `LeaveThinkingWindow()` / `CloseThinkingWindow()`：思考模式下弹出无框窗口（进任务栏，标题“AI 思考过程”，便于随时回到），`AppendThinkingText()` 把思考增量实时追加并滚动到底（`WM_VSCROLL` + `SB_BOTTOM`）；`ThinkingWindowDrag()` 在按住窗口空白处（Edit 之外）时发送 `WM_NCLBUTTONDOWN` + `HTCAPTION` 让系统接管拖动，使无边框窗口**可拖动**；思考完毕后 `LeaveThinkingWindow()` 先**取消置顶**（`WinSetAlwaysOnTop 0`）再自动离开（窗口保留、焦点还给原编辑器继续输出正式结果，窗口被编辑器盖住；用户可点击窗口按 Esc 触发 `CloseThinkingWindow()` 关闭）。窗口以 `Show("NA")` 显示，不抢焦点，避免插入结果按键发错窗口
 - 文本插入使用 `SendText` 逐字符（受 `type_delay_ms` 控制），避免 `^` `{` `+` 等被解释为修饰键
 - 触发 / 循环切换 / 直接切换 / 模式列表热键均通过 config.ini 配置，启动时注册（`Hotkey` 指令）；直接切换为 `direct_prefix` + 数字 0/1/2/3；模式列表复用 `ShowList()` 无框列表（`ShowModeList()`），选择后调用 `SetModeDirect()` 直达对应模式
+- `StepPlay()`：play 模式专属的步进执行命令（默认 `Ctrl+R`）——`playScriptFile` 为空（关闭状态）时用 `FileSelect()` 弹出脚本文件选择窗口并绑定脚本进入开启状态；非空（开启状态）时执行下一步（当前占位，脚本格式未定义，仅写一条调试日志，无实际操作）
 - `CompleteTikz()`：tikz 模式主流程——建临时目录 → `WrapTikzDocument()` 包装（裸语句 / 含 `tikzpicture` / 含 `document` 三形态自动识别，`\usepackage` / `\usetikzlibrary` / `\tikzset` / `\pgfplotsset` 开头行自动提取到导言区）→ `CompileTikz()`（`Run` + `ProcessExist` 轮询实现超时保护——`ProcessWaitClose` 对已退出进程会假超时、不能用；失败读 `main.log` 错误行）→ `ConvertPdfToPng()`（按配置顺序尝试 pdftoppm / mutool / gswin64c / magick）→ `PasteTikzImage()` 把图片复制到剪贴板（PNG + CF_DIB 双格式）并通过 Snipaste 贴图展示；`FindSnipaste()` 自动探测 Snipaste 路径（配置 → PATH → 常见安装路径），未运行时自动启动并等待就绪；`TikzCopyPng()` 复制图片到剪贴板（`HbmToDib()` 生成 CF_DIB）；贴图成功后延迟 8 秒清理临时目录
 - 调试日志由 `config.ini` 的 `[debug] enabled` 开关控制（默认 `false` 不输出）；设为 `true` 时写入 `debug.log`，启动时清空旧日志
 

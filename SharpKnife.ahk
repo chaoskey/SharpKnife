@@ -5,7 +5,8 @@
 ; 数据源：latexs.cvs
 ; 触发命令：Ctrl+J（可通过配置修改）；循环切换命令：Ctrl+Shift+J（可通过配置修改）；
 ; 直接切换命令：Ctrl+Shift+0/1/2/3（0=latex，1=unicode，2=AI，3=tikz，前缀可通过配置修改）；
-; 触发模式列表：Ctrl+Shift+\（弹出无框列表，上下键选择模式，可通过配置修改）
+; 触发模式列表：Ctrl+Shift+\（弹出无框列表，上下键选择模式，可通过配置修改）；
+; 步进执行命令：Ctrl+R（play 模式专属，可通过配置修改）
 ; ==============================================================================
 #Requires AutoHotkey v2.0
 #SingleInstance Force
@@ -31,6 +32,9 @@ if (direct_prefix = "")
 mode_list_hk := IniRead(configFile, "trigger", "mode_list_hotkey", "^+\")  ; 触发模式列表（弹出无框列表，上下键选择模式）
 if (mode_list_hk = "")
     mode_list_hk := "^+\"    ; 防空守卫：配置为空时恢复默认
+step_hotkey := IniRead(configFile, "trigger", "step_hotkey", "^r")  ; 步进执行命令（play 模式专属，无论处于哪个状态都有效）
+if (step_hotkey = "")
+    step_hotkey := "^r"    ; 防空守卫：配置为空时恢复默认
 type_delay_ms := Max(IniRead(configFile, "context", "type_delay_ms", 3), 0)
 max_typing    := Max(IniRead(configFile, "ui", "max_typing_chars", 2000), 10)
 
@@ -99,6 +103,8 @@ MODE_TIKZ := 3
 mode_names := ["latex", "unicode", "AI", "tikz"]
 global mode := MODE_LATEX            ; 当前模式（默认 latex）
 global latex_mode := 1   ; 1 = LaTeX-command mode, 0 = Unicode mode（兼容旧逻辑）
+global playScriptFile := ""   ; play 模式绑定的脚本文件（空=关闭状态，非空=开启状态）
+global playStepIndex := 0    ; play 模式步进指针：下一个待执行动作的序号（0=尚未执行任何步）
 
 RefreshTrayMenu() {
     global mode
@@ -163,6 +169,41 @@ ShowModeList(*) {
     }
     DebugLog("ShowModeList：选中第 " . idx . " 项")
     SetModeDirect(idx - 1)   ; idx：1/2/3/4 → 模式号 0/1/2/3（SetModeDirect 内部会校验非法模式号）
+}
+
+; ============================================================================
+; 11b. 步进执行命令（play 模式专属，默认 Ctrl+R）—— 无论处于哪个状态都有效
+;      关闭状态（未绑定脚本文件）：弹出脚本文件选择窗口，选定后绑定并进入开启状态
+;      开启状态（已绑定脚本文件）：执行下一步；脚本格式未定义，故占位假设每个脚本
+;      固定包含 3 个待执行的动作，每触发一次执行一步，执行完第 3 步后自动解绑回到关闭状态
+; ============================================================================
+StepPlay(*) {
+    global playScriptFile, playStepIndex
+    if (playScriptFile = "") {
+        ; 关闭状态：弹出脚本文件选择窗口
+        selected := FileSelect(1, , "选择 play 脚本文件", "所有文件 (*.*)")
+        if (selected = "") {
+            DebugLog("play：用户取消选择脚本文件，无操作")
+            return
+        }
+        playScriptFile := selected
+        playStepIndex := 0     ; 绑定新脚本后重置步进指针
+        DebugLog("play：已绑定脚本文件 '" . playScriptFile . "'，进入开启状态（假设 3 个待执行动作）")
+        ToolTip("play 模式：已绑定脚本（3 步）")
+        SetTimer(() => ToolTip(), -1500)
+        return
+    }
+    ; 开启状态：执行下一步（占位——脚本格式未定义，仅记录调试日志，无实际操作）
+    playStepIndex += 1
+    DebugLog("play：执行第 " . playStepIndex . " 步（占位，脚本格式未定义，无实际操作）；当前脚本='" . playScriptFile . "'")
+    if (playStepIndex >= 3) {
+        ; 已执行完最后一步（占位假设脚本共 3 个动作）→ 自动解绑，回到关闭状态
+        playScriptFile := ""
+        playStepIndex := 0
+        DebugLog("play：已执行完最后一步，自动解绑脚本，回到关闭状态")
+        ToolTip("play 模式：脚本执行完毕，已解绑")
+        SetTimer(() => ToolTip(), -1500)
+    }
 }
 
 ; ============================================================================
@@ -364,6 +405,7 @@ Hotkey(direct_prefix . "1", (*) => SetModeDirect(MODE_UNICODE))
 Hotkey(direct_prefix . "2", (*) => SetModeDirect(MODE_AI))
 Hotkey(direct_prefix . "3", (*) => SetModeDirect(MODE_TIKZ))
 Hotkey(mode_list_hk, ShowModeList)
+Hotkey(step_hotkey, StepPlay)
 
 ; ============================================================================
 ; 12. 主入口 —— 触发命令（默认 Ctrl+J）
@@ -2549,7 +2591,7 @@ if (A_IsCompiled)
     TraySetIcon(A_ScriptFullPath, 1)
 else
     TraySetIcon(A_ScriptDir "\images\SharpKnife.ico")
-A_IconTip := "SharpKnife — " . trigger_hk . " 补全，" . toggle_hk . " 循环切换，" . direct_prefix . "0/1/2/3 直接切换，" . mode_list_hk . " 模式列表"
+A_IconTip := "SharpKnife — " . trigger_hk . " 补全，" . toggle_hk . " 循环切换，" . direct_prefix . "0/1/2/3 直接切换，" . mode_list_hk . " 模式列表，" . step_hotkey . " play 步进"
 
 ; ============================================================================
 ; 14. 启动提示
@@ -2558,6 +2600,6 @@ TrayTip(
     "就绪 — " . mode_names[mode + 1] . " 模式（默认）`n"
     . trigger_hk . " 补全，" . toggle_hk . " 循环切换 latex / unicode / AI / tikz`n"
     . direct_prefix . "0/1/2/3 直接切换（0=latex，1=unicode，2=AI，3=tikz）`n"
-    . mode_list_hk . " 模式列表选择",
+    . mode_list_hk . " 模式列表选择，" . step_hotkey . " play 步进执行",
     "SharpKnife"
 )
