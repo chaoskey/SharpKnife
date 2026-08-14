@@ -951,7 +951,9 @@ PlayValidatePaste(a) {
         s := a["size"]
         if (!PlayIsXY(s))
             return false
-        if (s[1] <= 0 || s[2] <= 0)
+        if (s[1] < 0 || s[2] < 0)
+            return false
+        if (s[1] <= 0 && s[2] <= 0)
             return false
         a["size"] := {w: Round(s[1]), h: Round(s[2])}
     }
@@ -1178,6 +1180,19 @@ PlayScalePng(srcPath, outW, outH, outPath) {
     src := 0
     if (DllCall("gdiplus.dll\GdipCreateBitmapFromFile", "Ptr", StrPtr(srcPath), "UPtr*", &src) != 0)
         return false
+    ; 只设一边（w 或 h 为 0）时按原图宽高比等比缩放
+    srcW := 0
+    srcH := 0
+    DllCall("gdiplus.dll\GdipGetImageWidth", "Ptr", src, "UInt*", &srcW)
+    DllCall("gdiplus.dll\GdipGetImageHeight", "Ptr", src, "UInt*", &srcH)
+    if (outW <= 0 && outH <= 0) {
+        outW := srcW
+        outH := srcH
+    } else if (outW <= 0) {
+        outW := Round(outH * srcW / srcH)
+    } else if (outH <= 0) {
+        outH := Round(outW * srcH / srcW)
+    }
     dst := 0
     ; PixelFormat32bppARGB = 0x26200A
     if (DllCall("gdiplus.dll\GdipCreateBitmapFromScan0", "Int", outW, "Int", outH, "Int", 0, "Int", 0x26200A, "Ptr", 0, "UPtr*", &dst) != 0) {
