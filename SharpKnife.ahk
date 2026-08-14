@@ -104,7 +104,14 @@ mode_names := ["latex", "unicode", "AI", "tikz"]
 global mode := MODE_LATEX            ; 当前模式（默认 latex）
 global latex_mode := 1   ; 1 = LaTeX-command mode, 0 = Unicode mode（兼容旧逻辑）
 global playScriptFile := ""   ; play 模式绑定的脚本文件（空=关闭状态，非空=开启状态）
-global playStepIndex := 0    ; play 模式步进指针：下一个待执行动作的序号（0=尚未执行任何步）
+global playScriptDir := ""    ; 绑定脚本所在目录（相对路径解析基准）
+global playStepStack := []    ; 步进游标栈：每元素 {list: 动作数组, idx: 下一个待执行序号（0 基）}
+global playBusy := false      ; 执行中标记：有动作尚未完成时为真（阻塞步进热键）
+global playReentrant := false ; 防重入：文件选择对话框打开期间为真
+global playMediaWatch := []   ; 异步媒体监视列表：{pid, hwnd, done}（wait=true 时轮询退出）
+global gdipToken := 0         ; GDI+ 会话令牌（全局初始化一次，进程退出由系统释放，永不 Shutdown）
+global play_paster_hwnds := [] ; Snipaste 贴图窗口句柄收集缓冲（EnumWindows 回调写入）
+global playFocusWin := 0      ; 弹窗动作前记录的焦点窗口（弹窗后恢复焦点，保证文字输出继续）
 
 RefreshTrayMenu() {
     global mode
@@ -173,37 +180,1062 @@ ShowModeList(*) {
 
 ; ============================================================================
 ; 11b. 步进执行命令（play 模式专属，默认 Ctrl+R）—— 无论处于哪个状态都有效
-;      关闭状态（未绑定脚本文件）：弹出脚本文件选择窗口，选定后绑定并进入开启状态
-;      开启状态（已绑定脚本文件）：执行下一步；脚本格式未定义，故占位假设每个脚本
-;      固定包含 3 个待执行的动作，每触发一次执行一步，执行完第 3 步后自动解绑回到关闭状态
+;      关闭状态（未绑定脚本文件）：弹出 JSON 脚本选择窗口，校验通过后绑定并立即执行第 1 步
+;      开启状态（已绑定脚本文件）：执行下一步；执行中（busy）触发被忽略（防重入）
+;      脚本为 UTF-8 JSON：根是 seq（顶层动作数组），支持 text/paste/audio/video/seq/par 六类动作
+;      详见 Requirements.md 第 8 节
 ; ============================================================================
 StepPlay(*) {
-    global playScriptFile, playStepIndex
+    global playScriptFile, playBusy
     if (playScriptFile = "") {
-        ; 关闭状态：弹出脚本文件选择窗口
-        selected := FileSelect(1, , "选择 play 脚本文件", "所有文件 (*.*)")
-        if (selected = "") {
-            DebugLog("play：用户取消选择脚本文件，无操作")
-            return
-        }
-        playScriptFile := selected
-        playStepIndex := 0     ; 绑定新脚本后重置步进指针
-        DebugLog("play：已绑定脚本文件 '" . playScriptFile . "'，进入开启状态（假设 3 个待执行动作）")
-        ToolTip("play 模式：已绑定脚本（3 步）")
-        SetTimer(() => ToolTip(), -1500)
+        PlayBind()
         return
     }
-    ; 开启状态：执行下一步（占位——脚本格式未定义，仅记录调试日志，无实际操作）
-    playStepIndex += 1
-    DebugLog("play：执行第 " . playStepIndex . " 步（占位，脚本格式未定义，无实际操作）；当前脚本='" . playScriptFile . "'")
-    if (playStepIndex >= 3) {
-        ; 已执行完最后一步（占位假设脚本共 3 个动作）→ 自动解绑，回到关闭状态
-        playScriptFile := ""
-        playStepIndex := 0
-        DebugLog("play：已执行完最后一步，自动解绑脚本，回到关闭状态")
-        ToolTip("play 模式：脚本执行完毕，已解绑")
-        SetTimer(() => ToolTip(), -1500)
+    if (playBusy)
+        return
+    PlayRunStepFrame()
+}
+
+; ---- 绑定 / 解绑 ----
+PlayBind() {
+    global playScriptFile, playScriptDir, playStepStack, playBusy, playReentrant
+    if (playReentrant)
+        return
+    playReentrant := true
+    selected := ""
+    try {
+        selected := FileSelect(1, A_ScriptDir, "选择 play 脚本文件", "JSON 脚本 (*.json)")
+    } catch {
+        selected := ""
     }
+    playReentrant := false
+    if (selected = "") {
+        DebugLog("play：用户取消选择脚本文件，无操作")
+        return
+    }
+    root := PlayLoadScript(selected)
+    if (root = "") {
+        DebugLog("play：脚本加载失败，不绑定")
+        return
+    }
+    playScriptFile := selected
+    n := InStr(selected, "\", , -1)
+    playScriptDir := n ? SubStr(selected, 1, n - 1) : A_ScriptDir
+    playStepStack := [{list: root, idx: 0}]
+    playBusy := false
+    DebugLog("play：已绑定脚本 '" . selected . "'（顶层共 " . root.Length . " 个动作）")
+    ToolTip("play 模式：已绑定脚本，执行第 1 步")
+    SetTimer(() => ToolTip(), -1500)
+    PlayRunStepFrame()
+}
+
+PlayUnbind() {
+    global playScriptFile, playScriptDir, playStepStack, playBusy
+    ; 脚本执行完毕：在光标处字面输出固定结束语（SendText 不解释 {} 等键名）
+    SendText("【play 脚本结束】")
+    playScriptFile := ""
+    playScriptDir := ""
+    playStepStack := []
+    playBusy := false
+    DebugLog("play：脚本执行完毕，自动解绑，回到关闭状态")
+    ToolTip("play 模式：脚本执行完毕，已解绑")
+    SetTimer(() => ToolTip(), -1500)
+}
+
+; ---- 步进游标栈 ----
+PlayRunStepFrame() {
+    global playStepStack, playBusy
+    if (playStepStack.Length = 0)
+        return
+    frame := playStepStack[playStepStack.Length]
+    if (frame.idx >= frame.list.Length) {
+        PlayPopStepFrame()
+        return
+    }
+    action := frame.list[frame.idx + 1]
+    playBusy := true
+    PlayDispatchStepAction(action, frame)
+}
+
+PlayAdvanceStepFrame(frame) {
+    global playBusy
+    frame.idx += 1
+    if (frame.idx >= frame.list.Length) {
+        PlayPopStepFrame()
+        return
+    }
+    playBusy := false
+}
+
+PlayPopStepFrame() {
+    global playStepStack, playBusy
+    playStepStack.Pop()
+    if (playStepStack.Length = 0) {
+        playBusy := false
+        PlayUnbind()
+        return
+    }
+    parent := playStepStack[playStepStack.Length]
+    parent.idx += 1
+    if (parent.idx >= parent.list.Length) {
+        PlayPopStepFrame()
+        return
+    }
+    playBusy := false
+}
+
+PlayPushSeqFrame(seqAction) {
+    global playStepStack
+    playStepStack.Push({list: seqAction["actions"], idx: 0})
+}
+
+PlayIsOneShot(seqAction) {
+    return (seqAction.Has("oneshot") && seqAction["oneshot"])
+}
+
+; 记录弹窗前的焦点窗口（文字光标所在窗口），供弹窗后恢复焦点，保证后续文字输出继续
+PlaySaveFocus() {
+    global playFocusWin
+    playFocusWin := WinExist("A")
+}
+
+; 恢复焦点到弹窗前的窗口（WinActivate 不改变编辑器内的光标位置）
+PlayRestoreFocus() {
+    global playFocusWin
+    if (!playFocusWin)
+        return
+    try WinActivate("ahk_id " . playFocusWin)
+    if (WinExist("A") = playFocusWin)
+        return
+    ; 弹窗进程可能延迟抢焦点，短暂等待后补一次激活
+    loop 20 {
+        Sleep 15
+        if (WinExist("A") = playFocusWin)
+            break
+        try WinActivate("ahk_id " . playFocusWin)
+    }
+}
+
+; ---- 动作调度 ----
+PlayDispatchStepAction(action, frame) {
+    if (action["type"] = "seq" && !PlayIsOneShot(action)) {
+        ; 单步 seq：压入子帧，立即启动其第 1 个子动作
+        PlayPushSeqFrame(action)
+        PlayRunStepFrame()
+        return
+    }
+    PlayExecTree(action, () => PlayAdvanceStepFrame(frame))
+}
+
+; 执行一棵动作（text/paste/audio/video/一次性 seq/par）；done 在完成时回调
+PlayExecTree(action, done) {
+    global playScriptDir
+    t := action["type"]
+    if (t = "text") {
+        PlayDoText(action["value"])
+        done()
+    } else if (t = "paste") {
+        PlaySaveFocus()
+        PlayDoPaste(action)
+        PlayRestoreFocus()
+        done()
+    } else if (t = "audio" || t = "video") {
+        PlaySaveFocus()
+        PlayStartMedia(action, (*) => (PlayRestoreFocus(), done()))
+    } else if (t = "seq") {
+        PlayExecList(action["actions"], 1, done)
+    } else if (t = "par") {
+        PlayExecAll(action["actions"], done)
+    } else {
+        done()
+    }
+}
+
+PlayExecList(list, idx, done) {
+    if (idx > list.Length) {
+        done()
+        return
+    }
+    PlayExecTree(list[idx], () => PlayExecList(list, idx + 1, done))
+}
+
+PlayExecAll(list, done) {
+    if (list.Length = 0) {
+        done()
+        return
+    }
+    holder := [list.Length]
+    fin := () => PlayParChildDone(holder, done)
+    for a in list
+        PlayExecTree(a, fin)
+}
+
+PlayParChildDone(holder, done) {
+    holder[1] := holder[1] - 1
+    if (holder[1] <= 0)
+        done()
+}
+
+; ---- text 动作 ----
+PlayDoText(value) {
+    if (value is String) {
+        PlaySendText(value)
+        return
+    }
+    first := true
+    for item in value {
+        if (!first)
+            Send("{Enter}")
+        PlaySendText(item)
+        first := false
+    }
+}
+
+PlaySendText(text) {
+    lit := ""
+    i := 1
+    len := StrLen(text)
+    while (i <= len) {
+        c := SubStr(text, i, 1)
+        if (c = "`n") {
+            PlayFlushLiteral(&lit)
+            Send("{Enter}")
+            i++
+            continue
+        }
+        if (c = "`r") {
+            PlayFlushLiteral(&lit)
+            Send("{Enter}")
+            i++
+            if (i <= len && SubStr(text, i, 1) = "`n")
+                i++
+            continue
+        }
+        if (c = Chr(96)) {
+            ; 反引号转义：下一个字符字面输出
+            i++
+            if (i <= len) {
+                lit .= SubStr(text, i, 1)
+                i++
+            }
+            continue
+        }
+        if (c = "{") {
+            j := InStr(text, "}", false, i + 1)
+            if (j) {
+                inner := SubStr(text, i + 1, j - i - 1)
+                if (inner != "" && RegExMatch(inner, "i)^[a-z0-9]+( [0-9]+)?$")) {
+                    PlayFlushLiteral(&lit)
+                    Send("{" . inner . "}")
+                    i := j + 1
+                    continue
+                }
+            }
+        }
+        lit .= c
+        i++
+    }
+    PlayFlushLiteral(&lit)
+}
+
+PlayFlushLiteral(&lit) {
+    if (lit != "") {
+        SendText(lit)
+        lit := ""
+    }
+}
+
+; ---- paste 动作 ----
+PlayDoPaste(action) {
+    path := PlayResolvePath(action["path"])
+    if (!FileExist(path)) {
+        PlayNoteFail("play：粘贴图片不存在：" . path)
+        return
+    }
+    pngPath := path
+    tmpFile := ""
+    if (action.Has("size")) {
+        s := action["size"]
+        tmpDir := A_Temp "\SharpKnife\play"
+        DirCreate(tmpDir)
+        tmpFile := tmpDir "\paste_" . A_TickCount . ".png"
+        if (PlayScalePng(path, s.w, s.h, tmpFile))
+            pngPath := tmpFile
+        else
+            DebugLog("play：缩放失败，回退到原图")
+    }
+    if (!PlayCopyPngToClipboard(pngPath)) {
+        if (tmpFile != "" && FileExist(tmpFile))
+            try FileDelete(tmpFile)
+        PlayNoteFail("play：复制图片到剪贴板失败")
+        return
+    }
+    ; 确保 Snipaste 运行
+    exe := FindSnipaste()
+    if (exe = "") {
+        if (tmpFile != "" && FileExist(tmpFile))
+            try FileDelete(tmpFile)
+        PlayNoteFail("play：未找到 Snipaste，无法贴图")
+        return
+    }
+    if (!ProcessExist("Snipaste.exe")) {
+        try Run(exe)
+        loop 50 {
+            if (ProcessExist("Snipaste.exe"))
+                break
+            Sleep 100
+        }
+        Sleep 1500
+    }
+    ; 贴图并找到新贴图窗口
+    before := PlayPasterHwnds()
+    newHwnd := 0
+    loop 4 {
+        Run('"' exe '" paste', , "Hide")
+        deadline := A_TickCount + 2500
+        while (A_TickCount < deadline) {
+            newHwnd := PlayNewPaster(before)
+            if (newHwnd)
+                break
+            Sleep 100
+        }
+        if (newHwnd)
+            break
+        DebugLog("play：贴图窗口未出现，重试（第 " . A_Index . " 次）")
+        Sleep 800
+    }
+    if (tmpFile != "" && FileExist(tmpFile))
+        try FileDelete(tmpFile)
+    if (!newHwnd) {
+        PlayNoteFail("play：Snipaste 贴图失败（贴图窗口未出现）")
+        return
+    }
+    ; 定位：pos 指定则移动到该位置，否则居中
+    if (action.Has("pos")) {
+        p := action["pos"]
+        WinMove(p.x, p.y, , , "ahk_id " . newHwnd)
+    } else {
+        try {
+            WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " . newHwnd)
+            WinMove(Max((A_ScreenWidth - ww) // 2, 0), Max((A_ScreenHeight - wh) // 2, 0), , , "ahk_id " . newHwnd)
+        }
+    }
+    ; 透明度
+    if (action.Has("opacity") && action["opacity"] < 100)
+        WinSetTransparent(Round(action["opacity"] * 255 / 100), "ahk_id " . newHwnd)
+}
+
+; ---- audio / video 动作 ----
+PlayStartMedia(action, done) {
+    path := PlayResolvePath(action["path"])
+    if (!FileExist(path)) {
+        PlayNoteFail("play：媒体文件不存在：" . path)
+        done()
+        return
+    }
+    exe := FindToolPath("ffplay")
+    if (exe = "") {
+        PlayNoteFail("play：未找到 ffplay，无法播放媒体")
+        done()
+        return
+    }
+    isVideo := (action["type"] = "video")
+    startSec := (action.Has("start") && action["start"] > 0) ? action["start"] : 0
+    endSec := action.Has("end") ? action["end"] : -1
+    volume := action.Has("volume") ? action["volume"] : 1.0
+
+    cmd := '"' exe '" '
+    cmd .= isVideo ? "-autoexit " : "-nodisp -autoexit "
+    if (startSec > 0)
+        cmd .= "-ss " . PlayNum(startSec) . " "
+    if (endSec >= 0) {
+        dur := endSec - startSec
+        if (dur < 0)
+            dur := 0
+        cmd .= "-t " . PlayNum(dur) . " "
+    }
+    cmd .= "-af volume=" . PlayNum(volume) . " "
+    if (isVideo) {
+        if (action.Has("pos"))
+            cmd .= "-left " . action["pos"].x . " -top " . action["pos"].y . " "
+        if (action.Has("size"))
+            cmd .= "-x " . action["size"].w . " -y " . action["size"].h . " "
+    }
+    cmd .= '-i "' path '"'
+
+    ; cmd /S /C 包装 + Hide：视频窗口可见而控制台隐藏（直接 Run + Hide 会连视频窗口一起隐藏）
+    fullCmd := A_ComSpec " /S /C `"" . cmd . "`" < nul > nul 2>&1"
+    pid := 0
+    try {
+        Run(fullCmd, , "Hide", &pid)
+    } catch {
+        PlayNoteFail("play：启动 ffplay 失败")
+        done()
+        return
+    }
+
+    hwnd := 0
+    if (isVideo) {
+        hwnd := PlayWaitSdlWindow(path, 3000)
+        if (hwnd && action.Has("opacity") && action["opacity"] < 100)
+            WinSetTransparent(Round(action["opacity"] * 255 / 100), "ahk_id " . hwnd)
+    }
+
+    if (action.Has("wait") && action["wait"])
+        PlayWatchMedia(pid, hwnd, done)
+    else
+        done()
+}
+
+PlayWaitSdlWindow(videoPath, timeoutMs) {
+    deadline := A_TickCount + timeoutMs
+    while (A_TickCount < deadline) {
+        for w in WinGetList("ahk_class SDL_app") {
+            try {
+                if (InStr(WinGetTitle(w), videoPath))
+                    return w
+            }
+        }
+        Sleep 100
+    }
+    return 0
+}
+
+PlayWatchMedia(pid, hwnd, done) {
+    global playMediaWatch
+    playMediaWatch.Push({pid: pid, hwnd: hwnd, done: done})
+    SetTimer(PlayMediaPoll, 200)
+}
+
+PlayMediaPoll() {
+    global playMediaWatch
+    if (playMediaWatch.Length = 0) {
+        SetTimer(PlayMediaPoll, 0)
+        return
+    }
+    still := []
+    for item in playMediaWatch {
+        alive := ProcessExist(item.pid)
+        winAlive := item.hwnd ? WinExist("ahk_id " . item.hwnd) : 1
+        if (alive && winAlive) {
+            still.Push(item)
+        } else {
+            cb := item.done
+            cb()
+        }
+    }
+    playMediaWatch := still
+}
+
+; ---- JSON 解析（play 脚本） ----
+PlayLoadScript(path) {
+    txt := ""
+    try {
+        txt := FileRead(path, "UTF-8")
+    } catch as e {
+        PlayShowError("读取脚本失败：" . e.Message)
+        return ""
+    }
+    if (SubStr(txt, 1, 1) = Chr(0xFEFF))
+        txt := SubStr(txt, 2)
+    root := ""
+    pos := 1
+    try {
+        root := PlayParseValue(txt, &pos)
+        PlaySkipWs(txt, &pos)
+        if (pos <= StrLen(txt))
+            throw Error("JSON 尾部存在多余内容")
+    } catch as e {
+        PlayShowError("脚本 JSON 解析失败：" . e.Message)
+        return ""
+    }
+    if (!(IsObject(root) && root is Array)) {
+        PlayShowError("脚本格式非法：根必须是动作数组（seq）")
+        return ""
+    }
+    for item in root {
+        if (!PlayValidateAction(item)) {
+            PlayShowError("脚本结构校验失败：存在缺必填字段 / 类型错误 / 未知 type 的动作")
+            return ""
+        }
+    }
+    return root
+}
+
+PlaySkipWs(txt, &pos) {
+    len := StrLen(txt)
+    while (pos <= len) {
+        c := SubStr(txt, pos, 1)
+        if (c = " " || c = "`t" || c = "`n" || c = "`r")
+            pos++
+        else
+            break
+    }
+}
+
+PlayParseValue(txt, &pos) {
+    PlaySkipWs(txt, &pos)
+    if (pos > StrLen(txt))
+        throw Error("意外结束")
+    c := SubStr(txt, pos, 1)
+    if (c = "{")
+        return PlayParseObject(txt, &pos)
+    if (c = "[")
+        return PlayParseArray(txt, &pos)
+    if (c = '"')
+        return PlayParseString(txt, &pos)
+    if (c = "-" || InStr("0123456789", c))
+        return PlayParseNumber(txt, &pos)
+    if (SubStr(txt, pos, 4) = "true") {
+        pos += 4
+        return true
+    }
+    if (SubStr(txt, pos, 5) = "false") {
+        pos += 5
+        return false
+    }
+    if (SubStr(txt, pos, 4) = "null") {
+        pos += 4
+        return 0
+    }
+    throw Error("位置 " . pos . " 处存在非法字符")
+}
+
+PlayParseObject(txt, &pos) {
+    pos++
+    m := Map()
+    PlaySkipWs(txt, &pos)
+    if (pos <= StrLen(txt) && SubStr(txt, pos, 1) = "}") {
+        pos++
+        return m
+    }
+    loop {
+        PlaySkipWs(txt, &pos)
+        if (pos > StrLen(txt) || SubStr(txt, pos, 1) != '"')
+            throw Error("对象键必须为字符串")
+        key := PlayParseString(txt, &pos)
+        PlaySkipWs(txt, &pos)
+        if (pos > StrLen(txt) || SubStr(txt, pos, 1) != ":")
+            throw Error("缺少冒号")
+        pos++
+        m[key] := PlayParseValue(txt, &pos)
+        PlaySkipWs(txt, &pos)
+        if (pos > StrLen(txt))
+            throw Error("对象未闭合")
+        c := SubStr(txt, pos, 1)
+        if (c = ",") {
+            pos++
+            continue
+        }
+        if (c = "}") {
+            pos++
+            return m
+        }
+        throw Error("对象语法错误")
+    }
+}
+
+PlayParseArray(txt, &pos) {
+    pos++
+    arr := []
+    PlaySkipWs(txt, &pos)
+    if (pos <= StrLen(txt) && SubStr(txt, pos, 1) = "]") {
+        pos++
+        return arr
+    }
+    loop {
+        arr.Push(PlayParseValue(txt, &pos))
+        PlaySkipWs(txt, &pos)
+        if (pos > StrLen(txt))
+            throw Error("数组未闭合")
+        c := SubStr(txt, pos, 1)
+        if (c = ",") {
+            pos++
+            continue
+        }
+        if (c = "]") {
+            pos++
+            return arr
+        }
+        throw Error("数组语法错误")
+    }
+}
+
+PlayParseString(txt, &pos) {
+    pos++
+    out := ""
+    len := StrLen(txt)
+    while (pos <= len) {
+        c := SubStr(txt, pos, 1)
+        if (c = '"') {
+            pos++
+            return out
+        }
+        if (c = "\") {
+            pos++
+            if (pos > len)
+                throw Error("字符串转义不完整")
+            e := SubStr(txt, pos, 1)
+            pos++
+            if (e = '"')
+                out .= '"'
+            else if (e = "\")
+                out .= "\"
+            else if (e = "/")
+                out .= "/"
+            else if (e = "b")
+                out .= Chr(8)
+            else if (e = "f")
+                out .= Chr(12)
+            else if (e = "n")
+                out .= "`n"
+            else if (e = "r")
+                out .= "`r"
+            else if (e = "t")
+                out .= "`t"
+            else if (e = "u") {
+                if (pos + 3 > len)
+                    throw Error("unicode 转义不完整")
+                hex := SubStr(txt, pos, 4)
+                pos += 4
+                if (!RegExMatch(hex, "^[0-9a-fA-F]{4}$"))
+                    throw Error("unicode 转义非法")
+                out .= Chr(PlayHexToInt(hex))
+            } else {
+                throw Error("非法转义字符")
+            }
+            continue
+        }
+        out .= c
+        pos++
+    }
+    throw Error("字符串未闭合")
+}
+
+PlayHexToInt(hex) {
+    v := 0
+    digits := "0123456789abcdef"
+    i := 1
+    while (i <= 4) {
+        c := StrLower(SubStr(hex, i, 1))
+        v := v * 16 + (InStr(digits, c) - 1)
+        i++
+    }
+    return v
+}
+
+PlayParseNumber(txt, &pos) {
+    rest := SubStr(txt, pos)
+    if (RegExMatch(rest, "^(-?\d+)(\.\d+)?([eE][+-]?\d+)?", &m)) {
+        tok := m[0]
+        pos += StrLen(tok)
+        if (InStr(tok, ".") || InStr(tok, "e") || InStr(tok, "E"))
+            return Float(tok)
+        return Integer(tok)
+    }
+    throw Error("非法数字")
+}
+
+; ---- 结构校验（加载阶段） ----
+PlayValidateAction(a) {
+    if (!(IsObject(a) && a is Map))
+        return false
+    if (!a.Has("type") || !(a["type"] is String))
+        return false
+    t := a["type"]
+    if (t = "text")
+        return PlayValidateText(a)
+    if (t = "paste")
+        return PlayValidatePaste(a)
+    if (t = "audio")
+        return PlayValidateMedia(a, false)
+    if (t = "video")
+        return PlayValidateMedia(a, true)
+    if (t = "seq")
+        return PlayValidateSeq(a)
+    if (t = "par")
+        return PlayValidatePar(a)
+    return false
+}
+
+PlayValidateText(a) {
+    if (!a.Has("value"))
+        return false
+    v := a["value"]
+    if (v is String)
+        return true
+    if (IsObject(v) && v is Array) {
+        for item in v {
+            if (!(item is String))
+                return false
+        }
+        return true
+    }
+    return false
+}
+
+PlayValidatePaste(a) {
+    if (!a.Has("path") || !(a["path"] is String) || a["path"] = "")
+        return false
+    if (a.Has("pos")) {
+        p := a["pos"]
+        if (!PlayIsXY(p))
+            return false
+        a["pos"] := {x: Round(p[1]), y: Round(p[2])}
+    }
+    if (a.Has("size")) {
+        s := a["size"]
+        if (!PlayIsXY(s))
+            return false
+        if (s[1] <= 0 || s[2] <= 0)
+            return false
+        a["size"] := {w: Round(s[1]), h: Round(s[2])}
+    }
+    op := 100
+    if (a.Has("opacity")) {
+        if (!PlayIsNumber(a["opacity"]))
+            return false
+        op := Round(a["opacity"])
+        if (op > 100)
+            op := 100
+        if (op < 0)
+            op := 0
+    }
+    a["opacity"] := op
+    return true
+}
+
+PlayValidateMedia(a, isVideo) {
+    if (!a.Has("path") || !(a["path"] is String) || a["path"] = "")
+        return false
+    if (a.Has("start")) {
+        if (!PlayValidateTime(a["start"]))
+            return false
+        a["start"] := PlayTimeToSeconds(a["start"])
+    } else {
+        a["start"] := 0
+    }
+    if (a.Has("end")) {
+        if (!PlayValidateTime(a["end"]))
+            return false
+        a["end"] := PlayTimeToSeconds(a["end"])
+    } else {
+        a["end"] := -1
+    }
+    vol := 1.0
+    if (a.Has("volume")) {
+        if (!PlayIsNumber(a["volume"]))
+            return false
+        vol := a["volume"]
+        if (vol < 0)
+            vol := 0
+    }
+    a["volume"] := vol
+    w := false
+    if (a.Has("wait")) {
+        if (!PlayIsBool(a["wait"]))
+            return false
+        w := a["wait"] ? true : false
+    }
+    a["wait"] := w
+    if (isVideo) {
+        if (a.Has("pos")) {
+            p := a["pos"]
+            if (!PlayIsXY(p))
+                return false
+            a["pos"] := {x: Round(p[1]), y: Round(p[2])}
+        }
+        if (a.Has("size")) {
+            s := a["size"]
+            if (!PlayIsXY(s))
+                return false
+            if (s[1] <= 0 || s[2] <= 0)
+                return false
+            a["size"] := {w: Round(s[1]), h: Round(s[2])}
+        }
+        op := 100
+        if (a.Has("opacity")) {
+            if (!PlayIsNumber(a["opacity"]))
+                return false
+            op := Round(a["opacity"])
+            if (op > 100)
+                op := 100
+            if (op < 0)
+                op := 0
+        }
+        a["opacity"] := op
+    }
+    return true
+}
+
+PlayValidateSeq(a) {
+    if (!a.Has("actions"))
+        return false
+    acts := a["actions"]
+    if (!(IsObject(acts) && acts is Array))
+        return false
+    oneshot := false
+    if (a.Has("step")) {
+        if (!PlayIsBool(a["step"]))
+            return false
+        oneshot := !(a["step"] ? true : false)
+    }
+    a["oneshot"] := oneshot
+    for item in acts {
+        if (!PlayValidateAction(item))
+            return false
+    }
+    return true
+}
+
+PlayValidatePar(a) {
+    if (!a.Has("actions"))
+        return false
+    acts := a["actions"]
+    if (!(IsObject(acts) && acts is Array))
+        return false
+    for item in acts {
+        if (!PlayValidateAction(item))
+            return false
+    }
+    return true
+}
+
+PlayIsXY(v) {
+    if (!(IsObject(v) && v is Array))
+        return false
+    if (v.Length != 2)
+        return false
+    return PlayIsNumber(v[1]) && PlayIsNumber(v[2])
+}
+
+PlayIsNumber(v) {
+    return (v is Integer || v is Float)
+}
+
+PlayIsBool(v) {
+    return (v is Integer && (v = 0 || v = 1))
+}
+
+PlayValidateTime(v) {
+    if (PlayIsNumber(v))
+        return true
+    if (!(v is String))
+        return false
+    return PlayTimeToSeconds(v) >= 0
+}
+
+PlayTimeToSeconds(v) {
+    if (PlayIsNumber(v))
+        return v
+    if (!(v is String))
+        return -1
+    s := Trim(v)
+    if (RegExMatch(s, "^\d+(\.\d+)?$"))
+        return Float(s)
+    if (RegExMatch(s, "^\d{1,2}:\d{1,2}:\d{1,2}(\.\d+)?$")) {
+        parts := StrSplit(s, ":")
+        return Integer(parts[1]) * 3600 + Integer(parts[2]) * 60 + Float(parts[3])
+    }
+    if (RegExMatch(s, "^\d{1,2}:\d{1,2}(\.\d+)?$")) {
+        parts := StrSplit(s, ":")
+        return Integer(parts[1]) * 60 + Float(parts[2])
+    }
+    return -1
+}
+
+; ---- GDI+ 辅助（缩放 / 剪贴板） ----
+GdipEnsure() {
+    global gdipToken
+    if (gdipToken)
+        return true
+    si := Buffer(24)
+    NumPut("UInt", 1, si, 0)
+    tok := 0
+    if (DllCall("gdiplus.dll\GdiplusStartup", "UPtr*", &tok, "Ptr", si, "Ptr", 0) != 0)
+        return false
+    gdipToken := tok
+    return true
+}
+
+PlayScalePng(srcPath, outW, outH, outPath) {
+    if (!GdipEnsure())
+        return false
+    src := 0
+    if (DllCall("gdiplus.dll\GdipCreateBitmapFromFile", "Ptr", StrPtr(srcPath), "UPtr*", &src) != 0)
+        return false
+    dst := 0
+    ; PixelFormat32bppARGB = 0x26200A
+    if (DllCall("gdiplus.dll\GdipCreateBitmapFromScan0", "Int", outW, "Int", outH, "Int", 0, "Int", 0x26200A, "Ptr", 0, "UPtr*", &dst) != 0) {
+        DllCall("gdiplus.dll\GdipDisposeImage", "Ptr", src)
+        return false
+    }
+    g := 0
+    DllCall("gdiplus.dll\GdipGetImageGraphicsContext", "Ptr", dst, "UPtr*", &g)
+    DllCall("gdiplus.dll\GdipSetInterpolationMode", "Ptr", g, "Int", 7)
+    DllCall("gdiplus.dll\GdipDrawImageRectI", "Ptr", g, "Ptr", src, "Int", 0, "Int", 0, "Int", outW, "Int", outH)
+    DllCall("gdiplus.dll\GdipDeleteGraphics", "Ptr", g)
+    DllCall("gdiplus.dll\GdipDisposeImage", "Ptr", src)
+    ok := PlaySavePng(dst, outPath)
+    DllCall("gdiplus.dll\GdipDisposeImage", "Ptr", dst)
+    return ok
+}
+
+PlaySavePng(pBitmap, outPath) {
+    clsid := Buffer(16)
+    if (!PlayGetPngEncoderClsid(clsid))
+        return false
+    return DllCall("gdiplus.dll\GdipSaveImageToFile", "Ptr", pBitmap, "Ptr", StrPtr(outPath), "Ptr", clsid, "Ptr", 0) = 0
+}
+
+PlayGetPngEncoderClsid(clsid) {
+    num := 0
+    size := 0
+    DllCall("gdiplus.dll\GdipGetImageEncodersSize", "UInt*", &num, "UInt*", &size)
+    if (size = 0)
+        return false
+    buf := Buffer(size)
+    DllCall("gdiplus.dll\GdipGetImageEncoders", "UInt", num, "UInt", size, "Ptr", buf)
+    loop num {
+        off := (A_Index - 1) * 104
+        mime := NumGet(buf, off + 64, "Ptr")
+        if (mime && StrGet(mime) = "image/png") {
+            DllCall("RtlMoveMemory", "Ptr", clsid, "Ptr", buf.Ptr + off, "UPtr", 16)
+            return true
+        }
+    }
+    return false
+}
+
+PlayLoadHbitmap(pngPath) {
+    if (!GdipEnsure())
+        return 0
+    pBitmap := 0
+    if (DllCall("gdiplus.dll\GdipCreateBitmapFromFile", "Ptr", StrPtr(pngPath), "UPtr*", &pBitmap) != 0)
+        return 0
+    hbm := 0
+    DllCall("gdiplus.dll\GdipCreateHBITMAPFromBitmap", "Ptr", pBitmap, "UPtr*", &hbm, "UInt", 0x00FFFFFF)
+    DllCall("gdiplus.dll\GdipDisposeImage", "Ptr", pBitmap)
+    return hbm
+}
+
+; 复制 PNG 到剪贴板（PNG 注册格式 + CF_DIB 双格式）
+PlayCopyPngToClipboard(pngPath) {
+    static fmtPng := 0
+    if (pngPath = "" || !FileExist(pngPath))
+        return false
+    ok := false
+    try {
+        f := FileOpen(pngPath, "r")
+        f.Seek(0, 2)
+        size := f.Pos
+        f.Seek(0)
+        buf := Buffer(size)
+        f.RawRead(buf, size)
+        f.Close()
+
+        hbm := PlayLoadHbitmap(pngPath)
+        hDib := hbm ? HbmToDib(hbm) : 0
+
+        if (!fmtPng)
+            fmtPng := DllCall("RegisterClipboardFormat", "Str", "PNG", "UInt")
+
+        hMem := DllCall("GlobalAlloc", "UInt", 0x0042, "UPtr", size, "UPtr")
+        if (hMem) {
+            p := DllCall("GlobalLock", "Ptr", hMem, "Ptr")
+            DllCall("RtlMoveMemory", "Ptr", p, "Ptr", buf, "UPtr", size)
+            DllCall("GlobalUnlock", "Ptr", hMem)
+        }
+
+        if (DllCall("OpenClipboard", "Ptr", 0)) {
+            if (DllCall("EmptyClipboard")) {
+                if (hMem) {
+                    if (DllCall("SetClipboardData", "UInt", fmtPng, "Ptr", hMem))
+                        ok := true
+                    else
+                        DllCall("GlobalFree", "Ptr", hMem)
+                }
+                if (hDib) {
+                    if (DllCall("SetClipboardData", "UInt", 8, "Ptr", hDib))
+                        ok := true
+                    else
+                        DllCall("GlobalFree", "Ptr", hDib)
+                }
+            } else {
+                if (hMem)
+                    DllCall("GlobalFree", "Ptr", hMem)
+                if (hDib)
+                    DllCall("GlobalFree", "Ptr", hDib)
+            }
+            DllCall("CloseClipboard")
+        } else {
+            if (hMem)
+                DllCall("GlobalFree", "Ptr", hMem)
+            if (hDib)
+                DllCall("GlobalFree", "Ptr", hDib)
+        }
+        if (hbm)
+            DllCall("DeleteObject", "Ptr", hbm)
+    }
+    return ok
+}
+
+; Snipaste 贴图窗口枚举（Paster 是 Qt 工具窗口，WinGetList 默认排除，须 EnumWindows）
+PlayPasterHwnds() {
+    global play_paster_hwnds
+    static cb := 0
+    if (!cb)
+        cb := CallbackCreate(PlayPasterEnumHwnds)
+    play_paster_hwnds := []
+    DllCall("EnumWindows", "Ptr", cb, "Ptr", 0)
+    return play_paster_hwnds
+}
+
+PlayPasterEnumHwnds(hwnd, lParam) {
+    global play_paster_hwnds
+    title := Buffer(256)
+    DllCall("GetWindowText", "Ptr", hwnd, "Ptr", title, "Int", 128)
+    if (InStr(StrGet(title), "Paster - Snipaste"))
+        play_paster_hwnds.Push(hwnd)
+    return true
+}
+
+PlayNewPaster(before) {
+    for h in PlayPasterHwnds() {
+        found := false
+        for b in before {
+            if (h = b) {
+                found := true
+                break
+            }
+        }
+        if (!found)
+            return h
+    }
+    return 0
+}
+
+; ---- 提示与工具 ----
+PlayShowError(msg) {
+    DebugLog("play：错误 - " . msg)
+    MsgBox(msg, "SharpKnife - play 脚本错误", "Icon!")
+}
+
+PlayNoteFail(msg) {
+    DebugLog(msg)
+    ToolTip(msg)
+    SetTimer(() => ToolTip(), -2500)
+}
+
+PlayResolvePath(p) {
+    global playScriptDir
+    if (playScriptDir = "" || RegExMatch(p, "^[a-zA-Z]:[\\/]") || SubStr(p, 1, 1) = "\")
+        return p
+    return playScriptDir . "\" . p
+}
+
+PlayNum(v) {
+    return Format("{:g}", v)
 }
 
 ; ============================================================================
