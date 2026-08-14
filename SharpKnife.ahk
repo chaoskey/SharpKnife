@@ -612,8 +612,12 @@ PlayStartMedia(action, done) {
     if (isVideo) {
         if (action.Has("pos"))
             cmd .= "-left " . action["pos"].x . " -top " . action["pos"].y . " "
-        if (action.Has("size"))
-            cmd .= "-x " . action["size"].w . " -y " . action["size"].h . " "
+        if (action.Has("size")) {
+            if (action["size"].w > 0)
+                cmd .= "-x " . action["size"].w . " "
+            if (action["size"].h > 0)
+                cmd .= "-y " . action["size"].h . " "
+        }
     }
     cmd .= '-i "' path '"'
 
@@ -1009,7 +1013,9 @@ PlayValidateMedia(a, isVideo) {
             s := a["size"]
             if (!PlayIsXY(s))
                 return false
-            if (s[1] <= 0 || s[2] <= 0)
+            if (s[1] < 0 || s[2] < 0)
+                return false
+            if (s[1] <= 0 && s[2] <= 0)
                 return false
             a["size"] := {w: Round(s[1]), h: Round(s[2])}
         }
