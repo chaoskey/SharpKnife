@@ -182,7 +182,7 @@ ShowModeList(*) {
 ; 11b. 步进执行命令（play 模式专属，默认 Ctrl+R）—— 无论处于哪个状态都有效
 ;      关闭状态（未绑定脚本文件）：弹出 JSON 脚本选择窗口，校验通过后绑定并立即执行第 1 步
 ;      开启状态（已绑定脚本文件）：执行下一步；执行中（busy）触发被忽略（防重入）
-;      脚本为 UTF-8 JSON：根是 seq（顶层动作数组），支持 text/paste/audio/video/seq/par 六类动作
+;      脚本为 UTF-8 JSON：根是 seq（顶层动作数组），支持 text/sleep/run/note/paste/audio/video/seq/par 九类动作
 ;      详见 Requirements.md 第 8 节
 ; ============================================================================
 StepPlay(*) {
@@ -327,13 +327,20 @@ PlayDispatchStepAction(action, frame) {
     PlayExecTree(action, () => PlayAdvanceStepFrame(frame))
 }
 
-; 执行一棵动作（text/paste/audio/video/一次性 seq/par）；done 在完成时回调
+; 执行一棵动作（text/sleep/run/note/paste/audio/video/一次性 seq/par）；done 在完成时回调
 PlayExecTree(action, done) {
     global playScriptDir
     t := action["type"]
     if (t = "text") {
         PlayDoText(action["value"])
         done()
+    } else if (t = "sleep") {
+        PlayDoSleep(action["duration"], done)
+    } else if (t = "run") {
+        PlaySaveFocus()
+        PlayDoRun(action, (*) => (PlayRestoreFocus(), done()))
+    } else if (t = "note") {
+        PlayDoNote(action, done)
     } else if (t = "paste") {
         PlaySaveFocus()
         PlayDoPaste(action)
@@ -443,6 +450,53 @@ PlayFlushLiteral(&lit) {
         SendText(lit)
         lit := ""
     }
+}
+
+; ---- sleep 动作 ----
+PlayDoSleep(duration, done) {
+    ms := Round(duration * 1000)
+    if (ms <= 0) {
+        done()
+        return
+    }
+    SetTimer(() => done(), -ms)
+}
+
+; ---- run 动作 ----
+PlayDoRun(action, done) {
+    path := PlayResolvePath(action["path"])
+    args := action.Has("args") ? action["args"] : ""
+    hide := (action.Has("hide") && action["hide"])
+    isUrl := RegExMatch(path, "i)^(https?://|mailto:|www\\.)")
+    if (!isUrl && !FileExist(path)) {
+        PlayNoteFail("play：运行目标不存在：" . path)
+        done()
+        return
+    }
+    target := isUrl ? path : ('"' path '"')
+    if (args != "")
+        target .= " " . args
+    pid := 0
+    try {
+        Run(target, , hide ? "Hide" : "", &pid)
+    } catch {
+        PlayNoteFail("play：启动程序失败：" . path)
+        done()
+        return
+    }
+    if (action.Has("wait") && action["wait"])
+        PlayWatchMedia(pid, 0, done)
+    else
+        done()
+}
+
+; ---- note 动作 ----
+PlayDoNote(action, done) {
+    ToolTip(action["text"])
+    ms := Round(action["duration"] * 1000)
+    if (ms <= 0)
+        ms := 2500
+    SetTimer(() => (ToolTip(), done()), -ms)
 }
 
 ; ---- paste 动作 ----
@@ -845,6 +899,12 @@ PlayValidateAction(a) {
     t := a["type"]
     if (t = "text")
         return PlayValidateText(a)
+    if (t = "sleep")
+        return PlayValidateSleep(a)
+    if (t = "run")
+        return PlayValidateRun(a)
+    if (t = "note")
+        return PlayValidateNote(a)
     if (t = "paste")
         return PlayValidatePaste(a)
     if (t = "audio")
@@ -998,6 +1058,54 @@ PlayValidatePar(a) {
         if (!PlayValidateAction(item))
             return false
     }
+    return true
+}
+
+PlayValidateSleep(a) {
+    if (!a.Has("duration"))
+        return false
+    if (!PlayValidateTime(a["duration"]))
+        return false
+    a["duration"] := PlayTimeToSeconds(a["duration"])
+    if (a["duration"] < 0)
+        return false
+    return true
+}
+
+PlayValidateRun(a) {
+    if (!a.Has("path") || !(a["path"] is String) || a["path"] = "")
+        return false
+    if (a.Has("args") && !(a["args"] is String))
+        return false
+    w := false
+    if (a.Has("wait")) {
+        if (!PlayIsBool(a["wait"]))
+            return false
+        w := a["wait"] ? true : false
+    }
+    a["wait"] := w
+    h := false
+    if (a.Has("hide")) {
+        if (!PlayIsBool(a["hide"]))
+            return false
+        h := a["hide"] ? true : false
+    }
+    a["hide"] := h
+    return true
+}
+
+PlayValidateNote(a) {
+    if (!a.Has("text") || !(a["text"] is String) || a["text"] = "")
+        return false
+    dur := 2.5
+    if (a.Has("duration")) {
+        if (!PlayValidateTime(a["duration"]))
+            return false
+        dur := PlayTimeToSeconds(a["duration"])
+    }
+    if (dur < 0)
+        return false
+    a["duration"] := dur
     return true
 }
 
