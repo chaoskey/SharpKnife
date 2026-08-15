@@ -467,7 +467,7 @@ PlayDoRun(action, done) {
     path := PlayResolvePath(action["path"])
     args := action.Has("args") ? action["args"] : ""
     hide := (action.Has("hide") && action["hide"])
-    isUrl := RegExMatch(path, "i)^(https?://|mailto:|www\\.)")
+    isUrl := RegExMatch(path, "i)^(https?://|mailto:|www\.)")
     if (!isUrl && !FileExist(path)) {
         PlayNoteFail("play：运行目标不存在：" . path)
         done()
@@ -1358,6 +1358,9 @@ PlayNoteFail(msg) {
 
 PlayResolvePath(p) {
     global playScriptDir
+    ; URL（http/https/mailto/www. 开头）是绝对定位，不拼接脚本目录，原样返回
+    if (RegExMatch(p, "i)^(https?://|mailto:|www\.)"))
+        return p
     if (playScriptDir = "" || RegExMatch(p, "^[a-zA-Z]:[\\/]") || SubStr(p, 1, 1) = "\")
         return p
     return playScriptDir . "\" . p
