@@ -109,7 +109,6 @@ global playStepStack := []    ; 步进游标栈：每元素 {list: 动作数组,
 global playBusy := false      ; 执行中标记：有动作尚未完成时为真（阻塞步进热键）
 global playReentrant := false ; 防重入：文件选择对话框打开期间为真
 global playMediaWatch := []   ; 异步媒体监视列表：{pid, hwnd, done}（wait=true 时轮询退出）
-global gdipToken := 0         ; GDI+ 会话令牌（全局初始化一次，进程退出由系统释放，永不 Shutdown）
 global play_paster_hwnds := [] ; Snipaste 贴图窗口句柄收集缓冲（EnumWindows 回调写入）
 global playFocusWin := 0      ; 弹窗动作前记录的焦点窗口（弹窗后恢复焦点，保证文字输出继续）
 
@@ -518,12 +517,6 @@ PlayDoPaste(action) {
         else
             DebugLog("play：缩放失败，回退到原图")
     }
-    if (!PlayCopyPngToClipboard(pngPath)) {
-        if (tmpFile != "" && FileExist(tmpFile))
-            try FileDelete(tmpFile)
-        PlayNoteFail("play：复制图片到剪贴板失败")
-        return
-    }
     ; 确保 Snipaste 运行
     exe := FindSnipaste()
     if (exe = "") {
@@ -541,11 +534,38 @@ PlayDoPaste(action) {
         }
         Sleep 1500
     }
+    ; 贴图命令：paste --files <无引号全路径>（不经过剪贴板/GDI+）
+    ; 实测（Snipaste 2.11.3 + AHK v2 Run）：exe 与图片路径均无空格、完全无引号时
+    ; paste --files 100% 可靠；Target 中任何引号都会触发 AHK 引号解析导致参数损坏。
+    ; 路径含空格时依次尝试：8.3 短路径 → 复制到无空格临时目录。
+    cmd := PlayBuildPasteCmd(exe, pngPath)
+    if (cmd = "" && tmpFile = "") {
+        ; 复制到无空格临时目录（AHK v2 FileCopy 成功返回空串而非 true，
+        ; 失败抛异常 → 用 try + FileExist 判断）
+        tmpDir := A_Temp "\SharpKnife\play"
+        DirCreate(tmpDir)
+        cpTmp := tmpDir "\paste_" . A_TickCount . ".png"
+        try {
+            FileCopy(pngPath, cpTmp, 1)
+            if (FileExist(cpTmp)) {
+                tmpFile := cpTmp
+                pngPath := cpTmp
+                cmd := PlayBuildPasteCmd(exe, pngPath)
+            }
+        }
+    }
+    if (cmd = "") {
+        if (tmpFile != "" && FileExist(tmpFile))
+            try FileDelete(tmpFile)
+        PlayNoteFail("play：无法构造 Snipaste 贴图命令（exe 或图片路径含空格且无法消除，"
+            . "建议图片置于无空格路径）")
+        return
+    }
     ; 贴图并找到新贴图窗口
     before := PlayPasterHwnds()
     newHwnd := 0
     loop 4 {
-        Run('"' exe '" paste', , "Hide")
+        Run(cmd, , "Hide")
         deadline := A_TickCount + 2500
         while (A_TickCount < deadline) {
             newHwnd := PlayNewPaster(before)
@@ -1160,153 +1180,60 @@ PlayTimeToSeconds(v) {
     return -1
 }
 
-; ---- GDI+ 辅助（缩放 / 剪贴板） ----
-GdipEnsure() {
-    global gdipToken
-    if (gdipToken)
-        return true
-    si := Buffer(24)
-    NumPut("UInt", 1, si, 0)
-    tok := 0
-    if (DllCall("gdiplus.dll\GdiplusStartup", "UPtr*", &tok, "Ptr", si, "Ptr", 0) != 0)
-        return false
-    gdipToken := tok
-    return true
-}
-
+; ---- 图片缩放（PowerShell System.Drawing，不用 GDI+） ----
+; 用户明确要求不用 GDI+（GdiplusShutdown 在本机必崩、Startup 间歇失败）。
+; 改用 PowerShell System.Drawing 缩放：powershell -STA 调用 scale.ps1，
+; 输出 PNG 到目标路径。失败返回 false（调用方回退原图）。
 PlayScalePng(srcPath, outW, outH, outPath) {
-    if (!GdipEnsure())
-        return false
-    src := 0
-    if (DllCall("gdiplus.dll\GdipCreateBitmapFromFile", "Ptr", StrPtr(srcPath), "UPtr*", &src) != 0)
-        return false
-    ; 只设一边（w 或 h 为 0）时按原图宽高比等比缩放
-    srcW := 0
-    srcH := 0
-    DllCall("gdiplus.dll\GdipGetImageWidth", "Ptr", src, "UInt*", &srcW)
-    DllCall("gdiplus.dll\GdipGetImageHeight", "Ptr", src, "UInt*", &srcH)
-    if (outW <= 0 && outH <= 0) {
-        outW := srcW
-        outH := srcH
-    } else if (outW <= 0) {
-        outW := Round(outH * srcW / srcH)
-    } else if (outH <= 0) {
-        outH := Round(outW * srcH / srcW)
-    }
-    dst := 0
-    ; PixelFormat32bppARGB = 0x26200A
-    if (DllCall("gdiplus.dll\GdipCreateBitmapFromScan0", "Int", outW, "Int", outH, "Int", 0, "Int", 0x26200A, "Ptr", 0, "UPtr*", &dst) != 0) {
-        DllCall("gdiplus.dll\GdipDisposeImage", "Ptr", src)
+    ps := A_ScriptDir "\scale.ps1"
+    if (!FileExist(ps)) {
+        DebugLog("play：缩放 scale.ps1 不存在：" ps)
         return false
     }
-    g := 0
-    DllCall("gdiplus.dll\GdipGetImageGraphicsContext", "Ptr", dst, "UPtr*", &g)
-    DllCall("gdiplus.dll\GdipSetInterpolationMode", "Ptr", g, "Int", 7)
-    DllCall("gdiplus.dll\GdipDrawImageRectI", "Ptr", g, "Ptr", src, "Int", 0, "Int", 0, "Int", outW, "Int", outH)
-    DllCall("gdiplus.dll\GdipDeleteGraphics", "Ptr", g)
-    DllCall("gdiplus.dll\GdipDisposeImage", "Ptr", src)
-    ok := PlaySavePng(dst, outPath)
-    DllCall("gdiplus.dll\GdipDisposeImage", "Ptr", dst)
-    return ok
-}
-
-PlaySavePng(pBitmap, outPath) {
-    clsid := Buffer(16)
-    if (!PlayGetPngEncoderClsid(clsid))
-        return false
-    return DllCall("gdiplus.dll\GdipSaveImageToFile", "Ptr", pBitmap, "Ptr", StrPtr(outPath), "Ptr", clsid, "Ptr", 0) = 0
-}
-
-PlayGetPngEncoderClsid(clsid) {
-    num := 0
-    size := 0
-    DllCall("gdiplus.dll\GdipGetImageEncodersSize", "UInt*", &num, "UInt*", &size)
-    if (size = 0)
-        return false
-    buf := Buffer(size)
-    DllCall("gdiplus.dll\GdipGetImageEncoders", "UInt", num, "UInt", size, "Ptr", buf)
-    loop num {
-        off := (A_Index - 1) * 104
-        mime := NumGet(buf, off + 64, "Ptr")
-        if (mime && StrGet(mime) = "image/png") {
-            DllCall("RtlMoveMemory", "Ptr", clsid, "Ptr", buf.Ptr + off, "UPtr", 16)
-            return true
-        }
-    }
-    return false
-}
-
-PlayLoadHbitmap(pngPath) {
-    if (!GdipEnsure())
-        return 0
-    pBitmap := 0
-    if (DllCall("gdiplus.dll\GdipCreateBitmapFromFile", "Ptr", StrPtr(pngPath), "UPtr*", &pBitmap) != 0)
-        return 0
-    hbm := 0
-    DllCall("gdiplus.dll\GdipCreateHBITMAPFromBitmap", "Ptr", pBitmap, "UPtr*", &hbm, "UInt", 0x00FFFFFF)
-    DllCall("gdiplus.dll\GdipDisposeImage", "Ptr", pBitmap)
-    return hbm
-}
-
-; 复制 PNG 到剪贴板（PNG 注册格式 + CF_DIB 双格式）
-PlayCopyPngToClipboard(pngPath) {
-    static fmtPng := 0
-    if (pngPath = "" || !FileExist(pngPath))
-        return false
-    ok := false
+    if (FileExist(outPath))
+        try FileDelete(outPath)
+    cmd := 'powershell -STA -NoProfile -ExecutionPolicy Bypass -File "' ps '" -SrcPath "' srcPath '" -W ' outW ' -H ' outH ' -Out "' outPath '"'
     try {
-        f := FileOpen(pngPath, "r")
-        f.Seek(0, 2)
-        size := f.Pos
-        f.Seek(0)
-        buf := Buffer(size)
-        f.RawRead(buf, size)
-        f.Close()
-
-        hbm := PlayLoadHbitmap(pngPath)
-        hDib := hbm ? HbmToDib(hbm) : 0
-
-        if (!fmtPng)
-            fmtPng := DllCall("RegisterClipboardFormat", "Str", "PNG", "UInt")
-
-        hMem := DllCall("GlobalAlloc", "UInt", 0x0042, "UPtr", size, "UPtr")
-        if (hMem) {
-            p := DllCall("GlobalLock", "Ptr", hMem, "Ptr")
-            DllCall("RtlMoveMemory", "Ptr", p, "Ptr", buf, "UPtr", size)
-            DllCall("GlobalUnlock", "Ptr", hMem)
-        }
-
-        if (DllCall("OpenClipboard", "Ptr", 0)) {
-            if (DllCall("EmptyClipboard")) {
-                if (hMem) {
-                    if (DllCall("SetClipboardData", "UInt", fmtPng, "Ptr", hMem))
-                        ok := true
-                    else
-                        DllCall("GlobalFree", "Ptr", hMem)
-                }
-                if (hDib) {
-                    if (DllCall("SetClipboardData", "UInt", 8, "Ptr", hDib))
-                        ok := true
-                    else
-                        DllCall("GlobalFree", "Ptr", hDib)
-                }
-            } else {
-                if (hMem)
-                    DllCall("GlobalFree", "Ptr", hMem)
-                if (hDib)
-                    DllCall("GlobalFree", "Ptr", hDib)
-            }
-            DllCall("CloseClipboard")
-        } else {
-            if (hMem)
-                DllCall("GlobalFree", "Ptr", hMem)
-            if (hDib)
-                DllCall("GlobalFree", "Ptr", hDib)
-        }
-        if (hbm)
-            DllCall("DeleteObject", "Ptr", hbm)
+        RunWait(cmd, , "Hide")
+    } catch as e {
+        DebugLog("play：缩放 RunWait 异常：" e.Message)
+        return false
     }
+    ok := FileExist(outPath)
+    DebugLog("play：缩放保存 ok=" ok " 目标=" outPath)
     return ok
+}
+
+; 构造 paste --files 贴图命令（AHK Run 无引号方式）
+; 实测（Snipaste 2.11.3）：AHK Run 的 Target 只要出现引号（exe 或参数任一）就会走
+; "引号解析"路径重建 lpCommandLine，导致参数损坏（Snipaste 收不到 --files）；
+; 完全无引号时 AHK 把整串直接作为 lpCommandLine 传给 CreateProcess，参数正确。
+; 因此返回的命令要求 exe 与文件路径都不含空格。
+; 含空格的路径用 GetShortPathName 转 8.3 短路径；仍无法消除空格则返回 ""（调用方处理）。
+PlayBuildPasteCmd(exe, filePath) {
+    e := exe
+    f := filePath
+    if (InStr(e, " ") || InStr(f, " ")) {
+        if (InStr(e, " "))
+            e := PlayToShortPath(e)
+        if (InStr(f, " "))
+            f := PlayToShortPath(f)
+        if (e = "" || f = "")
+            return ""
+    }
+    if (e = "" || f = "" || InStr(e, " ") || InStr(f, " "))
+        return ""
+    return e " paste --files " f
+}
+
+; 转 8.3 短路径（GetShortPathNameW）；失败返回 ""
+PlayToShortPath(p) {
+    n := DllCall("GetShortPathNameW", "Str", p, "Ptr", 0, "UInt", 0, "UInt")
+    if (n = 0)
+        return ""
+    buf := Buffer((n + 1) * 2)
+    DllCall("GetShortPathNameW", "Str", p, "Ptr", buf, "UInt", n + 1, "UInt")
+    return StrGet(buf, n, "UTF-16")
 }
 
 ; Snipaste 贴图窗口枚举（Paster 是 Qt 工具窗口，WinGetList 默认排除，须 EnumWindows）
