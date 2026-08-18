@@ -522,15 +522,23 @@ PlayDoPaste(action) {
     }
     pngPath := path
     tmpFile := ""
-    if (action.Has("size")) {
-        s := action["size"]
+    ; size 和 opacity(<100) 都需要先生成临时 PNG：
+    ;   size    → scale.ps1 缩放；
+    ;   opacity → scale.ps1 把不透明度烘焙进 alpha 通道（不用 WinSetTransparent，
+    ;             因为 Snipaste 贴图窗口由 UpdateLayeredWindow 管理，外部改窗口 alpha
+    ;             会破坏其拖拽缩放交互并出现红框）。
+    needScale := action.Has("size")
+    needAlpha := (action.Has("opacity") && action["opacity"] < 100)
+    if (needScale || needAlpha) {
+        s := needScale ? action["size"] : {w: 0, h: 0}
+        alphaPct := needAlpha ? action["opacity"] : 100
         tmpDir := A_Temp "\SharpKnife\play"
         DirCreate(tmpDir)
         tmpFile := tmpDir "\paste_" . A_TickCount . ".png"
-        if (PlayScalePng(path, s.w, s.h, tmpFile))
+        if (PlayScalePng(path, s.w, s.h, tmpFile, alphaPct))
             pngPath := tmpFile
         else
-            DebugLog("play：缩放失败，回退到原图")
+            DebugLog("play：缩放/透明失败，回退到原图")
     }
     ; 确保 Snipaste 运行
     exe := FindSnipaste()
@@ -609,9 +617,8 @@ PlayDoPaste(action) {
             WinMove(Max((A_ScreenWidth - ww) // 2, 0), Max((A_ScreenHeight - wh) // 2, 0), , , "ahk_id " . newHwnd)
         }
     }
-    ; 透明度
-    if (action.Has("opacity") && action["opacity"] < 100)
-        WinSetTransparent(Round(action["opacity"] * 255 / 100), "ahk_id " . newHwnd)
+    ; 注：opacity 已在贴图前烘焙进图片 alpha 通道（见上文 needAlpha），此处不再对窗口做 WinSetTransparent，
+    ; 以保持 Snipaste 贴图窗口原生可交互（拖边缩放 / 无红框）。
 }
 
 ; ---- audio / video 动作 ----
@@ -741,11 +748,13 @@ PlayLoadScript(path) {
 
 ; ---- 结构校验（加载阶段） ----（实现已移至 SharpKnifeCore.ahk：PlayValidate* / PlayIs* / PlayTimeToSeconds / PlayHexToInt）
 
-; ---- 图片缩放（PowerShell System.Drawing，不用 GDI+） ----
+; ---- 图片缩放 / 透明度（PowerShell System.Drawing，不用 GDI+） ----
 ; 用户明确要求不用 GDI+（GdiplusShutdown 在本机必崩、Startup 间歇失败）。
-; 改用 PowerShell System.Drawing 缩放：powershell -STA 调用 scale.ps1，
+; 改用 PowerShell System.Drawing：powershell -STA 调用 scale.ps1，
 ; 输出 PNG 到目标路径。失败返回 false（调用方回退原图）。
-PlayScalePng(srcPath, outW, outH, outPath) {
+; alphaPct（0~100）：<100 时把不透明度烘焙进图片 alpha 通道（Snipaste 贴图窗口由
+; UpdateLayeredWindow 管理，直接 WinSetTransparent 会破坏其缩放交互——改为烘焙到图内）。
+PlayScalePng(srcPath, outW, outH, outPath, alphaPct := 100) {
     ps := A_ScriptDir "\scale.ps1"
     if (!FileExist(ps)) {
         DebugLog("play：缩放 scale.ps1 不存在：" ps)
@@ -753,7 +762,7 @@ PlayScalePng(srcPath, outW, outH, outPath) {
     }
     if (FileExist(outPath))
         try FileDelete(outPath)
-    cmd := 'powershell -STA -NoProfile -ExecutionPolicy Bypass -File "' ps '" -SrcPath "' srcPath '" -W ' outW ' -H ' outH ' -Out "' outPath '"'
+    cmd := 'powershell -STA -NoProfile -ExecutionPolicy Bypass -File "' ps '" -SrcPath "' srcPath '" -W ' outW ' -H ' outH ' -AlphaPct ' alphaPct ' -Out "' outPath '"'
     try {
         RunWait(cmd, , "Hide")
     } catch as e {
@@ -761,7 +770,7 @@ PlayScalePng(srcPath, outW, outH, outPath) {
         return false
     }
     ok := FileExist(outPath)
-    DebugLog("play：缩放保存 ok=" ok " 目标=" outPath)
+    DebugLog("play：缩放保存 ok=" ok " 目标=" outPath " alpha=" alphaPct)
     return ok
 }
 
