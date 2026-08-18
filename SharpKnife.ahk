@@ -413,21 +413,30 @@ PlayDoText(value, delayMs := 0) {
     }
 }
 
+; 文本：支持 {Delay N} 段内延迟记号（自造扩展，非官方）：
+;   - 遇到 {Delay 100} 时，后续所有字符与按键动作均按 100ms 间隔输出，直到下一个 {Delay N} 切换。
+;   - delayMs 参数为整串的初始延迟（来自动作级 delay 字段，缺省 0）。
+;   - 每发一个字符或一个按键动作后 Sleep(当前延迟)（字符与按键都延迟，保持均匀）。
 PlaySendText(text, delayMs := 0) {
+    curDelay := Max(delayMs, 0)
     lit := ""
     i := 1
     len := StrLen(text)
     while (i <= len) {
         c := SubStr(text, i, 1)
         if (c = "`n") {
-            PlayFlushLiteral(&lit, delayMs)
+            PlayFlushLiteral(&lit, curDelay)
             Send("{Enter}")
+            if (curDelay > 0)
+                Sleep(curDelay)
             i++
             continue
         }
         if (c = "`r") {
-            PlayFlushLiteral(&lit, delayMs)
+            PlayFlushLiteral(&lit, curDelay)
             Send("{Enter}")
+            if (curDelay > 0)
+                Sleep(curDelay)
             i++
             if (i <= len && SubStr(text, i, 1) = "`n")
                 i++
@@ -446,9 +455,22 @@ PlaySendText(text, delayMs := 0) {
             j := InStr(text, "}", false, i + 1)
             if (j) {
                 inner := SubStr(text, i + 1, j - i - 1)
+                ; --- 段内延迟记号 {Delay N}（自造扩展）：切换当前延迟，不输出 ---
+                ; 关键：先用旧 curDelay 冲刷已累积的字面符，避免前缀被新延迟带歪
+                if (RegExMatch(inner, "i)^[Dd]elay[ ]*(-?\d+)$", &dm)) {
+                    PlayFlushLiteral(&lit, curDelay)
+                    nd := Integer(dm[1])
+                    if (nd < 0)
+                        nd := 0
+                    curDelay := nd
+                    i := j + 1
+                    continue
+                }
                 if (inner != "" && RegExMatch(inner, "i)^[a-z0-9]+( [0-9]+)?$")) {
-                    PlayFlushLiteral(&lit, delayMs)
+                    PlayFlushLiteral(&lit, curDelay)
                     Send("{" . inner . "}")
+                    if (curDelay > 0)
+                        Sleep(curDelay)
                     i := j + 1
                     continue
                 }
@@ -457,14 +479,15 @@ PlaySendText(text, delayMs := 0) {
         lit .= c
         i++
     }
-    PlayFlushLiteral(&lit, delayMs)
+    PlayFlushLiteral(&lit, curDelay)
 }
 
 ; 冲刷缓冲的字面字符：delayMs>0 时逐字符输出并间隔 delayMs 毫秒
-PlayFlushLiteral(&lit, delayMs := 0) {
+; 注意：每发出一个字符都 Sleep 一次（每字符后），末尾不再多 Sleep（由下一个字符/按键再 Sleep，保证均匀）。
+PlayFlushLiteral(&lit, delayMs) {
     if (lit = "")
         return
-    if (delayMs > 0 && StrLen(lit) > 1) {
+    if (delayMs > 0) {
         loop StrLen(lit) {
             SendText(SubStr(lit, A_Index, 1))
             Sleep(delayMs)
