@@ -373,16 +373,31 @@ PlayValidateText(a) {
     if (!a.Has("value"))
         return false
     v := a["value"]
-    if (v is String)
-        return true
-    if (IsObject(v) && v is Array) {
+    valid := false
+    if (v is String) {
+        valid := true
+    } else if (IsObject(v) && v is Array) {
+        valid := true
         for item in v {
-            if (!(item is String))
-                return false
+            if (!(item is String)) {
+                valid := false
+                break
+            }
         }
-        return true
     }
-    return false
+    if (!valid)
+        return false
+    ; delay：可选，毫秒，控制字符输出间隔；缺省 0（即时输出）；负值按最近边界截断为 0
+    if (a.Has("delay")) {
+        if (!PlayIsNumber(a["delay"]))
+            return false
+        if (a["delay"] < 0)
+            a["delay"] := 0
+        a["delay"] := Round(a["delay"])
+    } else {
+        a["delay"] := 0
+    }
+    return true
 }
 
 PlayValidatePaste(a) {

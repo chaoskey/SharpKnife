@@ -346,7 +346,7 @@ PlayExecTree(action, done) {
     global playScriptDir
     t := action["type"]
     if (t = "text") {
-        PlayDoText(action["value"])
+        PlayDoText(action["value"], action.Get("delay", 0))
         done()
     } else if (t = "sleep") {
         PlayDoSleep(action["duration"], done)
@@ -398,34 +398,35 @@ PlayParChildDone(holder, done) {
 }
 
 ; ---- text 动作 ----
-PlayDoText(value) {
+; delayMs：字符输出间隔（毫秒），0 = 即时输出（保持原行为）
+PlayDoText(value, delayMs := 0) {
     if (value is String) {
-        PlaySendText(value)
+        PlaySendText(value, delayMs)
         return
     }
     first := true
     for item in value {
         if (!first)
             Send("{Enter}")
-        PlaySendText(item)
+        PlaySendText(item, delayMs)
         first := false
     }
 }
 
-PlaySendText(text) {
+PlaySendText(text, delayMs := 0) {
     lit := ""
     i := 1
     len := StrLen(text)
     while (i <= len) {
         c := SubStr(text, i, 1)
         if (c = "`n") {
-            PlayFlushLiteral(&lit)
+            PlayFlushLiteral(&lit, delayMs)
             Send("{Enter}")
             i++
             continue
         }
         if (c = "`r") {
-            PlayFlushLiteral(&lit)
+            PlayFlushLiteral(&lit, delayMs)
             Send("{Enter}")
             i++
             if (i <= len && SubStr(text, i, 1) = "`n")
@@ -446,7 +447,7 @@ PlaySendText(text) {
             if (j) {
                 inner := SubStr(text, i + 1, j - i - 1)
                 if (inner != "" && RegExMatch(inner, "i)^[a-z0-9]+( [0-9]+)?$")) {
-                    PlayFlushLiteral(&lit)
+                    PlayFlushLiteral(&lit, delayMs)
                     Send("{" . inner . "}")
                     i := j + 1
                     continue
@@ -456,14 +457,22 @@ PlaySendText(text) {
         lit .= c
         i++
     }
-    PlayFlushLiteral(&lit)
+    PlayFlushLiteral(&lit, delayMs)
 }
 
-PlayFlushLiteral(&lit) {
-    if (lit != "") {
+; 冲刷缓冲的字面字符：delayMs>0 时逐字符输出并间隔 delayMs 毫秒
+PlayFlushLiteral(&lit, delayMs := 0) {
+    if (lit = "")
+        return
+    if (delayMs > 0 && StrLen(lit) > 1) {
+        loop StrLen(lit) {
+            SendText(SubStr(lit, A_Index, 1))
+            Sleep(delayMs)
+        }
+    } else {
         SendText(lit)
-        lit := ""
     }
+    lit := ""
 }
 
 ; ---- sleep 动作 ----
