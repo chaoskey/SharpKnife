@@ -245,8 +245,6 @@ PlayBindFile(selected) {
 
 PlayUnbind() {
     global playScriptFile, playScriptDir, playStepStack, playBusy
-    ; 脚本执行完毕：在光标处字面输出固定结束语（SendText 不解释 {} 等键名）
-    SendText("【play 脚本结束】")
     playScriptFile := ""
     playScriptDir := ""
     playStepStack := []
