@@ -357,7 +357,13 @@ PlayExecTree(action, done) {
         PlayDoNote(action, done)
     } else if (t = "paste") {
         PlaySaveFocus()
-        PlayDoPaste(action)
+        try {
+            PlayDoPaste(action)
+        } catch as e {
+            ; 贴图流程异常 → 记日志并当作失败跳过，保证 done() 一定被调用、不挂起执行标记
+            PlayNoteFail("play：贴图动作异常：" . e.Message)
+            DebugLog("play：PlayDoPaste 异常 @line " . e.Line . "：" . e.Message)
+        }
         PlayRestoreFocus()
         done()
     } else if (t = "audio" || t = "video") {
@@ -651,6 +657,22 @@ PlayDoPaste(action) {
     }
     ; 注：opacity 已在贴图前烘焙进图片 alpha 通道（见上文 needAlpha），此处不再对窗口做 WinSetTransparent，
     ; 以保持 Snipaste 贴图窗口原生可交互（拖边缩放 / 无红框）。
+    ; ttl > 0：贴图经 ttl 毫秒后自动销毁该贴图窗口。
+    ; 关闭方式见 PlayClosePaster：激活窗口 + Send Esc（Snipaste 官方销毁交互，
+    ; 权威实测 WM_CLOSE / SC_CLOSE / DestroyWindow 均无法关闭 Paster 窗口）。
+    ; ttl = 0（缺省）不自动销毁，由用户手动销毁。
+    ttlMs := action.Get("ttl", 0)
+    if (ttlMs > 0) {
+        DebugLog("play：ttl 生效，newHwnd=" . newHwnd . " ttl=" . ttlMs)
+        try {
+            ; 注意：AHK v2 的 SetTimer 第 3+ 参数不是"传给回调的值"——
+            ; SetTimer(Func, period, value) 会抛 "Invalid callback function"（实测）。
+            ; 必须用 Bind 预先绑定参数，或闭包捕获。
+            SetTimer(PlayClosePaster.Bind(newHwnd), -ttlMs)
+        } catch as e {
+            DebugLog("play：ttl SetTimer 异常：" . e.Message)
+        }
+    }
 }
 
 ; ---- audio / video 动作 ----
@@ -871,6 +893,49 @@ PlayNewPaster(before) {
             return h
     }
     return 0
+}
+
+; 销毁（关闭）指定的 Snipaste 贴图窗口（Paster）
+; 实测（权威验证 test/run-close-test2.ps1）：Paster 是 Snipaste 自管理的 Qt 工具窗口，
+; PostMessage WM_CLOSE / WM_SYSCOMMAND+SC_CLOSE / DestroyWindow 全部无效（窗口不消失）。
+; 唯一有效方式 = Snipaste 官方销毁交互：让贴图窗口获得焦点后按 Esc（等同用户按 Esc 销毁当前贴图）。
+; 因此这里：记录原焦点窗口 → WinActivate 贴图窗口 → Send Esc → 轮询确认销毁 → 恢复原焦点。
+; 若 Esc 后仍未销毁（极端情况），补投 WM_CLOSE / SC_CLOSE 尽力而为，最后恢复焦点、记日志。
+PlayClosePaster(hwnd) {
+    DebugLog("play：PlayClosePaster 触发，hwnd=" . hwnd)
+    if (!hwnd || !WinExist("ahk_id " . hwnd))
+        return
+    prevWin := WinExist("A")                     ; 销毁前的前台窗口（销毁后恢复焦点）
+    ; 1) Snipaste 官方销毁：激活贴图窗口 → 按 Esc
+    WinActivate("ahk_id " . hwnd)
+    Sleep 150
+    Send("{Esc}")
+    loop 6 {
+        Sleep 200
+        if (!WinExist("ahk_id " . hwnd)) {       ; 已销毁
+            PlayRestoreFocusTo(prevWin)
+            return
+        }
+    }
+    ; 2) 兜底：消息方式（权威测试证明无效，尽力尝试）
+    loop 2 {
+        DllCall("PostMessage", "Ptr", hwnd, "UInt", 0x0010, "Ptr", 0, "Ptr", 0)  ; WM_CLOSE
+        DllCall("PostMessage", "Ptr", hwnd, "UInt", 0x0112, "Ptr", 0xF060, "Ptr", 0) ; SC_CLOSE
+        Sleep 200
+        if (!WinExist("ahk_id " . hwnd)) {
+            PlayRestoreFocusTo(prevWin)
+            return
+        }
+    }
+    PlayRestoreFocusTo(prevWin)
+    DebugLog("play：贴图窗口自动销毁未生效（ttl 到期后 Esc/关闭消息均未关闭），hwnd=" . hwnd)
+}
+
+; 恢复焦点到指定窗口（ttl 自动销毁抢焦点后归还；无效则静默）
+PlayRestoreFocusTo(hwnd) {
+    if (!hwnd || !WinExist("ahk_id " . hwnd))
+        return
+    try WinActivate("ahk_id " . hwnd)
 }
 
 ; ---- 提示与工具 ----

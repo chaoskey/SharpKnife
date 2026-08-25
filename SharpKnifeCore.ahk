@@ -430,6 +430,16 @@ PlayValidatePaste(a) {
             op := 0
     }
     a["opacity"] := op
+    ; ttl：贴图后自动销毁的毫秒数；0（缺省）= 不自动销毁，由用户手动销毁；>0 = 贴图后经此毫秒后自动销毁
+    ttl := 0
+    if (a.Has("ttl")) {
+        if (!PlayIsNumber(a["ttl"]))
+            return false
+        ttl := Round(a["ttl"])
+        if (ttl < 0)
+            ttl := 0
+    }
+    a["ttl"] := ttl
     return true
 }
 
