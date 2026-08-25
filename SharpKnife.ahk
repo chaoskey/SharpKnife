@@ -117,6 +117,7 @@ global playStepStack := []    ; 步进游标栈：每元素 {list: 动作数组,
 global playBusy := false      ; 执行中标记：有动作尚未完成时为真（阻塞步进热键）
 global playReentrant := false ; 防重入：文件选择对话框打开期间为真
 global playMediaWatch := []   ; 异步媒体监视列表：{pid, hwnd, done}（wait=true 时轮询退出）
+global playPasterWatch := []  ; 贴图窗口监视列表：{hwnd, done}（paste wait=true 时轮询贴图窗口销毁）
 global play_paster_hwnds := [] ; Snipaste 贴图窗口句柄收集缓冲（EnumWindows 回调写入）
 global playFocusWin := 0      ; 弹窗动作前记录的焦点窗口（弹窗后恢复焦点，保证文字输出继续）
 
@@ -355,15 +356,20 @@ PlayExecTree(action, done) {
         PlayDoNote(action, done)
     } else if (t = "paste") {
         PlaySaveFocus()
+        ; PlayDoPaste 内部负责完成时机：
+        ;   - 失败 → done() 立即跳过；
+        ;   - 成功且 ttl>0 && wait=false（或缺省）→ 立即 done()；
+        ;   - 成功且 ttl>0 && wait=true → 等贴图窗口销毁后 done()。
+        ; 完成回调统一恢复焦点（wait=true 时销毁动作会抢焦点，完成后归还）。
+        pasteDone := () => (PlayRestoreFocus(), done())
         try {
-            PlayDoPaste(action)
+            PlayDoPaste(action, pasteDone)
         } catch as e {
             ; 贴图流程异常 → 记日志并当作失败跳过，保证 done() 一定被调用、不挂起执行标记
             PlayNoteFail("play：贴图动作异常：" . e.Message)
             DebugLog("play：PlayDoPaste 异常 @line " . e.Line . "：" . e.Message)
+            pasteDone()
         }
-        PlayRestoreFocus()
-        done()
     } else if (t = "audio" || t = "video") {
         PlaySaveFocus()
         PlayStartMedia(action, (*) => (PlayRestoreFocus(), done()))
@@ -550,10 +556,12 @@ PlayDoNote(action, done) {
 }
 
 ; ---- paste 动作 ----
-PlayDoPaste(action) {
+; done：动作完成回调（贴图动作立即完成；ttl>0 且 wait=true 时等待贴图窗口自动销毁后才完成）
+PlayDoPaste(action, done) {
     path := PlayResolvePath(action["path"])
     if (!FileExist(path)) {
         PlayNoteFail("play：粘贴图片不存在：" . path)
+        done()
         return
     }
     pngPath := path
@@ -582,6 +590,7 @@ PlayDoPaste(action) {
         if (tmpFile != "" && FileExist(tmpFile))
             try FileDelete(tmpFile)
         PlayNoteFail("play：未找到 Snipaste，无法贴图")
+        done()
         return
     }
     if (!ProcessExist("Snipaste.exe")) {
@@ -618,6 +627,7 @@ PlayDoPaste(action) {
             try FileDelete(tmpFile)
         PlayNoteFail("play：无法构造 Snipaste 贴图命令（exe 或图片路径含空格且无法消除，"
             . "建议图片置于无空格路径）")
+        done()
         return
     }
     ; 贴图并找到新贴图窗口
@@ -641,6 +651,7 @@ PlayDoPaste(action) {
         try FileDelete(tmpFile)
     if (!newHwnd) {
         PlayNoteFail("play：Snipaste 贴图失败（贴图窗口未出现）")
+        done()
         return
     }
     ; 定位：pos 指定则移动到该位置，否则居中
@@ -671,6 +682,15 @@ PlayDoPaste(action) {
             DebugLog("play：ttl SetTimer 异常：" . e.Message)
         }
     }
+    ; wait：仅 ttl>0 时有意义（ttl=0 时 ignore，始终相当于 false）。
+    ; wait=true：等待该贴图窗口自动销毁（ttl 到期关闭）后才完成动作；
+    ; wait=false（或缺省）：无须等待，立即完成（贴图窗口按 ttl 自行销毁或由用户销毁）。
+    if (ttlMs > 0 && action.Get("wait", false)) {
+        DebugLog("play：wait=true，等待贴图窗口销毁后继续，newHwnd=" . newHwnd)
+        PlayWatchPaster(newHwnd, done)
+        return
+    }
+    done()
 }
 
 ; ---- audio / video 动作 ----
@@ -891,6 +911,33 @@ PlayNewPaster(before) {
             return h
     }
     return 0
+}
+
+; ---- paste wait=true：轮询等贴图窗口销毁后完成动作 ----
+; 贴图动作 ttl>0 且 wait=true 时，粘贴完成后不立即 done，而是进入监视：
+; 轮询直到该贴图窗口（hwnd）消失（ttl 到期自动销毁，或用户手动销毁）才调 done。
+PlayWatchPaster(hwnd, done) {
+    global playPasterWatch
+    playPasterWatch.Push({hwnd: hwnd, done: done})
+    SetTimer(PlayPasterPoll, 200)
+}
+
+PlayPasterPoll() {
+    global playPasterWatch
+    if (playPasterWatch.Length = 0) {
+        SetTimer(PlayPasterPoll, 0)
+        return
+    }
+    still := []
+    for item in playPasterWatch {
+        if (WinExist("ahk_id " . item.hwnd)) {
+            still.Push(item)
+        } else {
+            cb := item.done
+            cb()
+        }
+    }
+    playPasterWatch := still
 }
 
 ; 销毁（关闭）指定的 Snipaste 贴图窗口（Paster）

@@ -440,6 +440,16 @@ PlayValidatePaste(a) {
             ttl := 0
     }
     a["ttl"] := ttl
+    ; wait：是否等待贴图窗口关闭后才继续。
+    ; 语义：ttl = 0 时 wait 无意义（被忽略，始终相当于 false）；ttl > 0 时 wait 有意义，缺省 false。
+    ; wait 有意义且为 true → 贴图动作在贴图窗口自动销毁（ttl 到期关闭）后才完成，否则立即完成。
+    w := false
+    if (a.Has("wait")) {
+        if (!PlayIsBool(a["wait"]))
+            return false
+        w := a["wait"] ? true : false
+    }
+    a["wait"] := w
     return true
 }
 
