@@ -239,8 +239,6 @@ PlayBindFile(selected) {
     playStepStack := [{list: root, idx: 0}]
     playBusy := false
     DebugLog("play：已绑定脚本 '" . selected . "'（顶层共 " . root.Length . " 个动作）")
-    ToolTip("play 模式：已绑定脚本，执行第 1 步")
-    SetTimer(() => ToolTip(), -1500)
     PlayRunStepFrame()
 }
 
@@ -251,8 +249,6 @@ PlayUnbind() {
     playStepStack := []
     playBusy := false
     DebugLog("play：脚本执行完毕，自动解绑，回到关闭状态")
-    ToolTip("play 模式：脚本执行完毕，已解绑")
-    SetTimer(() => ToolTip(), -1500)
 }
 
 ; ---- 步进游标栈 ----
