@@ -664,10 +664,29 @@ PlayDoPasteNow(action, done) {
         done()
         return
     }
-    ; 定位：pos 指定则移动到该位置，否则居中
+    ; 定位：
+    ;  - 无 pos：主屏水平竖直都居中。
+    ;  - 有 pos：默认直接移动到 [x, y]；支持负值居中语义——
+    ;        x < 0（且 y >= 0）→ 水平居中、竖直位置由 y 确定；
+    ;        y < 0（且 x >= 0）→ 竖直居中、水平位置由 x 确定；
+    ;        x < 0 且 y < 0    → 水平竖直都居中（等效于未设置 pos）。
+    ;    统一规则：x < 0 时 x 取水平居中值；y < 0 时 y 取竖直居中值。
     if (action.Has("pos")) {
         p := action["pos"]
-        WinMove(p.x, p.y, , , "ahk_id " . newHwnd)
+        px := p.x
+        py := p.y
+        needX := (px < 0)
+        needY := (py < 0)
+        if (needX || needY) {
+            try {
+                WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " . newHwnd)
+                if (needX)
+                    px := Max((A_ScreenWidth - ww) // 2, 0)
+                if (needY)
+                    py := Max((A_ScreenHeight - wh) // 2, 0)
+            }
+        }
+        WinMove(px, py, , , "ahk_id " . newHwnd)
     } else {
         try {
             WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " . newHwnd)
@@ -735,8 +754,17 @@ PlayStartMedia(action, done) {
     }
     cmd .= "-af volume=" . PlayNum(volume) . " "
     if (isVideo) {
-        if (action.Has("pos"))
-            cmd .= "-left " . action["pos"].x . " -top " . action["pos"].y . " "
+        posX := action.Has("pos") ? action["pos"].x : 0
+        posY := action.Has("pos") ? action["pos"].y : 0
+        posNegX := action.Has("pos") && posX < 0
+        posNegY := action.Has("pos") && posY < 0
+        if (action.Has("pos") && !posNegX && !posNegY) {
+            ; 常规正坐标：启动时用 ffplay 原生 -left/-top 定位（默认行为，与历史一致）
+            cmd .= "-left " . posX . " -top " . posY . " "
+        } else if (action.Has("pos")) {
+            ; pos 含负值（居中语义）：-left/-top 不能传负值，启动后由 PlayCenterMediaWindow 修正位置
+            DebugLog("play：video pos 负值居中语义，启动后定位，pos=[" . posX . "," . posY . "]")
+        }
         if (action.Has("size")) {
             if (action["size"].w > 0)
                 cmd .= "-x " . action["size"].w . " "
@@ -760,6 +788,21 @@ PlayStartMedia(action, done) {
     hwnd := 0
     if (isVideo) {
         hwnd := PlayWaitSdlWindow(path, 3000)
+        ; pos 负值居中语义：x<0 → 水平居中；y<0 → 竖直居中（双负 = 双居中）
+        if (hwnd && action.Has("pos")) {
+            px0 := action["pos"].x
+            py0 := action["pos"].y
+            cx := (px0 < 0)
+            cy := (py0 < 0)
+            if (cx || cy) {
+                try {
+                    WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " . hwnd)
+                    px := cx ? Max((A_ScreenWidth - ww) // 2, 0) : px0
+                    py := cy ? Max((A_ScreenHeight - wh) // 2, 0) : py0
+                    WinMove(px, py, , , "ahk_id " . hwnd)
+                }
+            }
+        }
         if (hwnd && action.Has("opacity") && action["opacity"] < 100)
             WinSetTransparent(Round(action["opacity"] * 255 / 100), "ahk_id " . hwnd)
     }
