@@ -552,8 +552,22 @@ PlayDoNote(action, done) {
 }
 
 ; ---- paste 动作 ----
-; done：动作完成回调（贴图动作立即完成；ttl>0 且 wait=true 时等待贴图窗口自动销毁后才完成）
+; done：动作完成回调（贴图动作立即完成；delay>0 时延迟贴图；wait=true 时等待贴图窗口销毁后才完成）
 PlayDoPaste(action, done) {
+    ; delay > 0：贴图动作执行后延迟 delay 毫秒再实际贴图。
+    ; 延迟期间不调用 done（playBusy 保持 true，步进阻塞、脚本不推进），
+    ; 到点后执行实际贴图主体 PlayDoPasteNow，由其控制完成时机。
+    delayMs := action.Get("delay", 0)
+    if (delayMs > 0) {
+        DebugLog("play：delay 生效，delay=" . delayMs . " 毫秒后贴图")
+        SetTimer(() => PlayDoPasteNow(action, done), -delayMs)
+        return
+    }
+    PlayDoPasteNow(action, done)
+}
+
+; 实际贴图主体（delay=0 立即执行；delay>0 由定时器延迟调用）
+PlayDoPasteNow(action, done) {
     path := PlayResolvePath(action["path"])
     if (!FileExist(path)) {
         PlayNoteFail("play：粘贴图片不存在：" . path)
@@ -666,6 +680,7 @@ PlayDoPaste(action, done) {
     ; 关闭方式见 PlayClosePaster：激活窗口 + Send Esc（Snipaste 官方销毁交互，
     ; 权威实测 WM_CLOSE / SC_CLOSE / DestroyWindow 均无法关闭 Paster 窗口）。
     ; ttl = 0（缺省）不自动销毁，由用户手动销毁。
+    delayMs := action.Get("delay", 0)
     ttlMs := action.Get("ttl", 0)
     if (ttlMs > 0) {
         DebugLog("play：ttl 生效，newHwnd=" . newHwnd . " ttl=" . ttlMs)
@@ -678,11 +693,11 @@ PlayDoPaste(action, done) {
             DebugLog("play：ttl SetTimer 异常：" . e.Message)
         }
     }
-    ; wait：仅 ttl>0 时有意义（ttl=0 时 ignore，始终相当于 false）。
-    ; wait=true：等待该贴图窗口自动销毁（ttl 到期关闭）后才完成动作；
+    ; wait：仅 delay>0 或 ttl>0 时有意义（delay=0 且 ttl=0 时 ignore，始终相当于 false）。
+    ; wait=true：等待该贴图窗口关闭（ttl 到期自动销毁，或用户手动销毁）后才完成动作；
     ; wait=false（或缺省）：无须等待，立即完成（贴图窗口按 ttl 自行销毁或由用户销毁）。
-    if (ttlMs > 0 && action.Get("wait", false)) {
-        DebugLog("play：wait=true，等待贴图窗口销毁后继续，newHwnd=" . newHwnd)
+    if ((delayMs > 0 || ttlMs > 0) && action.Get("wait", false)) {
+        DebugLog("play：wait=true，等待贴图窗口关闭后继续，newHwnd=" . newHwnd)
         PlayWatchPaster(newHwnd, done)
         return
     }

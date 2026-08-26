@@ -430,7 +430,17 @@ PlayValidatePaste(a) {
             op := 0
     }
     a["opacity"] := op
-    ; ttl：贴图后自动销毁的毫秒数；0（缺省）= 不自动销毁，由用户手动销毁；>0 = 贴图后经此毫秒后自动销毁
+    ; delay：延时贴图的毫秒数；0（缺省）= 贴图动作执行后立即贴图；>0 = 贴图动作执行后经 delay 毫秒才实际贴图
+    delay := 0
+    if (a.Has("delay")) {
+        if (!PlayIsNumber(a["delay"]))
+            return false
+        delay := Round(a["delay"])
+        if (delay < 0)
+            delay := 0
+    }
+    a["delay"] := delay
+    ; ttl：贴图后自动销毁的毫秒数；0（缺省）= 不自动销毁，由用户手动销毁；>0 = 实际贴图后经此毫秒后自动销毁
     ttl := 0
     if (a.Has("ttl")) {
         if (!PlayIsNumber(a["ttl"]))
@@ -441,8 +451,9 @@ PlayValidatePaste(a) {
     }
     a["ttl"] := ttl
     ; wait：是否等待贴图窗口关闭后才继续。
-    ; 语义：ttl = 0 时 wait 无意义（被忽略，始终相当于 false）；ttl > 0 时 wait 有意义，缺省 false。
-    ; wait 有意义且为 true → 贴图动作在贴图窗口自动销毁（ttl 到期关闭）后才完成，否则立即完成。
+    ; 语义：delay = 0 且 ttl = 0 同时成立时 wait 无意义（被忽略，始终相当于 false）；
+    ; 只要 delay > 0 或 ttl > 0，wait 就有意义，缺省 false。
+    ; wait 有意义且为 true → 贴图动作在贴图窗口关闭（ttl 到期自动销毁或用户手动销毁）后才完成，否则立即完成。
     w := false
     if (a.Has("wait")) {
         if (!PlayIsBool(a["wait"]))
