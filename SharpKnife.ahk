@@ -43,6 +43,12 @@ if (mode_list_hk = "")
 step_hotkey := IniRead(configFile, "trigger", "step_hotkey", "^r")  ; 步进执行命令（play 模式专属，无论处于哪个状态都有效）
 if (step_hotkey = "")
     step_hotkey := "^r"    ; 防空守卫：配置为空时恢复默认
+
+; play 模式配置（[play] 段）：script_path = play 脚本文件全路径（可选，可设可不设）
+; 留空（默认）= 未设置：关闭状态下触发时弹出文件选择框由用户选择脚本（保持原有行为）；
+; 设置 = 关闭状态下触发时直接绑定该脚本并立即执行第 1 步（开启状态下仍执行下一步）。
+; 两种方式仅是选择脚本的途径不同，绑定 / 步进 / 自动解绑 / 失败处理等行为完全一致。
+play_script_path := Trim(IniRead(configFile, "play", "script_path", ""))
 type_delay_ms := Max(IniRead(configFile, "context", "type_delay_ms", 3), 0)
 max_typing    := Max(IniRead(configFile, "ui", "max_typing_chars", 2000), 10)
 
@@ -189,14 +195,25 @@ ShowModeList(*) {
 
 ; ============================================================================
 ; 11b. 步进执行命令（play 模式专属，默认 Ctrl+R）—— 无论处于哪个状态都有效
-;      关闭状态（未绑定脚本文件）：弹出 JSON 脚本选择窗口，校验通过后绑定并立即执行第 1 步
+;      关闭状态（未绑定脚本文件）：若配置了 [play] script_path 则直接绑定该脚本并立即执行第 1 步，
+;      否则弹出 JSON 脚本选择窗口，校验通过后绑定并立即执行第 1 步
 ;      开启状态（已绑定脚本文件）：执行下一步；执行中（busy）触发被忽略（防重入）
 ;      脚本为 UTF-8 JSON：根是 seq（顶层动作数组），支持 text/sleep/run/note/paste/audio/video/seq/par 九类动作
-;      详见 Requirements.md 第 8 节
+;      详见 Requirements.md 第 7 / 8 节
 ; ============================================================================
 StepPlay(*) {
-    global playScriptFile, playBusy
+    global playScriptFile, playBusy, play_script_path
     if (playScriptFile = "") {
+        ; 关闭状态：配置了 play 脚本全路径则直接绑定（与文件选择框选定的脚本走同一条
+        ; PlayBindFile 绑定路径，行为完全一致）；配置的脚本不可用（不存在 / 加载失败）时
+        ; 非阻塞提示后回退到文件选择框，保证用户仍能手动选择脚本。
+        if (play_script_path != "") {
+            if (PlayBindFile(play_script_path, false)) {
+                DebugLog("play：按配置 [play] script_path 直接绑定脚本")
+                return
+            }
+            PlayNoteFail("play：配置的 play 脚本不可用，回退到文件选择框：'" . play_script_path . "'")
+        }
         PlayBind()
         return
     }
@@ -225,14 +242,16 @@ PlayBind() {
     PlayBindFile(selected)
 }
 
-; 绑定指定脚本文件（无文件选择框；供 PlayBind 与 --play-file= 测试钩子复用）。
-; 加载失败记日志、不绑定；成功则绑定并立即执行第 1 步。
-PlayBindFile(selected) {
+; 绑定指定脚本文件（无文件选择框；供 PlayBind、StepPlay 配置路径与 --play-file= 测试钩子复用）。
+; 加载失败记日志、不绑定，返回 false；成功则绑定并立即执行第 1 步，返回 true。
+; showErr=true（默认）时加载失败弹窗提示；false 时仅记日志（供 [play] script_path 配置路径
+; 失败后静默回退到文件选择框的场景，避免错误弹窗与选择框双重打扰）。
+PlayBindFile(selected, showErr := true) {
     global playScriptFile, playScriptDir, playStepStack, playBusy
-    root := PlayLoadScript(selected)
+    root := PlayLoadScript(selected, showErr)
     if (root = "") {
         DebugLog("play：脚本加载失败，不绑定")
-        return
+        return false
     }
     playScriptFile := selected
     n := InStr(selected, "\", , -1)
@@ -241,6 +260,7 @@ PlayBindFile(selected) {
     playBusy := false
     DebugLog("play：已绑定脚本 '" . selected . "'（顶层共 " . root.Length . " 个动作）")
     PlayRunStepFrame()
+    return true
 }
 
 PlayUnbind() {
@@ -861,19 +881,22 @@ PlayMediaPoll() {
 }
 
 ; ---- JSON 解析（play 脚本） ----
-; 读取脚本文件 → 解析 + 校验（纯逻辑在 SharpKnifeCore.ahk 的 PlayParseScriptText）；失败返回 "" 并弹窗
-PlayLoadScript(path) {
+; 读取脚本文件 → 解析 + 校验（纯逻辑在 SharpKnifeCore.ahk 的 PlayParseScriptText）；失败返回 "" 。
+; showErr=true（默认）时失败弹窗提示；false 时静默失败（仅返回空，供配置脚本路径回退场景）。
+PlayLoadScript(path, showErr := true) {
     txt := ""
     try {
         txt := FileRead(path, "UTF-8")
     } catch as e {
-        PlayShowError("读取脚本失败：" . e.Message)
+        if (showErr)
+            PlayShowError("读取脚本失败：" . e.Message)
         return ""
     }
     errMsg := ""
     root := PlayParseScriptText(txt, &errMsg)
     if (!root) {
-        PlayShowError(errMsg)
+        if (showErr)
+            PlayShowError(errMsg)
         return ""
     }
     return root

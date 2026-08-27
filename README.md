@@ -38,8 +38,9 @@
 
 触发模式列表  →  弹出无边框列表  →  上下键移动选择  →  模式切换（直接切换到指定模式）
 
-步进执行命令  →  play 模式：关闭状态（未绑定脚本）弹出脚本文件选择窗口并绑定，
-                 且立即执行第 1 个动作；开启状态（已绑定脚本）执行脚本下一步
+步进执行命令  →  play 模式：关闭状态（未绑定脚本）下，未配置 `[play] script_path` 时弹出脚本文件选择窗口并绑定，
+                 且立即执行第 1 个动作；已配置则直接绑定配置的脚本并立即执行第 1 个动作；
+                 开启状态（已绑定脚本）执行脚本下一步
 ```
 
 ---
@@ -61,7 +62,7 @@
 - **AI 模式**：把 AI 生成的结果追加到上下文之后（两个内容之间隔一行）；思考模式（`[ai] thinking=enabled`）且流式请求（`[ai] stream=true`）下，会弹出一个无边框窗口**实时**滚动呈现思考过程，思考完毕后自动离开（窗口保留，可随时通过任务栏回到窗口按 Esc 关闭），随后才输出正式结果（默认非流式，不弹思考窗口）。思考窗口**可拖动**（按住空白处拖动，移到不遮挡编辑区的位置）；思考过程中置顶，思考完毕离开后**不再置顶**——焦点回到编辑器时窗口被编辑器盖住（不可见但仍存在）。
 - **tikz 模式**：把选中的 TikZ 绘图代码自动编译渲染为图片，并复制到剪贴板、通过 **Snipaste 贴图**展示（Snipaste 自带拖动 / 缩放 / 编辑 / 标注能力）。
 - 循环切换命令在四个模式之间**循环切换**（latex → unicode → AI → tikz → latex）；直接切换命令可**一步直达**指定模式（`Ctrl+Shift+0/1/2/3`）；触发模式列表命令弹出**无框列表**（`latex 模式（0）` / `unicode 模式（1）` / `AI 模式（2）` / `tikz 模式（3）`），通过**上下键移动选择**、回车切换到指定模式（Esc 取消则无操作）。托盘菜单也可直接选择模式（`latex 模式` / `unicode 模式` / `AI 模式` / `tikz 模式`）。
-- **play 模式**：**独立模式**，不与上述四种互斥模式共用切换命令；可与当前生效的互斥模式**并存**，拥有独立的 *步进执行命令*（`Ctrl+R`）。play 模式没有独立的开启/关闭操作，其状态由**是否绑定脚本文件**自然决定——已绑定脚本文件即处于开启状态，脚本执行完毕后自动解绑回到关闭状态。脚本格式与步进语义详见下文「play 脚本格式」。
+- **play 模式**：**独立模式**，不与上述四种互斥模式共用切换命令；可与当前生效的互斥模式**并存**，拥有独立的 *步进执行命令*（`Ctrl+R`）。play 模式没有独立的开启/关闭操作，其状态由**是否绑定脚本文件**自然决定——已绑定脚本文件即处于开启状态，脚本执行完毕后自动解绑回到关闭状态。关闭状态下脚本的选定有两种方式（仅是选择途径不同，其余行为完全一致）：未配置时触发弹出**文件选择框**手动选择；也可在 `config.ini` 的 `[play] script_path` 预置脚本**全路径**，触发时直接绑定该脚本、省略选择框。脚本格式与步进语义详见下文「play 脚本格式」。
 
 ---
 
@@ -134,11 +135,11 @@ play 模式**不参与上下文选择与上下文匹配**（步进执行完全�
 - **unicode 模式**：删除上下文，用第 2 字段（剔除 `:` 前缀）替换上下文，并在**尾部追加一个空格**
 - **AI 模式**：上下文保持不变，把 AI 生成的结果追加到上下文之后——两个内容之间**隔一行**（即一个空行）。思考模式（`[ai] thinking=enabled`）且流式请求（`[ai] stream=true`）下，弹出无边框窗口**实时**滚动呈现思考过程，思考完毕后自动离开（窗口保留，可随时通过任务栏回到窗口按 Esc 关闭），随后才输出正式结果（默认非流式，不弹思考窗口）。思考窗口**可拖动**（按住空白处拖动）；思考过程中置顶，思考完毕离开后**不再置顶**——焦点回到编辑器时窗口被编辑器盖住（不可见但仍存在）
 - **tikz 模式**：把上下文作为 TikZ 绘图代码 → 自动包装为完整 LaTeX 文档 → `pdflatex` 编译 → 转 PNG → 复制到剪贴板并通过 **Snipaste 贴图**展示（未运行 Snipaste 时自动启动）。编译失败显示 `main.log` 错误行；超时自动终止并提示。触发时记录调试日志（`[debug] enabled=true` 时）
-- **play 模式**：根据**自定义格式脚本**步进式执行，与上述互斥模式并存、状态由是否绑定脚本文件决定。关闭状态下触发 *步进执行命令* 弹出**系统文件选择框**（`FileSelect`，过滤 `*.json`，初始目录 = 脚本所在目录），选定后绑定进入开启状态并**立即执行第 1 个动作**；取消选择则不绑定、无动作。开启状态下触发则执行脚本**下一步**（已有动作执行中则本次无动作）。脚本执行完最后一步自动解绑回到关闭状态；脚本加载失败（JSON 无法解析或结构/字段非法）→ 弹错误提示、不绑定；动作执行失败 → 记日志 / 提示后**跳过该动作**继续前进，不中断脚本。
+- **play 模式**：根据**自定义格式脚本**步进式执行，与上述互斥模式并存、状态由是否绑定脚本文件决定。关闭状态下触发 *步进执行命令*：若 `config.ini` 的 `[play] script_path` 已设置为脚本**全路径**，则直接绑定该脚本（不弹选择框）并**立即执行第 1 个动作**；未设置则弹出**系统文件选择框**（`FileSelect`，过滤 `*.json`，初始目录 = 脚本所在目录），选定后绑定进入开启状态并**立即执行第 1 个动作**。两种方式仅是脚本的选定途径不同，后续行为完全一致；若配置的脚本不存在或加载失败，**不绑定**并**回退到文件选择框**由用户手动选择（原因记入调试日志并作非阻塞提示）。取消选择则不绑定、无动作。开启状态下触发则执行脚本**下一步**（已有动作执行中则本次无动作）。脚本执行完最后一步自动解绑回到关闭状态；脚本加载失败（JSON 无法解析或结构/字段非法）→ 弹错误提示、不绑定；动作执行失败 → 记日志 / 提示后**跳过该动作**继续前进，不中断脚本。
 
 ### play 脚本格式
 
-play 模式的脚本是一个 **UTF-8 编码的 JSON 文件**（扩展名 `.json`，由 *步进执行命令* 弹出的文件选择框指定，只允许选择 `.json`）。脚本内相对路径一律以**脚本文件所在目录**为基准解析。
+play 模式的脚本是一个 **UTF-8 编码的 JSON 文件**（扩展名 `.json`，由 *步进执行命令* 弹出文件选择框指定，只允许选择 `.json`；也可在 `config.ini` 的 `[play] script_path` 预置脚本**全路径**，关闭状态下触发时直接绑定、省略选择框——仅是选定途径不同，其余行为完全一致）。脚本内相对路径一律以**脚本文件所在目录**为基准解析。
 
 - **根**是一个动作数组（相当于一个 `seq`），表示「依次启动」的一串步骤。
 - 每个动作是一个 JSON 对象，用 `type` 区分 6 类动作：`text` / `paste` / `audio` / `video` / `seq` / `par`；可携带可选 `note`（注释，仅人工阅读，执行时忽略）；未定义字段一律忽略。
@@ -210,6 +211,12 @@ direct_prefix = ^+     ; 直接切换命令的前缀（前缀+0/1/2/3：0=latex�
 mode_list_hotkey = ^+\ ; 触发模式列表（弹出无框列表，上下键选择模式）
 step_hotkey = ^r      ; 步进执行命令（play 模式专属，无论处于哪个状态都有效）
 
+[play]                 ; —— 仅对 play 模式有效 ——
+script_path =          ; play 脚本文件全路径（可选，可设可不设）
+                       ; 留空（默认）= 未设置：关闭状态下触发时弹出文件选择框由用户选择脚本
+                       ; 设置 = 关闭状态下触发时直接绑定该脚本并立即执行第 1 步（开启状态下仍执行下一步）
+                       ; 两种方式仅是选择脚本的途径不同，其余行为完全一致
+
 [context]
 type_delay_ms = 3      ; 每插入一个字符的延迟（毫秒）
 
@@ -262,7 +269,7 @@ snipaste_path =         ; Snipaste 路径（留空自动探测 PATH / 常见安�
 - `ShowThinkingWindow()` / `AppendThinkingText()` / `ThinkingWindowDrag()` / `LeaveThinkingWindow()` / `CloseThinkingWindow()`：思考模式下弹出无框窗口（进任务栏，标题“AI 思考过程”，便于随时回到），`AppendThinkingText()` 把思考增量实时追加并滚动到底（`WM_VSCROLL` + `SB_BOTTOM`）；`ThinkingWindowDrag()` 在按住窗口空白处（Edit 之外）时发送 `WM_NCLBUTTONDOWN` + `HTCAPTION` 让系统接管拖动，使无边框窗口**可拖动**；思考完毕后 `LeaveThinkingWindow()` 先**取消置顶**（`WinSetAlwaysOnTop 0`）再自动离开（窗口保留、焦点还给原编辑器继续输出正式结果，窗口被编辑器盖住；用户可点击窗口按 Esc 触发 `CloseThinkingWindow()` 关闭）。窗口以 `Show("NA")` 显示，不抢焦点，避免插入结果按键发错窗口
 - 文本插入使用 `SendText` 逐字符（受 `type_delay_ms` 控制），避免 `^` `{` `+` 等被解释为修饰键
 - 触发 / 循环切换 / 直接切换 / 模式列表热键均通过 config.ini 配置，启动时注册（`Hotkey` 指令）；直接切换为 `direct_prefix` + 数字 0/1/2/3；模式列表复用 `ShowList()` 无框列表（`ShowModeList()`），选择后调用 `SetModeDirect()` 直达对应模式
-- `StepPlay()`：play 模式专属的步进执行命令（默认 `Ctrl+R`）——`playScriptFile` 为空（关闭状态）时用 `FileSelect()` 弹出脚本文件选择窗口（过滤 `*.json`）并绑定脚本进入开启状态、立即执行第 1 步；非空（开启状态）且无动作执行中时执行下一步（`PlayRunStepFrame()`）
+- `StepPlay()`：play 模式专属的步进执行命令（默认 `Ctrl+R`）——`playScriptFile` 为空（关闭状态）时，若配置 `[play] script_path` 非空则直接绑定该脚本（`PlayBindFile`，与手动选择同一条绑定路径）并立即执行第 1 步，配置的脚本不存在 / 加载失败时非阻塞提示后回退到 `FileSelect()` 文件选择框；未配置则用 `FileSelect()` 弹出脚本文件选择窗口（过滤 `*.json`）并绑定脚本进入开启状态、立即执行第 1 步；非空（开启状态）且无动作执行中时执行下一步（`PlayRunStepFrame()`）
 - play 脚本引擎：`PlayBind()` / `PlayUnbind()` 绑定与解绑；`PlayRunStepFrame()` / `PlayAdvanceStepFrame()` / `PlayPopStepFrame()` / `PlayPushSeqFrame()` 维护**步进游标栈**（栈底顶层游标 + 单步 `seq` 的内部游标）与**执行中标记** `playBusy`；`PlayIsOneShot()` 判定一次性 `seq`（继承规则：一次性 `seq` / `par` 的嵌套子 `seq` 强制一次性）；`PlayDispatchStepAction()` / `PlayExecTree()` / `PlayExecList()` / `PlayExecAll()` / `PlayParChildDone()` 派发并驱动 6 类动作
 - play 动作实现：`PlayDoText()` / `PlaySendText()` / `PlayFlushLiteral()`（`{KEY}` 键名按 `Send` 发送、`` ` `` 转义字面 `{`/`}`、`\n`/`\r` 换行、其余字符含修饰符 `+!#^%` 走 `SendText` 字面输出）；`PlayDoPaste()`（入口：`delay > 0` 时用一次性定时器延迟 `delay` 毫秒后调 `PlayDoPasteNow()` 执行实际贴图）→ `PlayDoPasteNow()`（GDI+ 按 `size` 缩放 PNG → 复制到剪贴板 → Snipaste 贴图 → 移到 `pos` → `WinSetTransparent` 设透明度；`ttl > 0` 时用定时器在 `ttl` 毫秒后自动销毁贴图窗口——激活该窗口发送 `Esc`（Snipaste 官方销毁）并恢复焦点，极端情况补发关闭消息，缺省 0 不自动销毁由用户自主销毁；`wait` 仅在 `delay>0` 或 `ttl>0` 时有意义，`true` 时经 `PlayWatchPaster()` / `PlayPasterPoll()` 轮询等贴图窗口关闭后才完成动作）；`PlayStartMedia()` / `PlayWaitSdlWindow()` / `PlayWatchMedia()` / `PlayMediaPoll()`（ffplay `-nodisp`/`-left`/`-top`/`-x`/`-y`/`-ss`/`-t`/`-af volume=...`，`pos` 含负值时 `-left`/`-top` 不传、启动后用 `WinMove` 做居中修正——负值语义同 paste，`wait=true` 时非阻塞轮询进程退出 / 窗口关闭判定完成）
 - play 解析与校验：`PlayLoadScript()` 及 `PlaySkipWs()` / `PlayParseValue()` / `PlayParseObject()` / `PlayParseArray()` / `PlayParseString()` / `PlayHexToInt()` / `PlayParseNumber()` 实现内置 JSON 解析；`PlayValidateAction()` / `PlayValidateText()` / `PlayValidatePaste()` / `PlayValidateMedia()` / `PlayValidateSeq()` / `PlayValidatePar()` / `PlayIsXY()` / `PlayIsNumber()` / `PlayIsBool()` / `PlayValidateTime()` / `PlayTimeToSeconds()` 加载阶段整体校验（结构非法整体拒绝；`opacity` / `volume` 越界截断）；`PlayResolvePath()` 以脚本所在目录解析相对路径
