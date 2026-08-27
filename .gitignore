@@ -1,3 +1,4 @@
 *.log
 *.exe
 test/
+config.ini

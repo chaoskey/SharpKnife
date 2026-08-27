@@ -10,9 +10,10 @@
 |------|------|
 | `SharpKnife.ahk` | 主脚本（启动它） |
 | `latexs.cvs` | 触发表（数据源，Tab 分隔，最多 3 字段） |
-| `config.ini` | 配置（快捷键、打字延迟、UI、AI 等） |
+| `config.ini.example` | 仓库提交的配置样例（快捷键、打字延迟、UI、AI 等） |
+| `config.ini` | 本地运行时配置文件（由用户自行维护，脚本实际读取此文件） |
 | `README.md` | 本文档 |
-| `debug.log` | 调试日志（由 `config.ini` 的 `[debug] enabled` 控制，默认关闭不生成） |
+| `debug.log` | 调试日志（由本地 `config.ini` 的 `[debug] enabled` 控制；代码缺省关闭，`config.ini.example` 当前示例值为开启） |
 
 ---
 
@@ -20,7 +21,7 @@
 
 1. 安装 **AutoHotkey v2**（https://www.autohotkey.com/ ，必须是 v2，不是 v1），要求 Windows 10。
 2. 双击 `SharpKnife.ahk`。托盘区出现图标即就绪，启动时会弹出中文提示（当前模式、补全/循环切换/直接切换/模式列表快捷键）。
-3. 修改 `config.ini` 后，右键托盘图标 → `重新加载(&R)` 生效。
+3. 首次使用可参考 `config.ini.example` 准备本地 `config.ini`；之后修改本地 `config.ini` 后，右键托盘图标 → `重新加载(&R)` 生效。
 4. 如需使用 **tikz 模式**（把 TikZ 代码渲染为图片），还需安装：**MiKTeX**（或其他 TeX 发行版）+ **Ghostscript** + **Snipaste**（https://www.snipaste.com/ ，贴图展示依赖，需保持后台运行）。
 
 ---
@@ -59,7 +60,7 @@
 
 - **latex 模式**（默认）：把上下文补全为 LaTeX 命令 / 环境模板。
 - **unicode 模式**：把上下文替换为对应的 Unicode 字符。
-- **AI 模式**：把 AI 生成的结果追加到上下文之后（两个内容之间隔一行）；思考模式（`[ai] thinking=enabled`）且流式请求（`[ai] stream=true`）下，会弹出一个无边框窗口**实时**滚动呈现思考过程，思考完毕后自动离开（窗口保留，可随时通过任务栏回到窗口按 Esc 关闭），随后才输出正式结果（默认非流式，不弹思考窗口）。思考窗口**可拖动**（按住空白处拖动，移到不遮挡编辑区的位置）；思考过程中置顶，思考完毕离开后**不再置顶**——焦点回到编辑器时窗口被编辑器盖住（不可见但仍存在）。
+- **AI 模式**：把 AI 生成的结果追加到上下文之后（两个内容之间隔一行）；思考模式（`[ai] thinking=enabled`）且流式请求（`[ai] stream=true`）下，会弹出一个无边框窗口**实时**滚动呈现思考过程，思考完毕后自动离开（窗口保留，可随时通过任务栏回到窗口按 Esc 关闭），随后才输出正式结果。代码在缺省值层面仍支持非流式回退；仓库提供的 `config.ini.example` 当前示例值为 `stream = true`。思考窗口**可拖动**（按住空白处拖动，移到不遮挡编辑区的位置）；思考过程中置顶，思考完毕离开后**不再置顶**——焦点回到编辑器时窗口被编辑器盖住（不可见但仍存在）。
 - **tikz 模式**：把选中的 TikZ 绘图代码自动编译渲染为图片，并复制到剪贴板、通过 **Snipaste 贴图**展示（Snipaste 自带拖动 / 缩放 / 编辑 / 标注能力）。
 - 循环切换命令在四个模式之间**循环切换**（latex → unicode → AI → tikz → latex）；直接切换命令可**一步直达**指定模式（`Ctrl+Shift+0/1/2/3`）；触发模式列表命令弹出**无框列表**（`latex 模式（0）` / `unicode 模式（1）` / `AI 模式（2）` / `tikz 模式（3）`），通过**上下键移动选择**、回车切换到指定模式（Esc 取消则无操作）。托盘菜单也可直接选择模式（`latex 模式` / `unicode 模式` / `AI 模式` / `tikz 模式`）。
 - **play 模式**：**独立模式**，不与上述四种互斥模式共用切换命令；可与当前生效的互斥模式**并存**，拥有独立的 *步进执行命令*（`Ctrl+R`）。play 模式没有独立的开启/关闭操作，其状态由**是否绑定脚本文件**自然决定——已绑定脚本文件即处于开启状态，脚本执行完毕后自动解绑回到关闭状态。关闭状态下脚本的选定有两种方式（仅是选择途径不同，其余行为完全一致）：未配置时触发弹出**文件选择框**手动选择；也可在 `config.ini` 的 `[play] script_path` 预置脚本**全路径**，触发时直接绑定该脚本、省略选择框。脚本格式与步进语义详见下文「play 脚本格式」。
@@ -133,7 +134,7 @@ play 模式**不参与上下文选择与上下文匹配**（步进执行完全�
 - **latex 模式 · 2 字段**：删除上下文（选区整体删除；光标前上下文先选中再删除），用第 1 字段替换上下文，并在**尾部追加一个空格**
 - **latex 模式 · 3 字段**：删除上下文，用第 3 字段解析后的模板替换上下文，并将**光标左移指定格数**（`##{Left N}`）
 - **unicode 模式**：删除上下文，用第 2 字段（剔除 `:` 前缀）替换上下文，并在**尾部追加一个空格**
-- **AI 模式**：上下文保持不变，把 AI 生成的结果追加到上下文之后——两个内容之间**隔一行**（即一个空行）。思考模式（`[ai] thinking=enabled`）且流式请求（`[ai] stream=true`）下，弹出无边框窗口**实时**滚动呈现思考过程，思考完毕后自动离开（窗口保留，可随时通过任务栏回到窗口按 Esc 关闭），随后才输出正式结果（默认非流式，不弹思考窗口）。思考窗口**可拖动**（按住空白处拖动）；思考过程中置顶，思考完毕离开后**不再置顶**——焦点回到编辑器时窗口被编辑器盖住（不可见但仍存在）
+- **AI 模式**：上下文保持不变，把 AI 生成的结果追加到上下文之后——两个内容之间**隔一行**（即一个空行）。思考模式（`[ai] thinking=enabled`）且流式请求（`[ai] stream=true`）下，弹出无边框窗口**实时**滚动呈现思考过程，思考完毕后自动离开（窗口保留，可随时通过任务栏回到窗口按 Esc 关闭），随后才输出正式结果。代码缺省值仍支持非流式；仓库提供的 `config.ini.example` 当前示例值为流式。思考窗口**可拖动**（按住空白处拖动）；思考过程中置顶，思考完毕离开后**不再置顶**——焦点回到编辑器时窗口被编辑器盖住（不可见但仍存在）
 - **tikz 模式**：把上下文作为 TikZ 绘图代码 → 自动包装为完整 LaTeX 文档 → `pdflatex` 编译 → 转 PNG → 复制到剪贴板并通过 **Snipaste 贴图**展示（未运行 Snipaste 时自动启动）。编译失败显示 `main.log` 错误行；超时自动终止并提示。触发时记录调试日志（`[debug] enabled=true` 时）
 - **play 模式**：根据**自定义格式脚本**步进式执行，与上述互斥模式并存、状态由是否绑定脚本文件决定。关闭状态下触发 *步进执行命令*：若 `config.ini` 的 `[play] script_path` 已设置为脚本**全路径**，则直接绑定该脚本（不弹选择框）并**立即执行第 1 个动作**；未设置则弹出**系统文件选择框**（`FileSelect`，过滤 `*.json`，初始目录 = 脚本所在目录），选定后绑定进入开启状态并**立即执行第 1 个动作**。两种方式仅是脚本的选定途径不同，后续行为完全一致；若配置的脚本不存在或加载失败，**不绑定**并**回退到文件选择框**由用户手动选择（原因记入调试日志并作非阻塞提示）。取消选择则不绑定、无动作。开启状态下触发则执行脚本**下一步**（已有动作执行中则本次无动作）。脚本执行完最后一步自动解绑回到关闭状态；脚本加载失败（JSON 无法解析或结构/字段非法）→ 弹错误提示、不绑定；动作执行失败 → 记日志 / 提示后**跳过该动作**继续前进，不中断脚本。
 
@@ -142,10 +143,10 @@ play 模式**不参与上下文选择与上下文匹配**（步进执行完全�
 play 模式的脚本是一个 **UTF-8 编码的 JSON 文件**（扩展名 `.json`，由 *步进执行命令* 弹出文件选择框指定，只允许选择 `.json`；也可在 `config.ini` 的 `[play] script_path` 预置脚本**全路径**，关闭状态下触发时直接绑定、省略选择框——仅是选定途径不同，其余行为完全一致）。脚本内相对路径一律以**脚本文件所在目录**为基准解析。
 
 - **根**是一个动作数组（相当于一个 `seq`），表示「依次启动」的一串步骤。
-- 每个动作是一个 JSON 对象，用 `type` 区分 6 类动作：`text` / `paste` / `audio` / `video` / `seq` / `par`；可携带可选 `note`（注释，仅人工阅读，执行时忽略）；未定义字段一律忽略。
+- 每个动作是一个 JSON 对象，用 `type` 区分 9 类动作：`text` / `sleep` / `run` / `note` / `paste` / `audio` / `video` / `seq` / `par`；可携带可选 `note`（注释，仅人工阅读，执行时忽略）；未定义字段一律忽略。
 - **校验**（加载阶段一次完成）：结构非法（根非数组、缺必填字段、字段类型错误、`type` 未知、`pos` / `size` 非 `[x, y]` 数字对、时间格式非法）→ 整体拒绝、不绑定；数值越界（`opacity` 超 0~100、`volume` 为负）→ 截断到最近边界，不视为非法。
 
-六类动作：
+九类动作：
 
 | type | 说明 | 必填 / 可选字段 |
 |------|------|----------------|
@@ -157,7 +158,7 @@ play 模式的脚本是一个 **UTF-8 编码的 JSON 文件**（扩展名 `.json
 | `par` | 并行嵌套 | `actions`（子动作数组）；并行启动全部子动作，全部完成后才算完成 |
 
 - `audio` / `video` 是否阻塞步进仅由 `wait` 决定：`false` 启动即完成（后台继续播），`true` 非阻塞等待播放结束（期间占用执行中标记）。
-- **继承规则**：一次性 `seq` 或 `par` 的所有嵌套子 `seq`（任意深度）都强制一次性，忽略其 `step`。
+- **嵌套规则**：`seq` / `par` 负责推进自己的直接子动作；若其中再嵌套 `seq`，该子 `seq` 在真正启动后仍按它自身的 `step` 配置决定是单步还是一次性。
 - **步进语义**：绑定即执行第 1 个动作（顶层数组为空则绑定后立即自动解绑）；每次步进命令推进一个动作，执行中标记为真时本次无动作；顶层游标越过末尾即执行完毕、自动解绑。`seq` 单步（`step=true`）只启动第 1 个子动作并压入内部游标，子动作全部完成才弹出并前移顶层游标。
 - **失败处理**：动作执行失败（文件不存在、ffplay / Snipaste 未安装等）→ 记日志 / 提示后跳过该动作继续前进，不中断脚本（`seq` / `par` 的子动作同理）。
 
@@ -201,7 +202,7 @@ play 模式的脚本是一个 **UTF-8 编码的 JSON 文件**（扩展名 `.json
 
 ---
 
-## 8. 配置说明（config.ini）
+## 8. 配置说明（以下示例取自 `config.ini.example`）
 
 ```ini
 [trigger]
@@ -227,17 +228,17 @@ font_size = 15         ; 多选列表字体大小（磅，最小 6）
 max_typing_chars = 2000 ; 单次插入最大字符数（超出截断并提示，Ctrl+Z 可撤销）
 
 [ai]                   ; —— 仅对 AI 模式有效 ——
-api_key = ...          ; DeepSeek API 密钥（必填，AI 模式才能工作）
+api_key = <你的密钥>   ; DeepSeek API 密钥（必填，AI 模式才能工作）
 base_url = https://opencode.ai/zen/go/v1   ; API 地址
 endpoint = /chat/completions               ; 接口路径
 api_style = chat       ; chat=聊天补全接口（默认）；completion=原生补全接口（若服务支持可切换）
 model = deepseek-v4-flash                  ; 默认采用官方 Deepseek v4 flash 模型
 temperature = 0.3      ; 采样温度（0~2）
-max_tokens = 4096      ; 生成的最大 token 数
+max_tokens = 8192      ; 生成的最大 token 数（样例当前值）
 thinking = enabled     ; 是否启用思考（enabled / disabled / 留空不发送）
 reasoning_effort = low ; 推理强度（low / medium / high / 留空不发送）
-stream = false         ; 是否流式请求（true=边接收边输出，思考模式下实时滚动呈现思考过程；false=非流式默认）
-timeout_ms = 30000     ; 请求超时（毫秒）
+stream = true          ; 是否流式请求（样例当前值；代码在缺省值层面仍支持 false）
+timeout_ms = 90000     ; 请求超时（毫秒，样例当前值）
 system_prompt = ...    ; 约束提示语（可选；不填则使用内置默认，已满足规范性要求）
 
 [tikz]                  ; —— 仅对 tikz 模式有效 ——
@@ -246,11 +247,11 @@ converter = auto        ; PDF 转 PNG 工具：auto=自动探测（pdftoppm / mu
 dpi = 150               ; 输出 PNG 分辨率（像素/英寸）
 border = 5pt            ; standalone 文档四周留白
 extra_packages =        ; 额外宏包（逗号分隔，自动注入导言区 \usepackage{...}）
-timeout_ms = 30000      ; 编译超时（毫秒，超时自动终止进程）
+timeout_ms = 120000     ; 编译超时（毫秒，样例当前值）
 snipaste_path =         ; Snipaste 路径（留空自动探测 PATH / 常见安装路径；贴图功能依赖 Snipaste 已安装并运行）
 ```
 
-> 注：`config.ini` 为 UTF-16 LE + BOM 编码（AutoHotkey `IniRead` 原生支持），如需手工修改请用支持该编码的编辑器。
+> 注：仓库提交的是 `config.ini.example`；脚本实际读取本地 `config.ini`。两者均为 UTF-16 LE + BOM 编码（AutoHotkey `IniRead` 原生支持），如需手工修改请用支持该编码的编辑器。
 
 ---
 
@@ -270,12 +271,12 @@ snipaste_path =         ; Snipaste 路径（留空自动探测 PATH / 常见安�
 - 文本插入使用 `SendText` 逐字符（受 `type_delay_ms` 控制），避免 `^` `{` `+` 等被解释为修饰键
 - 触发 / 循环切换 / 直接切换 / 模式列表热键均通过 config.ini 配置，启动时注册（`Hotkey` 指令）；直接切换为 `direct_prefix` + 数字 0/1/2/3；模式列表复用 `ShowList()` 无框列表（`ShowModeList()`），选择后调用 `SetModeDirect()` 直达对应模式
 - `StepPlay()`：play 模式专属的步进执行命令（默认 `Ctrl+R`）——`playScriptFile` 为空（关闭状态）时，若配置 `[play] script_path` 非空则直接绑定该脚本（`PlayBindFile`，与手动选择同一条绑定路径）并立即执行第 1 步，配置的脚本不存在 / 加载失败时非阻塞提示后回退到 `FileSelect()` 文件选择框；未配置则用 `FileSelect()` 弹出脚本文件选择窗口（过滤 `*.json`）并绑定脚本进入开启状态、立即执行第 1 步；非空（开启状态）且无动作执行中时执行下一步（`PlayRunStepFrame()`）
-- play 脚本引擎：`PlayBind()` / `PlayUnbind()` 绑定与解绑；`PlayRunStepFrame()` / `PlayAdvanceStepFrame()` / `PlayPopStepFrame()` / `PlayPushSeqFrame()` 维护**步进游标栈**（栈底顶层游标 + 单步 `seq` 的内部游标）与**执行中标记** `playBusy`；`PlayIsOneShot()` 判定一次性 `seq`（继承规则：一次性 `seq` / `par` 的嵌套子 `seq` 强制一次性）；`PlayDispatchStepAction()` / `PlayExecTree()` / `PlayExecList()` / `PlayExecAll()` / `PlayParChildDone()` 派发并驱动 6 类动作
-- play 动作实现：`PlayDoText()` / `PlaySendText()` / `PlayFlushLiteral()`（`{KEY}` 键名按 `Send` 发送、`` ` `` 转义字面 `{`/`}`、`\n`/`\r` 换行、其余字符含修饰符 `+!#^%` 走 `SendText` 字面输出）；`PlayDoPaste()`（入口：`delay > 0` 时用一次性定时器延迟 `delay` 毫秒后调 `PlayDoPasteNow()` 执行实际贴图）→ `PlayDoPasteNow()`（GDI+ 按 `size` 缩放 PNG → 复制到剪贴板 → Snipaste 贴图 → 移到 `pos` → `WinSetTransparent` 设透明度；`ttl > 0` 时用定时器在 `ttl` 毫秒后自动销毁贴图窗口——激活该窗口发送 `Esc`（Snipaste 官方销毁）并恢复焦点，极端情况补发关闭消息，缺省 0 不自动销毁由用户自主销毁；`wait` 仅在 `delay>0` 或 `ttl>0` 时有意义，`true` 时经 `PlayWatchPaster()` / `PlayPasterPoll()` 轮询等贴图窗口关闭后才完成动作）；`PlayStartMedia()` / `PlayWaitSdlWindow()` / `PlayWatchMedia()` / `PlayMediaPoll()`（ffplay `-nodisp`/`-left`/`-top`/`-x`/`-y`/`-ss`/`-t`/`-af volume=...`，`pos` 含负值时 `-left`/`-top` 不传、启动后用 `WinMove` 做居中修正——负值语义同 paste，`wait=true` 时非阻塞轮询进程退出 / 窗口关闭判定完成）
+- play 脚本引擎：`PlayBind()` / `PlayUnbind()` 绑定与解绑；`PlayRunStepFrame()` / `PlayAdvanceStepFrame()` / `PlayPopStepFrame()` / `PlayPushSeqFrame()` 维护**步进游标栈**（栈底顶层游标 + 单步 `seq` 的内部游标）与**执行中标记** `playBusy`；`PlayIsOneShot()` 判定一次性 `seq`；`PlayDispatchStepAction()` / `PlayExecTree()` / `PlayExecList()` / `PlayExecAll()` / `PlayParChildDone()` 派发并驱动 9 类动作
+- play 动作实现：`PlayDoText()` / `PlaySendText()` / `PlayFlushLiteral()`（`{KEY}` 键名按 `Send` 发送、`` ` `` 转义字面 `{`/`}`、`\n`/`\r` 换行、其余字符含修饰符 `+!#^%` 走 `SendText` 字面输出）；`PlayDoSleep()` / `PlayDoRun()` / `PlayDoNote()` 负责等待、外部运行与提示；`PlayDoPaste()`（入口：`delay > 0` 时用一次性定时器延迟 `delay` 毫秒后调 `PlayDoPasteNow()` 执行实际贴图）→ `PlayDoPasteNow()`（按 `size` / `opacity` 需要时先生成临时 PNG，再通过 Snipaste `paste --files` 贴图；路径含空格时复制到无空格临时目录兜底；`ttl > 0` 时用定时器在 `ttl` 毫秒后自动销毁贴图窗口；`wait` 仅在 `delay>0` 或 `ttl>0` 时有意义，`true` 时经 `PlayWatchPaster()` / `PlayPasterPoll()` 轮询等贴图窗口关闭后才完成动作）；`PlayStartMedia()` / `PlayWaitSdlWindow()` / `PlayWatchMedia()` / `PlayMediaPoll()`（ffplay `-nodisp`/`-left`/`-top`/`-x`/`-y`/`-ss`/`-t`/`-af volume=...`，`pos` 含负值时 `-left`/`-top` 不传、启动后用 `WinMove` 做居中修正；video 透明度仍通过 `WinSetTransparent` 设置；`wait=true` 时非阻塞轮询进程退出 / 窗口关闭判定完成）
 - play 解析与校验：`PlayLoadScript()` 及 `PlaySkipWs()` / `PlayParseValue()` / `PlayParseObject()` / `PlayParseArray()` / `PlayParseString()` / `PlayHexToInt()` / `PlayParseNumber()` 实现内置 JSON 解析；`PlayValidateAction()` / `PlayValidateText()` / `PlayValidatePaste()` / `PlayValidateMedia()` / `PlayValidateSeq()` / `PlayValidatePar()` / `PlayIsXY()` / `PlayIsNumber()` / `PlayIsBool()` / `PlayValidateTime()` / `PlayTimeToSeconds()` 加载阶段整体校验（结构非法整体拒绝；`opacity` / `volume` 越界截断）；`PlayResolvePath()` 以脚本所在目录解析相对路径
 - play 贴图辅助：`GdipEnsure()`（GDI+ 全局初始化一次，进程退出由系统释放、不调用 Shutdown）/ `PlayScalePng()` / `PlaySavePng()` / `PlayGetPngEncoderClsid()` / `PlayLoadHbitmap()` / `PlayCopyPngToClipboard()` / `PlayPasterHwnds()` / `PlayPasterEnumHwnds()` / `PlayNewPaster()`（枚举 Snipaste 贴图窗口以定位新贴图）；`PlayPinPaster()` / `PlayPinPoll()` / `PlayBelowAbovePinned()` / `PlayRaiseTop()`（paste `pin` 置顶守护：贴图成功后登记该贴图与"贴图时已存在的贴图集合"，约 100ms 沿 Z 序链检查被压住窗口是否跑到上方，是则 `WinMoveTop` 提回最前，贴图销毁自动解除）；`PlayShowError()` / `PlayNoteFail()` / `PlayNum()` 错误提示与失败记录
 - `CompleteTikz()`：tikz 模式主流程——建临时目录 → `WrapTikzDocument()` 包装（裸语句 / 含 `tikzpicture` / 含 `document` 三形态自动识别，`\usepackage` / `\usetikzlibrary` / `\tikzset` / `\pgfplotsset` 开头行自动提取到导言区）→ `CompileTikz()`（`Run` + `ProcessExist` 轮询实现超时保护——`ProcessWaitClose` 对已退出进程会假超时、不能用；失败读 `main.log` 错误行）→ `ConvertPdfToPng()`（按配置顺序尝试 pdftoppm / mutool / gswin64c / magick）→ `PasteTikzImage()` 把图片复制到剪贴板（PNG + CF_DIB 双格式）并通过 Snipaste 贴图展示；`FindSnipaste()` 自动探测 Snipaste 路径（配置 → PATH → 常见安装路径），未运行时自动启动并等待就绪；`TikzCopyPng()` 复制图片到剪贴板（`HbmToDib()` 生成 CF_DIB）；贴图成功后延迟 8 秒清理临时目录
-- 调试日志由 `config.ini` 的 `[debug] enabled` 开关控制（默认 `false` 不输出）；设为 `true` 时写入 `debug.log`，启动时清空旧日志
+- 调试日志由本地 `config.ini` 的 `[debug] enabled` 开关控制；代码缺省值为 `false`，而仓库提供的 `config.ini.example` 当前示例值为 `true`。开启时写入 `debug.log`，启动时清空旧日志
 
 ---
 
@@ -285,9 +286,10 @@ snipaste_path =         ; Snipaste 路径（留空自动探测 PATH / 常见安�
 SharpKnife/
     SharpKnife.ahk   ← 主脚本（启动它）
     latexs.cvs       ← 触发表（数据源）
-    config.ini       ← 配置
+    config.ini.example ← 仓库提交的配置样例
+    config.ini       ← 本地运行时配置
     README.md        ← 本文档
-    debug.log        ← 调试日志（由 [debug] enabled 控制，默认关闭不生成）
+    debug.log        ← 调试日志（由本地 config.ini 的 [debug] enabled 控制）
     images/          ← 托盘图标
 ```
 
