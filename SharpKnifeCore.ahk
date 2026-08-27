@@ -461,6 +461,15 @@ PlayValidatePaste(a) {
         w := a["wait"] ? true : false
     }
     a["wait"] := w
+    ; pin：置顶守护——该贴图存活期间始终保持"实际贴图时已存在的全部贴图"之上（见 Requirements.md 8.1）。
+    ; 被压住的旧贴图被点击置前后，守护轮询会把本贴图提回最前；本贴图销毁后自动解除。
+    p := false
+    if (a.Has("pin")) {
+        if (!PlayIsBool(a["pin"]))
+            return false
+        p := a["pin"] ? true : false
+    }
+    a["pin"] := p
     return true
 }
 

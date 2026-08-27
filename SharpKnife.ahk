@@ -118,6 +118,7 @@ global playBusy := false      ; 执行中标记：有动作尚未完成时为真
 global playReentrant := false ; 防重入：文件选择对话框打开期间为真
 global playMediaWatch := []   ; 异步媒体监视列表：{pid, hwnd, done}（wait=true 时轮询退出）
 global playPasterWatch := []  ; 贴图窗口监视列表：{hwnd, done}（paste wait=true 时轮询贴图窗口销毁）
+global playPins := []        ; 贴图置顶守护列表：{pinned: 贴图句柄, below: 实际贴图时已存在的贴图句柄数组}（paste pin=true）
 global play_paster_hwnds := [] ; Snipaste 贴图窗口句柄收集缓冲（EnumWindows 回调写入）
 global playFocusWin := 0      ; 弹窗动作前记录的焦点窗口（弹窗后恢复焦点，保证文字输出继续）
 
@@ -693,6 +694,12 @@ PlayDoPasteNow(action, done) {
             WinMove(Max((A_ScreenWidth - ww) // 2, 0), Max((A_ScreenHeight - wh) // 2, 0), , , "ahk_id " . newHwnd)
         }
     }
+    ; pin：置顶守护——该贴图存活期间始终保持"本次实际贴图时已存在的全部贴图"之上。
+    ; 被压住的旧贴图被点击置前后，守护轮询会把本贴图提回最前（详见 Requirements.md 8.1）。
+    if (action.Get("pin", false)) {
+        DebugLog("play：pin 生效，newHwnd=" . newHwnd . "，压住先前贴图数=" . before.Length)
+        PlayPinPaster(newHwnd, before)
+    }
     ; 注：opacity 已在贴图前烘焙进图片 alpha 通道（见上文 needAlpha），此处不再对窗口做 WinSetTransparent，
     ; 以保持 Snipaste 贴图窗口原生可交互（拖边缩放 / 无红框）。
     ; ttl > 0：贴图经 ttl 毫秒后自动销毁该贴图窗口。
@@ -992,6 +999,67 @@ PlayPasterPoll() {
         }
     }
     playPasterWatch := still
+}
+
+; ---- paste pin：置顶守护（该贴图存活期间始终在"实际贴图时已存在的全部贴图"之上） ----
+; 贴 B 时若 pin=true，把 B 的句柄与"贴 B 时已存在的贴图句柄集合"登记进 playPins，
+; PlayPinPoll 每 100ms 沿 Z 序链检查：任一登记窗口跑到 B 上面（典型场景：被鼠标点击置前）
+; 就用 PlayRaiseTop 把 B 提回最前（不抢焦点、不动位置）；B 销毁后自动解除守护。
+PlayPinPaster(hwnd, below) {
+    global playPins
+    playPins.Push({pinned: hwnd, below: below})
+    SetTimer(PlayPinPoll, 100)
+}
+
+PlayPinPoll() {
+    global playPins
+    if (playPins.Length = 0) {
+        SetTimer(PlayPinPoll, 0)
+        return
+    }
+    still := []
+    for item in playPins {
+        if (!WinExist("ahk_id " . item.pinned)) {
+            DebugLog("play：pin 解除（贴图已销毁），hwnd=" . item.pinned)
+            continue                     ; 守护对象已销毁：注销
+        }
+        ; 剪掉已销毁的"被压住"窗口，避免句柄复用导致误判
+        alive := []
+        for b in item.below {
+            if (WinExist("ahk_id " . b))
+                alive.Push(b)
+        }
+        if (PlayBelowAbovePinned(item.pinned, alive)) {
+            DebugLog("play：pin 守护触发——先前贴图被点到上方，把 " . item.pinned . " 提回最前")
+            PlayRaiseTop(item.pinned)
+        }
+        if (alive.Length > 0)
+            still.Push({pinned: item.pinned, below: alive})
+    }
+    playPins := still
+}
+
+; 沿 Z 序链（GetWindow GW_HWNDPREV=3）从 pinned 向上探查：below 中任一窗口在 pinned 之上 → true
+PlayBelowAbovePinned(pinned, below) {
+    h := DllCall("GetWindow", "Ptr", pinned, "UInt", 3, "Ptr")
+    while (h) {
+        for b in below {
+            if (h = b)
+                return true
+        }
+        h := DllCall("GetWindow", "Ptr", h, "UInt", 3, "Ptr")
+    }
+    return false
+}
+
+; 把窗口提到置顶层最前：不抢焦点、不改位置尺寸。
+; 优先 WinMoveTop（AHK v2 内置），不可用时退化为 SetWindowPos HWND_TOP + SWP_NOSIZE|NOMOVE|NOACTIVATE|SHOWWINDOW。
+PlayRaiseTop(hwnd) {
+    try {
+        WinMoveTop("ahk_id " . hwnd)
+    } catch {
+        DllCall("SetWindowPos", "Ptr", hwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", 0x53)
+    }
 }
 
 ; 销毁（关闭）指定的 Snipaste 贴图窗口（Paster）
