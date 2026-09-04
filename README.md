@@ -1,5 +1,7 @@
 # SharpKnife —— LaTeX / Unicode / AI / TikZ 四模式补全（AutoHotkey v2）
 
+> 本项目完全由 AI 反复迭代而成。
+
 一个基于 AutoHotkey v2 的全局 **LaTeX 命令 / Unicode 符号** 快速补全工具。在任何文本编辑框中按下 `Ctrl+J`，即可把光标前刚输入的 LaTeX 键补全为完整的 LaTeX 命令、Unicode 字符或环境模板。默认情况下所有数据来自本地触发表 `latexs.cvs`，**不联网、不需要任何 API**（仅 AI 模式需要 API）。
 
 ---
