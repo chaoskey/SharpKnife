@@ -55,6 +55,7 @@
 | 直接切换命令 | `Ctrl+Shift+0`（latex）/ `Ctrl+Shift+1`（unicode）/ `Ctrl+Shift+2`（AI）/ `Ctrl+Shift+3`（tikz） | `[trigger] direct_prefix`（前缀） |
 | 触发模式列表 | `Ctrl+Shift+\`（弹出无框列表，上下键选择模式后 Enter 切换） | `[trigger] mode_list_hotkey` |
 | 步进执行命令 | `Ctrl+R`（play 模式专属，无论处于哪个状态都有效） | `[trigger] step_hotkey` |
+| 20-8-2 法则 | `Ctrl+Alt+H`（启动/停止站立→坐下→走动循环，见下文「20-8-2 法则」） | `[health] hotkey` |
 
 ### 模式切换
 
@@ -64,6 +65,14 @@
 - **tikz 模式**：把选中的 TikZ 绘图代码自动编译渲染为图片，并复制到剪贴板、通过 **Snipaste 贴图**展示（Snipaste 自带拖动 / 缩放 / 编辑 / 标注能力）。
 - 循环切换命令在四个模式之间**循环切换**（latex → unicode → AI → tikz → latex）；直接切换命令可**一步直达**指定模式（`Ctrl+Shift+0/1/2/3`）；触发模式列表命令弹出**无框列表**（`latex 模式（0）` / `unicode 模式（1）` / `AI 模式（2）` / `tikz 模式（3）`），通过**上下键移动选择**、回车切换到指定模式（Esc 取消则无操作）。托盘菜单也可直接选择模式（`latex 模式` / `unicode 模式` / `AI 模式` / `tikz 模式`）。
 - **play 模式**：**独立模式**，不与上述四种互斥模式共用切换命令；可与当前生效的互斥模式**并存**，拥有独立的 *步进执行命令*（`Ctrl+R`）。play 模式没有独立的开启/关闭操作，其状态由**是否绑定脚本文件**自然决定——已绑定脚本文件即处于开启状态，脚本执行完毕后自动解绑回到关闭状态。关闭状态下脚本的选定有两种方式（仅是选择途径不同，其余行为完全一致）：未配置时触发弹出**文件选择框**手动选择；也可在 `config.ini` 的 `[play] script_path` 预置脚本**全路径**，触发时直接绑定该脚本、省略选择框。脚本格式与步进语义详见下文「play 脚本格式」。
+
+## 4b. 20-8-2 法则（健康提醒）
+
+每天长时间伏案时，用 `Ctrl+Alt+H`（默认，见 `config.ini` 的 `[health] hotkey`）**启动 / 停止**“20-8-2”法则（同一键切换）：
+
+1. 启动后自动循环：**站立 20 分钟 → 坐下 8 分钟 → 走动 2 分钟 → 回到站立**……，直到再次按 `Ctrl+Alt+H` 停止（各阶段时长可在 `[health]` 段 `stand_min` / `sit_min` / `walk_min` 调整，默认 20 / 8 / 2 分钟）。
+2. 每个阶段切换时，**发出声音提醒**——内置默认蜂鸣为 站立=上行三音、坐下=下行三音、走动=高低两音；若在 `config.ini` 的 `[health]` 段配置 `stand_sound / sit_sound / walk_sound` 为音频路径（WAV/MP3），则对应阶段改播该音频（仓库自带三段**中文女声** WAV：`audio\20-8-2-stand.wav` 等，内容“站立20分钟 / 坐下8分钟 / 走动2分钟”）；**未配置（留空/被注释）、路径无效或播放失败时自动回退默认蜂鸣**；`[health] sound=false` 可整体静音。同时屏幕**右上角**显示显著提示文字**“站立20分钟 / 坐下8分钟 / 走动2分钟”**（随配置时长显示），**5 秒后自动消失**（`[health] notify_ms` 可调）。
+3. **托盘菜单**中始终显示当前状态（`20-8-2 法则：停止 / 站立20分钟 / 坐下8分钟 / 走动2分钟`），启动、停止、阶段切换时实时刷新；该托盘项也可直接点击切换启动/停止（与热键等效）。
 
 ---
 
@@ -212,6 +221,17 @@ direct_prefix = ^+     ; 直接切换命令的前缀（前缀+0/1/2/3：0=latex�
 mode_list_hotkey = ^+\ ; 触发模式列表（弹出无框列表，上下键选择模式）
 step_hotkey = ^r      ; 步进执行命令（play 模式专属，无论处于哪个状态都有效）
 
+[health]               ; —— 20-8-2 法则（健康提醒）——
+hotkey = ^!h          ; 启动/停止热键（默认 Ctrl+Alt+H，与默认快捷键无冲突）
+stand_min = 20        ; 站立时长（分钟）
+sit_min = 8           ; 坐下时长（分钟）
+walk_min = 2          ; 走动时长（分钟）
+sound = true          ; 阶段切换时发声提醒（true/false）
+notify_ms = 5000      ; 右上角提示显示时长（毫秒，5 秒后自动消失）
+stand_sound = audio\20-8-2-stand.wav  ; 站立提示音频（女声“站立20分钟”；留空/注释=默认蜂鸣）
+sit_sound = audio\20-8-2-sit.wav      ; 坐下提示音频（女声“坐下8分钟”）
+walk_sound = audio\20-8-2-walk.wav    ; 走动提示音频（女声“走动2分钟”）
+
 [play]                 ; —— 仅对 play 模式有效 ——
 script_path =          ; play 脚本文件全路径（可选，可设可不设）
                        ; 留空（默认）= 未设置：关闭状态下触发时弹出文件选择框由用户选择脚本
@@ -271,6 +291,7 @@ snipaste_path =         ; Snipaste 路径（留空自动探测 PATH / 常见安�
 - 文本插入使用 `SendText` 逐字符（受 `type_delay_ms` 控制），避免 `^` `{` `+` 等被解释为修饰键
 - 触发 / 循环切换 / 直接切换 / 模式列表热键均通过 config.ini 配置，启动时注册（`Hotkey` 指令）；直接切换为 `direct_prefix` + 数字 0/1/2/3；模式列表复用 `ShowList()` 无框列表（`ShowModeList()`），选择后调用 `SetModeDirect()` 直达对应模式
 - `StepPlay()`：play 模式专属的步进执行命令（默认 `Ctrl+R`）——`playScriptFile` 为空（关闭状态）时，若配置 `[play] script_path` 非空则直接绑定该脚本（`PlayBindFile`，与手动选择同一条绑定路径）并立即执行第 1 步，配置的脚本不存在 / 加载失败时非阻塞提示后回退到 `FileSelect()` 文件选择框；未配置则用 `FileSelect()` 弹出脚本文件选择窗口（过滤 `*.json`）并绑定脚本进入开启状态、立即执行第 1 步；非空（开启状态）且无动作执行中时执行下一步（`PlayRunStepFrame()`）
+- 20-8-2 法则：`HealthToggle()`（默认 `Ctrl+Alt+H`，`[health] hotkey`）同一键启动/停止——`HealthStart()` 置 `healthActive` 并以 1 秒滴答定时器（`HealthTick()`）倒数剩余秒数，归零由 `HealthNextPhase()` 在 站立→坐下→走动→站立 间循环（`Mod(phase+1, 3)`），时长由 `[health] stand_min/sit_min/walk_min` 决定；`HealthStop()` 取消定时器并收起提示。每次切换 `HealthPhaseBegin()` 播放阶段提示音（`HealthPlaySound()`：`health_sounds[阶段]` 配置了有效音频路径（相对路径经 `HealthResolveSoundPath()` 以脚本目录解析）即 `SoundPlay` 播放并返回，**未配置/路径无效/播放失败回退默认蜂鸣**——站立=上行三音 C-E-G、坐下=下行三音 G-E-C、走动=高低两音 A-D；`[health] sound=false` 静音），并 `HealthShowOverlay()` 在**屏幕右上角**弹出无框置顶显著提示（`+AlwaysOnTop`、`Show("NA")` 不抢焦点、`WinMove` 贴右上角、阶段色绿/蓝/橙），`healthOverlayTimer` 一次性定时器（`-health_notify_ms`，默认 5000）到期 `HealthHideOverlay()` 自动消失。**托盘菜单**：`RefreshTrayMenu()` 内建 `A_TrayMenu.Add(HealthTrayLabel(), HealthToggle)` 状态项（`HealthTrayLabel()` 返回 `20-8-2 法则：停止/站立20分钟/…`，随配置时长），启动/停止/阶段切换经 `HealthRefreshTrayState()` 用 `A_TrayMenu.Rename()` **就地刷新**（免整表重建），点击该项亦可切换启动/停止
 - play 脚本引擎：`PlayBind()` / `PlayUnbind()` 绑定与解绑；`PlayRunStepFrame()` / `PlayAdvanceStepFrame()` / `PlayPopStepFrame()` / `PlayPushSeqFrame()` 维护**步进游标栈**（栈底顶层游标 + 单步 `seq` 的内部游标）与**执行中标记** `playBusy`；`PlayIsOneShot()` 判定一次性 `seq`；`PlayDispatchStepAction()` / `PlayExecTree()` / `PlayExecList()` / `PlayExecAll()` / `PlayParChildDone()` 派发并驱动 9 类动作
 - play 动作实现：`PlayDoText()` / `PlaySendText()` / `PlayFlushLiteral()`（`{KEY}` 键名按 `Send` 发送、`` ` `` 转义字面 `{`/`}`、`\n`/`\r` 换行、其余字符含修饰符 `+!#^%` 走 `SendText` 字面输出）；`PlayDoSleep()` / `PlayDoRun()` / `PlayDoNote()` 负责等待、外部运行与提示；`PlayDoPaste()`（入口：`delay > 0` 时用一次性定时器延迟 `delay` 毫秒后调 `PlayDoPasteNow()` 执行实际贴图）→ `PlayDoPasteNow()`（按 `size` / `opacity` 需要时先生成临时 PNG，再通过 Snipaste `paste --files` 贴图；路径含空格时复制到无空格临时目录兜底；`ttl > 0` 时用定时器在 `ttl` 毫秒后自动销毁贴图窗口；`wait` 仅在 `delay>0` 或 `ttl>0` 时有意义，`true` 时经 `PlayWatchPaster()` / `PlayPasterPoll()` 轮询等贴图窗口关闭后才完成动作）；`PlayStartMedia()` / `PlayWaitSdlWindow()` / `PlayWatchMedia()` / `PlayMediaPoll()`（ffplay `-nodisp`/`-left`/`-top`/`-x`/`-y`/`-ss`/`-t`/`-af volume=...`，`pos` 含负值时 `-left`/`-top` 不传、启动后用 `WinMove` 做居中修正；video 透明度仍通过 `WinSetTransparent` 设置；`wait=true` 时非阻塞轮询进程退出 / 窗口关闭判定完成）
 - play 解析与校验：`PlayLoadScript()` 及 `PlaySkipWs()` / `PlayParseValue()` / `PlayParseObject()` / `PlayParseArray()` / `PlayParseString()` / `PlayHexToInt()` / `PlayParseNumber()` 实现内置 JSON 解析；`PlayValidateAction()` / `PlayValidateText()` / `PlayValidatePaste()` / `PlayValidateMedia()` / `PlayValidateSeq()` / `PlayValidatePar()` / `PlayIsXY()` / `PlayIsNumber()` / `PlayIsBool()` / `PlayValidateTime()` / `PlayTimeToSeconds()` 加载阶段整体校验（结构非法整体拒绝；`opacity` / `volume` 越界截断）；`PlayResolvePath()` 以脚本所在目录解析相对路径

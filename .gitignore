@@ -2,3 +2,4 @@
 *.exe
 test/
 config.ini
+audio/
