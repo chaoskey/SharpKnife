@@ -185,6 +185,12 @@ ai_thinking        := IniRead(configFile, "ai", "thinking", "enabled")        ; 
 ai_reasoning_effort := IniRead(configFile, "ai", "reasoning_effort", "high")  ; 推理强度：low/medium/high，留空则不发送
 ai_stream      := IniRead(configFile, "ai", "stream", "false")            ; 流式请求：true=边接收边输出思考过程；false=非流式（默认）
 ai_system_prompt := IniRead(configFile, "ai", "system_prompt", DEFAULT_SYSTEM_PROMPT)
+; OpenCode Go（https://opencode.ai/zen/go/...）要求每个请求携带稳定的会话 id——
+; 见 https://opencode.ai/docs/go 的“Where can I use it（可以在哪里使用）”。
+; 这里用 [ai] x_opencode_session 配置 x-opencode-session 请求头的值：
+;   非空 => 每次请求都发送该头（每个会话应填固定值，便于路由与提示词缓存）
+;   留空/未配置 => 不发送该头（适用于非 OpenCode Go 的模型）
+ai_opencode_session := IniRead(configFile, "ai", "x_opencode_session", "")
 
 ; ============================================================================
 ; 1d. tikz 模式配置（仅对 tikz 模式有效）
@@ -1836,7 +1842,7 @@ HttpResponseUtf8(whr) {
 AIRequest(prompt, &result, &reasoning, &errMsg) {
     global ai_key, ai_base_url, ai_endpoint, ai_style, ai_model
     global ai_temperature, ai_max_tokens, ai_timeout, ai_system_prompt
-    global ai_thinking, ai_reasoning_effort
+    global ai_thinking, ai_reasoning_effort, ai_opencode_session
     if (ai_key = "") {
         errMsg := "未配置 API 密钥（config.ini → [ai] api_key）"
         return false
@@ -1877,6 +1883,9 @@ AIRequest(prompt, &result, &reasoning, &errMsg) {
         whr.SetTimeouts(ai_timeout, ai_timeout, ai_timeout, ai_timeout)
         whr.SetRequestHeader("Content-Type", "application/json; charset=utf-8")
         whr.SetRequestHeader("Authorization", "Bearer " . ai_key)
+        ; OpenCode Go 会话 id：仅在 [ai] x_opencode_session 配置非空时发送该请求头
+        if (ai_opencode_session != "")
+            whr.SetRequestHeader("x-opencode-session", ai_opencode_session)
         DebugLog("AI：已 Open，开始 Send（t=" . (A_TickCount - t0) . "ms）")
         whr.Send(body)
         status := whr.Status
@@ -1945,7 +1954,7 @@ global streamReadOffset := 0   ; 流式响应文件中已处理到的字节偏�
 AIRequestStream(prompt, showThinking, &result, &reasoning, &errMsg) {
     global ai_key, ai_base_url, ai_endpoint, ai_style, ai_model
     global ai_temperature, ai_max_tokens, ai_timeout, ai_system_prompt
-    global ai_thinking, ai_reasoning_effort, streamFile, streamReadOffset
+    global ai_thinking, ai_reasoning_effort, ai_opencode_session, streamFile, streamReadOffset
 
     if (ai_key = "") {
         errMsg := "未配置 API 密钥（config.ini → [ai] api_key）"
@@ -1991,11 +2000,18 @@ AIRequestStream(prompt, showThinking, &result, &reasoning, &errMsg) {
         ShowThinkingWindow()
     }
 
+    ; OpenCode Go 会话 id：仅在 [ai] x_opencode_session 配置非空时附加该请求头；
+    ; 非 OpenCode Go 模型留空则不发送
+    sessionHeader := ""
+    if (ai_opencode_session != "")
+        sessionHeader := " -H `"x-opencode-session: " ai_opencode_session "`""
+
     ; 用 curl.exe 发起流式请求：-N 禁用缓冲、--data-binary @文件 原样发送请求体，
     ; stdout 写 streamFile、stderr 写 errFile；进程以 Hide 方式启动、不抢焦点
     inner := "curl.exe -sS -N -X POST `"" url "`""
         . " -H `"Content-Type: application/json; charset=utf-8`""
         . " -H `"Authorization: Bearer " ai_key "`""
+        . sessionHeader
         . " --data-binary @`"" bodyFile "`""
         . " -o `"" streamFile "`""
         . " 2> `"" errFile "`""

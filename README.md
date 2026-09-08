@@ -264,6 +264,7 @@ thinking = enabled     ; 是否启用思考（enabled / disabled / 留空不发�
 reasoning_effort = low ; 推理强度（low / medium / high / 留空不发送）
 stream = true          ; 是否流式请求（样例当前值；代码在缺省值层面仍支持 false）
 timeout_ms = 90000     ; 请求超时（毫秒，样例当前值）
+x_opencode_session =   ; OpenCode Go 会话 id：设置请求头 x-opencode-session 的值（仅 OpenCode Go 模型需要，每个会话填一个稳定值；非 OpenCode Go 模型留空 => 不发送该请求头）
 system_prompt = ...    ; 约束提示语（可选；不填则使用内置默认，已满足规范性要求）
 
 [tikz]                  ; —— 仅对 tikz 模式有效 ——
@@ -290,8 +291,8 @@ snipaste_path =         ; Snipaste 路径（留空自动探测 PATH / 常见安�
 - `ProcessLatexTemplate(f3)`：解析 `{Text}` 与 `##{Left N}`
 - `ShowMultiSelection()` / `ShowList()`：无框列表（深色背景、最多 10 行、上下键滚动、Esc 取消、Enter 选择）
 - `GetCaretScreenPos()`：多层级获取光标屏幕坐标（AHK 原生 → GetGUIThreadInfo → EM_POSFROMCHAR → UIA → 鼠标位置）
-- `AIRequest()`：非流式 WinHttp 请求，响应体按 UTF-8 字节解码（避免中文乱码）；chat / completion 两种风格；`thinking` / `reasoning_effort` 附加参数；返回 `result`（最终补全文本）与 `reasoning`（思考过程）；推理型模型 `content` 为空时回退读取 `reasoning_content`
-- `AIRequestStream()`：流式请求（`[ai] stream=true`，仅 chat 风格）——用 `curl.exe -N` 发起、`stream=true` 请求体，响应写临时文件并用 `SetTimer` 轮询增量解析 SSE（`data:` 行）；`delta.content` 累积为 `result`，`delta.reasoning_content` / `delta.reasoning` 实时追加到思考窗口；`StreamProcessFile()` 按字节偏移 + 完整行边界读取，规避 UTF-8 半字符 / 半行截断
+- `AIRequest()`：非流式 WinHttp 请求，响应体按 UTF-8 字节解码（避免中文乱码）；chat / completion 两种风格；`thinking` / `reasoning_effort` 附加参数；返回 `result`（最终补全文本）与 `reasoning`（思考过程）；推理型模型 `content` 为空时回退读取 `reasoning_content`；`[ai] x_opencode_session` 非空时追加 `x-opencode-session` 请求头（OpenCode Go 会话 id，满足 https://opencode.ai/docs/go 的“可以在哪里使用”要求）
+- `AIRequestStream()`：流式请求（`[ai] stream=true`，仅 chat 风格）——用 `curl.exe -N` 发起、`stream=true` 请求体，响应写临时文件并用 `SetTimer` 轮询增量解析 SSE（`data:` 行）；`delta.content` 累积为 `result`，`delta.reasoning_content` / `delta.reasoning` 实时追加到思考窗口；`stream` 请求同样在 `[ai] x_opencode_session` 非空时附带 `x-opencode-session` 请求头；`StreamProcessFile()` 按字节偏移 + 完整行边界读取，规避 UTF-8 半字符 / 半行截断
 - `ShowThinkingWindow()` / `AppendThinkingText()` / `ThinkingWindowDrag()` / `LeaveThinkingWindow()` / `CloseThinkingWindow()`：思考模式下弹出无框窗口（进任务栏，标题“AI 思考过程”，便于随时回到），`AppendThinkingText()` 把思考增量实时追加并滚动到底（`WM_VSCROLL` + `SB_BOTTOM`）；`ThinkingWindowDrag()` 在按住窗口空白处（Edit 之外）时发送 `WM_NCLBUTTONDOWN` + `HTCAPTION` 让系统接管拖动，使无边框窗口**可拖动**；思考完毕后 `LeaveThinkingWindow()` 先**取消置顶**（`WinSetAlwaysOnTop 0`）再自动离开（窗口保留、焦点还给原编辑器继续输出正式结果，窗口被编辑器盖住；用户可点击窗口按 Esc 触发 `CloseThinkingWindow()` 关闭）。窗口以 `Show("NA")` 显示，不抢焦点，避免插入结果按键发错窗口
 - 文本插入使用 `SendText` 逐字符（受 `type_delay_ms` 控制），避免 `^` `{` `+` 等被解释为修饰键
 - 触发 / 循环切换 / 直接切换 / 模式列表热键均通过 config.ini 配置，启动时注册（`Hotkey` 指令）；直接切换为 `direct_prefix` + 数字 0/1/2/3；模式列表复用 `ShowList()` 无框列表（`ShowModeList()`），选择后调用 `SetModeDirect()` 直达对应模式
