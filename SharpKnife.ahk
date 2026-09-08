@@ -7,7 +7,7 @@
 ; 直接切换命令：Ctrl+Shift+0/1/2/3（0=latex，1=unicode，2=AI，3=tikz，前缀可通过配置修改）；
 ; 触发模式列表：Ctrl+Shift+\（弹出无框列表，上下键选择模式，可通过配置修改）；
 ; 步进执行命令：Ctrl+R（play 模式专属，可通过配置修改）；
-; 20-8-2 法则：Ctrl+Alt+H 启动/停止（站立/坐下/走动循环，可通过配置修改）
+; 循环提醒：Ctrl+Alt+H 启动/停止（站立/坐下/走动循环，可通过配置修改）
 ; ==============================================================================
 #Requires AutoHotkey v2.0
 #SingleInstance Force
@@ -45,22 +45,96 @@ step_hotkey := IniRead(configFile, "trigger", "step_hotkey", "^r")  ; 步进执�
 if (step_hotkey = "")
     step_hotkey := "^r"    ; 防空守卫：配置为空时恢复默认
 
-; 20-8-2 法则配置（[health] 段）：循环 站立→坐下→走动，直到按热键停止
+; 循环提醒配置（[health] 段）：循环 站立→坐下→走动，直到按热键停止
+; 三步各用等长列表描述，阶段按下标对应（0=站立 1=坐下 2=走动）：
+;   step_name  = [站立20分钟, 坐下8分钟, 走动2分钟]   各阶段提示/托盘/右上角文字
+;   step_min   = [20, 8, 2]                          各阶段时长（分钟，可用小数）
+;   step_sound = [audio\20-8-2-stand.wav, ...]       各阶段提示音频（空串元素=该阶段用默认蜂鸣）
+; 三者均非空（长度>=1）即生效；step_sound / step_name 可缺省（分别回退默认蜂鸣 / 自动拼名字）。
 health_hotkey := IniRead(configFile, "health", "hotkey", "^!h")  ; 启动/停止热键（默认 Ctrl+Alt+H，与默认快捷键无冲突）
 if (health_hotkey = "")
     health_hotkey := "^!h"    ; 防空守卫：配置为空时恢复默认
-health_dur_stand := Max(Number(IniRead(configFile, "health", "stand_min", 20)), 0.1)  ; 站立时长（分钟，默认 20）
-health_dur_sit   := Max(Number(IniRead(configFile, "health", "sit_min", 8)), 0.1)     ; 坐下时长（分钟，默认 8）
-health_dur_walk  := Max(Number(IniRead(configFile, "health", "walk_min", 2)), 0.1)    ; 走动时长（分钟，默认 2）
 health_sound     := (IniRead(configFile, "health", "sound", "true") = "true")         ; 阶段切换是否发声提醒
 health_notify_ms := Max(Number(IniRead(configFile, "health", "notify_ms", 5000)), 500) ; 右上角提示自动消失时长（毫秒，默认 5000=5 秒）
-; 各阶段提示音频（留空/注释掉 = 使用默认蜂鸣提示；填写 WAV/MP3 文件路径则播放该音频，相对路径以脚本目录为基准）
-health_snd_stand := Trim(IniRead(configFile, "health", "stand_sound", ""))   ; 站立阶段提示音频
-health_snd_sit   := Trim(IniRead(configFile, "health", "sit_sound", ""))     ; 坐下阶段提示音频
-health_snd_walk  := Trim(IniRead(configFile, "health", "walk_sound", ""))    ; 走动阶段提示音频
-health_sounds := [health_snd_stand, health_snd_sit, health_snd_walk]         ; 各阶段音频路径，下标 0=站立 1=坐下 2=走动；空串=默认蜂鸣
-health_durations := [health_dur_stand, health_dur_sit, health_dur_walk]               ; 各阶段时长（分钟），下标 0=站立 1=坐下 2=走动
-health_phase_names := ["站立" health_dur_stand "分钟", "坐下" health_dur_sit "分钟", "走动" health_dur_walk "分钟"]
+health_durations := HealthParseMinList(IniRead(configFile, "health", "step_min", ""), "20,8,2")  ; 各阶段时长（分钟）
+health_phase_names := HealthParseNameList(IniRead(configFile, "health", "step_name", ""), health_durations)  ; 各阶段提示文字
+health_sounds := HealthParseStrList(IniRead(configFile, "health", "step_sound", ""))     ; 各阶段音频路径，元素空串=默认蜂鸣
+
+; 解析 [health] step_min 列表（元素=时长分钟）：逗号分隔、各元素取 .1 下界。cfg 为空用 def 兜底。
+HealthParseMinList(raw, def) {
+    ; 统一规范化：去空格后若形如 [a, b, c] 则剥掉首尾方括号，再按逗号切
+    items := StrSplit(HealthStripBrackets(raw), ",")
+    ; 若整串为空（未配置）→ 用默认 def 串兜底（def 不带方括号）
+    numItems := []
+    for it in items {
+        t := Trim(it)
+        if (t != "")
+            numItems.Push(t)
+    }
+    if (numItems.Length = 0)
+        numItems := StrSplit(def, ",")
+    arr := []
+    for it in numItems {
+        v := Number(Trim(it))
+        arr.Push(IsNumber(v) ? Max(v, 0.1) : 20)
+    }
+    if (arr.Length = 0)
+        arr.Push(20)
+    return arr
+}
+
+; 去掉整串首尾空格并剥掉最外层的 [ ]（若有），供逗号分隔解析。
+HealthStripBrackets(s) {
+    t := Trim(s)
+    ; 仅当整串首尾为方括号时才剥掉；取末字符用 StrLen（AHK v2 索引从 1 起，0 无效）
+    if (SubStr(t, 1, 1) = "[" && SubStr(t, StrLen(t)) = "]")
+        return SubStr(t, 2, -1)   ; 去掉首 [ 与尾 ]，保留中间逗号分隔内容
+    return t
+}
+
+; 解析 [health] step_sound 列表（元素=音频路径，含“音频1,\…含逗号?无”按逗号分隔），元素 Trim 后保留；缺省=全空（默认蜂鸣）
+HealthParseStrList(raw) {
+    arr := []
+    s := HealthStripBrackets(raw)              ; 剥掉外层 [ ]
+    if (Trim(s) = "")
+        return arr          ; 未配置：一律用默认蜂鸣
+    for it in StrSplit(s, ",") {
+        t := Trim(it)
+        ; 空元素也是合法“该阶段用默认蜂鸣”，非空直接保留
+        arr.Push(t)
+    }
+    return arr
+}
+
+; 解析 [health] step_name 列表：缺省（/未配/元素数为0）时按“动词+step_min 对应分钟”自动拼名字。
+HealthParseNameList(raw, mins) {
+    defaultVerbs := ["站立", "坐下", "走动"]
+    s := HealthStripBrackets(raw)              ; 剥掉外层 [ ]
+    items := (Trim(s) = "") ? [] : StrSplit(s, ",")
+    arr := []
+    for i, it in items {
+        trimIt := Trim(it)
+        if (trimIt != "") {
+            arr.Push(trimIt)                     ; 显式名称
+        } else if (i <= mins.Length) {
+            arr.Push(defaultVerbs[Min(i, defaultVerbs.Length)] mins[i] "分钟")   ; 自动拼“站立N分钟”等
+        } else {
+            arr.Push("")                          ; 空占位
+        }
+    }
+    if (arr.Length = 0) {   ; 未配置 → 按上述中文动词 + 对应时长生成默认名
+        arr := []
+        for i, m in mins {
+            if (i > defaultVerbs.Length)
+                arr.Push("阶段" i)
+            else
+                arr.Push(defaultVerbs[i] m "分钟")
+        }
+        if (arr.Length = 0)
+            arr := ["站立" mins[1] "分钟", "坐下" mins[2] "分钟", "走动" mins[3] "分钟"]
+    }
+    return arr
+}
 
 ; play 模式配置（[play] 段）：script_path = play 脚本文件全路径（可选，可设可不设）
 ; 留空（默认）= 未设置：关闭状态下触发时弹出文件选择框由用户选择脚本（保持原有行为）；
@@ -154,7 +228,7 @@ RefreshTrayMenu() {
     A_TrayMenu.Add((mode = MODE_AI ? "[x] " : "[ ] ") . "AI 模式", SetModeFromTray)
     A_TrayMenu.Add((mode = MODE_TIKZ ? "[x] " : "[ ] ") . "tikz 模式", SetModeFromTray)
     A_TrayMenu.Add()
-    A_TrayMenu.Add(HealthTrayLabel(), HealthToggle)   ; “20-8-2”法则状态项（点击切换启动/停止）
+    A_TrayMenu.Add(HealthTrayLabel(), HealthToggle)   ; “循环提醒”状态项（点击切换启动/停止）
     A_TrayMenu.Add()
     A_TrayMenu.Add("重新加载(&R)", (*) => Reload())
     A_TrayMenu.Add("退出(&X)", (*) => ExitApp())
@@ -3246,26 +3320,34 @@ CloseTikzError(guiObj, workDir) {
 }
 
 ; ============================================================================
-; 12b. “20-8-2”法则（健康提醒）—— 默认 Ctrl+Alt+H 启动/停止（可用配置修改）
+; 12b. “循环提醒”（健康提醒）—— 默认 Ctrl+Alt+H 启动/停止（可用配置修改）
 ;      启动后循环执行：站立（默认 20 分钟）→ 坐下（默认 8 分钟）→ 走动（默认 2 分钟）→ 回到站立，
 ;      直到再次按下同一热键停止。每个阶段切换时：
 ;        ① 声音提醒（各阶段音调组合不同，便于听声辨认）；
 ;        ② 屏幕右上角显示显著提示文字（站立20分钟/坐下8分钟/走动2分钟，随配置时长），5 秒后自动消失。
 ; ============================================================================
-global healthActive := false      ; 法则是否运行中
+global healthActive := false      ; 循环提醒是否运行中
 global healthTimer := 0           ; 滴答回调引用（= HealthTick；停表用 SetTimer(healthTimer, 0)）
 global healthPhase := 0           ; 当前阶段：0=站立，1=坐下，2=走动
 global healthRemainSec := 0       ; 当前阶段剩余秒数
 global healthOverlay := ""        ; 右上角提示 GUI
 global healthOverlayTimer := ""   ; 提示自动消失定时器
-global healthTrayStateText := ""      ; 托盘菜单“20-8-2 法则”状态项当前文字（供 Rename 就地刷新）
+global healthTrayStateText := ""      ; 托盘菜单“循环提醒”状态项当前文字（供 Rename 就地刷新）
 
 Hotkey(health_hotkey, HealthToggle)
 
-; “20-8-2”法则托盘状态项文字：停止 / 站立20分钟 / 坐下8分钟 / 走动2分钟（时长随配置）
+; “循环提醒”托盘状态项文字：停止 / 站立20分钟 / 坐下8分钟 / 走动2分钟（随配置显示）
 HealthTrayLabel() {
-    global healthActive, healthPhase, health_phase_names
-    return "20-8-2 法则：" (healthActive ? health_phase_names[healthPhase + 1] : "停止")
+    global healthActive, healthPhase
+    return "循环提醒：" (healthActive ? HealthPhaseName(healthPhase) : "停止")
+}
+
+; 安全获取某阶段（0 基）的提示名称：优先 health_phase_names[phase+1]；越界时回退“阶段N”
+HealthPhaseName(phaseIdx) {
+    global health_phase_names
+    if (phaseIdx + 1 <= health_phase_names.Length && health_phase_names[phaseIdx + 1] != "")
+        return health_phase_names[phaseIdx + 1]
+    return "阶段" (phaseIdx + 1)
 }
 
 ; 就地刷新托盘状态项（启动、停止、阶段切换时调用），避免整表重建
@@ -3278,7 +3360,7 @@ HealthRefreshTrayState() {
     }
 }
 
-; 启动 / 停止 20-8-2 法则（同一热键切换）
+; 启动 / 停止 循环提醒（同一热键切换）
 HealthToggle(*) {
     global healthActive
     if (healthActive)
@@ -3300,7 +3382,7 @@ HealthStart() {
     ; 因此这里保存的是回调引用（函数对象），停表时用 SetTimer(healthTimer, 0) 才能真正关闭
     healthTimer := HealthTick
     SetTimer(HealthTick, 1000)
-    DebugLog("health：20-8-2 法则已启动（从站立开始，时长=" health_durations[1] " 分钟）")
+    DebugLog("health：循环提醒已启动（从" HealthPhaseName(0) "开始，时长=" health_durations[1] " 分钟）")
 }
 
 ; 停止：取消滴答定时器并收起提示
@@ -3313,8 +3395,8 @@ HealthStop() {
     }
     HealthHideOverlay()
     HealthRefreshTrayState()
-    TrayTip("20-8-2 法则已停止，可用 " health_hotkey " 再次启动", "SharpKnife")
-    DebugLog("health：20-8-2 法则已停止")
+    TrayTip("循环提醒已停止，可用 " health_hotkey " 再次启动", "SharpKnife")
+    DebugLog("health：循环提醒已停止")
 }
 
 ; 每秒滴答：倒数当前阶段剩余秒数，归零则进入下一阶段
@@ -3327,21 +3409,23 @@ HealthTick() {
         HealthNextPhase()
 }
 
-; 进入下一阶段：站立 → 坐下 → 走动 → 站立 …（循环）
+; 进入下一阶段：按配置的阶段数 N 循环（默认 站立→坐下→走动→站立 …，N 可多可少）
 HealthNextPhase() {
     global healthPhase, healthRemainSec, health_durations, health_phase_names
-    healthPhase := Mod(healthPhase + 1, 3)
+    n := Max(health_durations.Length, 1)
+    healthPhase := Mod(healthPhase + 1, n)
+    ; 阶段名列表与时长列表等长对应；缺名时用默认名数组第 phase+1 项（若越界用“阶段N”兜底）
     healthRemainSec := health_durations[healthPhase + 1] * 60
     HealthPhaseBegin()
-    DebugLog("health：进入 " health_phase_names[healthPhase + 1])
+    DebugLog("health：进入 " HealthPhaseName(healthPhase))
 }
 
 ; 阶段切换动作：声音提醒 + 屏幕右上角显著提示 + 刷新托盘状态项
 HealthPhaseBegin() {
-    global healthPhase, health_sound, health_phase_names
+    global healthPhase, health_sound
     if (health_sound)
         HealthPlaySound(healthPhase)
-    HealthShowOverlay(health_phase_names[healthPhase + 1])
+    HealthShowOverlay(HealthPhaseName(healthPhase))
     HealthRefreshTrayState()
 }
 
@@ -3350,7 +3434,11 @@ HealthPhaseBegin() {
 ; 默认蜂鸣：站立=上行三音（C-E-G），坐下=下行三音（G-E-C），走动=高低两音（A-D）
 HealthPlaySound(phaseIdx) {
     global health_sounds
-    snd := health_sounds[phaseIdx + 1]
+    ; 未配置 step_sound（空数组）或 该阶段超出配置元素数 → 直接用默认蜂鸣
+    if (phaseIdx + 1 > health_sounds.Length)
+        snd := ""
+    else
+        snd := health_sounds[phaseIdx + 1]
     if (snd != "") {
         path := HealthResolveSoundPath(snd)
         if (FileExist(path)) {
@@ -3398,12 +3486,13 @@ HealthShowOverlay(text) {
         try healthOverlay.Destroy()
         healthOverlay := ""
     }
-    ; 阶段色：站立=绿，坐下=蓝，走动=橙（与声音组合一一对应，增强辨认度）
+    ; 阶段色：绿/蓝/橙对应 站立/坐下/走动；阶段数超过 3 时循环取色
     colors := ["58D68D", "5DADE2", "F5B041"]
+    colorIdx := Mod(healthPhase, colors.Length)   ; 阶段数可多可少，超出循环复用
     h := Gui()
     h.Opt("-Caption +ToolWindow +AlwaysOnTop +Border")
     h.BackColor := "1F1F1F"
-    h.SetFont("Bold s18 c" colors[healthPhase + 1], "Microsoft YaHei")
+    h.SetFont("Bold s18 c" colors[colorIdx + 1], "Microsoft YaHei")
     h.Add("Text", "w380 Center", text)
     h.Show("NA")   ; NA=NoActivate：显示但不抢焦点
     h.GetPos(&gx, &gy, &gw, &gh)
@@ -3436,7 +3525,7 @@ if (A_IsCompiled)
     TraySetIcon(A_ScriptFullPath, 1)
 else
     TraySetIcon(A_ScriptDir "\images\SharpKnife.ico")
-A_IconTip := "SharpKnife — " . trigger_hk . " 补全，" . toggle_hk . " 循环切换，" . direct_prefix . "0/1/2/3 直接切换，" . mode_list_hk . " 模式列表，" . step_hotkey . " play 步进，" . health_hotkey . " 20-8-2 法则"
+A_IconTip := "SharpKnife — " . trigger_hk . " 补全，" . toggle_hk . " 循环切换，" . direct_prefix . "0/1/2/3 直接切换，" . mode_list_hk . " 模式列表，" . step_hotkey . " play 步进，" . health_hotkey . " 循环提醒"
 
 ; ============================================================================
 ; 14. 启动提示
@@ -3446,7 +3535,7 @@ TrayTip(
     . trigger_hk . " 补全，" . toggle_hk . " 循环切换 latex / unicode / AI / tikz`n"
     . direct_prefix . "0/1/2/3 直接切换（0=latex，1=unicode，2=AI，3=tikz）`n"
     . mode_list_hk . " 模式列表选择，" . step_hotkey . " play 步进执行`n"
-    . health_hotkey . " 20-8-2 法则（站立/坐下/走动循环，按同一键停止）",
+    . health_hotkey . " 循环提醒（站立/坐下/走动循环，按同一键停止）",
     "SharpKnife"
 )
 
