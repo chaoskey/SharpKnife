@@ -226,6 +226,19 @@ global playPins := []        ; 贴图置顶守护列表：{pinned: 贴图句柄,
 global play_paster_hwnds := [] ; Snipaste 贴图窗口句柄收集缓冲（EnumWindows 回调写入）
 global playFocusWin := 0      ; 弹窗动作前记录的焦点窗口（弹窗后恢复焦点，保证文字输出继续）
 
+; 径向菜单全局状态
+global radialGroups := []      ; 组数组 [{name, id, items: [{name, hotkey}]}]
+global radialTrigger := ""     ; 触发快捷键
+global radialGui := 0          ; 当前菜单 GUI 对象
+global radialLevel := 0        ; 当前层级：0=未显示，1=第一级，2=第二级
+global radialCurrentGroup := 0 ; 第二级时当前组的索引
+global radialFocusWin := 0     ; 弹窗前的焦点窗口
+global radialCenterX := 0      ; 菜单中心 X 坐标
+global radialCenterY := 0      ; 菜单中心 Y 坐标
+
+; 径向菜单配置加载（必须在全局变量声明后调用，否则 global 赋值会重置数据）
+RadialLoadConfig()
+
 RefreshTrayMenu() {
     global mode, healthTrayStateText
     A_TrayMenu.Delete()
@@ -1298,6 +1311,351 @@ TypeTextSlowly(text) {
 ; ============================================================================
 
 ; ============================================================================
+; 10. 径向菜单（Radial Menu）—— 两级圆形菜单，执行预配置快捷键
+; ============================================================================
+
+; ---- 辅助：截断文字至 4 个汉字，超出追加省略号 ----
+RadialTruncate(text) {
+    if (StrLen(text) > 4)
+        return SubStr(text, 1, 4) "…"
+    return text
+}
+
+; ---- 辅助：创建点击回调闭包（捕获 idx 值，避免 for 循环闭包陷阱）----
+RadialMakeClickHandler(idx) {
+    return (*) => RadialOnItemClick(idx)
+}
+
+; ---- 加载 config.ini 的 [radial] 段（逐行扫描，保证顺序）----
+RadialLoadConfig() {
+    global radialGroups, radialTrigger, configFile
+    radialGroups := []
+    radialTrigger := "^+m"   ; 默认触发键
+
+    DebugLog("[radial] RadialLoadConfig 入口 configFile=" . configFile)
+
+    if !FileExist(configFile) {
+        DebugLog("[radial] 配置文件不存在，使用默认值")
+        return
+    }
+
+    ; FileRead 能自动识别 UTF-16/UTF-8 BOM 编码，Loop read 不行
+    txt := ""
+    try {
+        txt := FileRead(configFile, "UTF-16")
+        DebugLog("[radial] FileRead UTF-16 成功，len=" . StrLen(txt))
+    } catch {
+        try {
+            txt := FileRead(configFile, "UTF-8")
+            DebugLog("[radial] FileRead UTF-8 成功，len=" . StrLen(txt))
+        } catch Error as e {
+            DebugLog("[radial] FileRead 全部失败：" . e.Message)
+            return
+        }
+    }
+    if (txt = "") {
+        DebugLog("[radial] 文件内容为空")
+        return
+    }
+
+    inRadial := false
+    currentGroup := 0
+    lineNum := 0
+
+    Loop parse, txt, "`n", "`r"
+    {
+        lineNum++
+        line := Trim(A_LoopField)
+        if (line = "" || SubStr(line, 1, 1) = ";")
+            continue
+
+        ; 节头
+        if (SubStr(line, 1, 1) = "[") {
+            if (line = "[radial]") {
+                inRadial := true
+                currentGroup := 0
+            } else if (SubStr(line, 1, 8) = "[radial." && SubStr(line, -1) = "]") {
+                inRadial := true
+                gid := SubStr(line, 9, StrLen(line) - 9)
+                radialGroups.Push({name: "", id: gid, items: []})
+                currentGroup := radialGroups.Length
+            } else {
+                inRadial := false
+                currentGroup := 0
+            }
+            continue
+        }
+
+        if (!inRadial)
+            continue
+
+        ; 解析 key = value
+        eqPos := InStr(line, "=")
+        if (eqPos = 0)
+            continue
+
+        key := Trim(SubStr(line, 1, eqPos - 1))
+        value := Trim(SubStr(line, eqPos + 1))
+
+        if (currentGroup = 0) {
+            ; [radial] 段
+            if (key = "trigger")
+                radialTrigger := value
+        } else {
+            ; [radial.xxx] 段
+            if (key = "name") {
+                radialGroups[currentGroup].name := value
+            } else if RegExMatch(key, "^\d+$") {
+                pipePos := InStr(value, "|")
+                if (pipePos > 0) {
+                    itemName := Trim(SubStr(value, 1, pipePos - 1))
+                    itemHotkey := Trim(SubStr(value, pipePos + 1))
+                    radialGroups[currentGroup].items.Push({name: itemName, hotkey: itemHotkey, _num: Integer(key)})
+                }
+            }
+        }
+    }
+
+    ; 按编号排序组内功能（插入排序）
+    for g in radialGroups {
+        if (g.items.Length > 1) {
+            sorted := []
+            for item in g.items {
+                inserted := false
+                for i, s in sorted {
+                    if (item._num < s._num) {
+                        sorted.InsertAt(i, item)
+                        inserted := true
+                        break
+                    }
+                }
+                if (!inserted)
+                    sorted.Push(item)
+            }
+            g.items := sorted
+        }
+    }
+    DebugLog("[radial] RadialLoadConfig 完成：groups=" . radialGroups.Length . " trigger=" . radialTrigger)
+}
+
+; ---- 构建并显示菜单 GUI ----
+RadialBuildMenu() {
+    global radialGroups, radialGui, radialLevel, radialCurrentGroup, radialCenterX, radialCenterY, ui_font_size
+
+    ; 销毁旧 GUI
+    if (radialGui) {
+        radialGui.Destroy()
+        radialGui := 0
+    }
+
+    ; 确定菜单项和圆心文字
+    if (radialLevel = 1) {
+        items := []
+        for g in radialGroups
+            items.Push({name: g.name, _idx: A_Index})
+        centerText := "快捷菜单"
+    } else {
+        group := radialGroups[radialCurrentGroup]
+        items := []
+        for item in group.items
+            items.Push({name: item.name, _idx: A_Index})
+        centerText := group.name
+    }
+
+    n := items.Length
+    if (n = 0)
+        return
+
+    ; 布局参数
+    BTN_W := 80
+    BTN_H := 35
+    CENTER_SIZE := 90
+    PI := 3.14159265
+
+    isTwoRing := (n >= 6)
+    if (isTwoRing) {
+        innerN := Ceil(n / 2)
+        outerN := n - innerN
+        R_INNER := 85
+        R_OUTER := 145
+        maxR := R_OUTER
+    } else {
+        R := 120
+        maxR := R
+    }
+
+    WIN_SIZE := Round(2 * (maxR + Max(BTN_W, BTN_H) / 2 + 20))
+    halfWin := WIN_SIZE // 2
+
+    ; 创建 GUI
+    radialGui := Gui("+AlwaysOnTop -Caption +ToolWindow")
+    radialGui.BackColor := "2D2D3D"
+    radialGui.SetFont("s" . ui_font_size, "Microsoft YaHei")
+    radialGui.OnEvent("Escape", (*) => RadialClose())
+    radialGui.OnEvent("ContextMenu", (*) => RadialClose())
+
+    cx := halfWin
+    cy := halfWin
+
+    ; 圆心按钮
+    centerBtn := radialGui.Add("Text"
+        , "+0x200 x" . (cx - CENTER_SIZE // 2) . " y" . (cy - CENTER_SIZE // 2)
+        . " w" . CENTER_SIZE . " h" . CENTER_SIZE
+        . " Center cWhite Background3D3D4D"
+        , centerText)
+    centerBtn.OnEvent("Click", (*) => RadialOnCenterClick())
+
+    ; 扇区按钮
+    startAngle := -PI / 2   ; 从正上方开始
+    if (!isTwoRing) {
+        angleStep := 2 * PI / n
+        for i, item in items {
+            angle := startAngle + (i - 1) * angleStep
+            bx := Round(cx + R * Cos(angle) - BTN_W / 2)
+            by := Round(cy + R * Sin(angle) - BTN_H / 2)
+            btn := radialGui.Add("Text"
+                , "+0x200 x" . bx . " y" . by
+                . " w" . BTN_W . " h" . BTN_H
+                . " Center cWhite Background4A5568"
+                , RadialTruncate(item.name))
+            idx := item._idx
+            btn.OnEvent("Click", RadialMakeClickHandler(idx))
+        }
+    } else {
+        ; 两圈：前半内圈，后半外圈
+        innerAngleStep := 2 * PI / innerN
+        outerAngleStep := 2 * PI / outerN
+        for i, item in items {
+            if (i <= innerN) {
+                angle := startAngle + (i - 1) * innerAngleStep
+                bx := Round(cx + R_INNER * Cos(angle) - BTN_W / 2)
+                by := Round(cy + R_INNER * Sin(angle) - BTN_H / 2)
+            } else {
+                angle := startAngle + (i - innerN - 1) * outerAngleStep
+                bx := Round(cx + R_OUTER * Cos(angle) - BTN_W / 2)
+                by := Round(cy + R_OUTER * Sin(angle) - BTN_H / 2)
+            }
+            btn := radialGui.Add("Text"
+                , "+0x200 x" . bx . " y" . by
+                . " w" . BTN_W . " h" . BTN_H
+                . " Center cWhite Background4A5568"
+                , RadialTruncate(item.name))
+            idx := item._idx
+            btn.OnEvent("Click", RadialMakeClickHandler(idx))
+        }
+    }
+
+    ; 显示 GUI（确保不超出屏幕）
+    guiX := Max(0, Min(radialCenterX - halfWin, A_ScreenWidth - WIN_SIZE))
+    guiY := Max(0, Min(radialCenterY - halfWin, A_ScreenHeight - WIN_SIZE))
+    radialGui.Show("x" . guiX . " y" . guiY . " w" . WIN_SIZE . " h" . WIN_SIZE . " NoActivate")
+}
+
+; ---- 触发：弹出第一级菜单（或关闭已打开的菜单）----
+RadialShow(*) {
+    global radialGroups, radialGui, radialLevel, radialCurrentGroup, radialFocusWin, radialCenterX, radialCenterY
+
+    ; 菜单已打开 → 关闭
+    if (radialGui) {
+        RadialClose()
+        return
+    }
+
+    if (radialGroups.Length = 0)
+        return
+
+    ; 保存焦点窗口
+    radialFocusWin := WinExist("A")
+
+    ; 获取鼠标位置作为菜单中心
+    MouseGetPos(&mx, &my)
+    radialCenterX := mx
+    radialCenterY := my
+
+    ; 弹出第一级
+    radialLevel := 1
+    radialCurrentGroup := 0
+    RadialBuildMenu()
+}
+
+; ---- 进入第二级（显示组内功能）----
+RadialShowGroup(groupIdx) {
+    global radialGroups, radialLevel, radialCurrentGroup
+
+    if (groupIdx < 1 || groupIdx > radialGroups.Length)
+        return
+
+    radialLevel := 2
+    radialCurrentGroup := groupIdx
+    RadialBuildMenu()
+}
+
+; ---- 关闭菜单 ----
+RadialClose() {
+    global radialGui, radialLevel, radialCurrentGroup, radialFocusWin
+
+    if (radialGui) {
+        radialGui.Destroy()
+        radialGui := 0
+    }
+    radialLevel := 0
+    radialCurrentGroup := 0
+
+    ; 恢复焦点
+    if (radialFocusWin) {
+        try WinActivate("ahk_id " . radialFocusWin)
+        radialFocusWin := 0
+    }
+}
+
+; ---- 扇区点击处理 ----
+RadialOnItemClick(idx) {
+    global radialLevel, radialCurrentGroup, radialGroups
+
+    if (radialLevel = 1) {
+        ; 第一级：点击组 → 进入第二级
+        RadialShowGroup(idx)
+    } else if (radialLevel = 2) {
+        ; 第二级：点击功能 → 执行快捷键
+        group := radialGroups[radialCurrentGroup]
+        if (idx >= 1 && idx <= group.items.Length) {
+            item := group.items[idx]
+            RadialClose()
+            RadialExecHotkey(item.hotkey)
+        }
+    }
+}
+
+; ---- 圆心点击处理 ----
+RadialOnCenterClick() {
+    global radialLevel
+
+    if (radialLevel = 1) {
+        ; 第一级圆心 → 关闭菜单
+        RadialClose()
+    } else if (radialLevel = 2) {
+        ; 第二级圆心 → 退回第一级
+        radialLevel := 1
+        radialCurrentGroup := 0
+        RadialBuildMenu()
+    }
+}
+
+; ---- 执行预配置快捷键 ----
+RadialExecHotkey(hotkey) {
+    global radialFocusWin
+
+    ; 恢复焦点窗口
+    if (radialFocusWin) {
+        try WinActivate("ahk_id " . radialFocusWin)
+        Sleep(50)
+    }
+
+    ; 发送快捷键
+    Send(hotkey)
+}
+
+; ============================================================================
 ; 11. 模式切换命令 —— 均可通过配置修改
 ;     循环切换：默认 Ctrl+Shift+J（latex → unicode → AI → tikz → latex）
 ;     直接切换：默认 Ctrl+Shift+0/1/2/3（0=latex，1=unicode，2=AI，3=tikz），前缀可配置
@@ -1310,6 +1668,10 @@ Hotkey(direct_prefix . "2", (*) => SetModeDirect(MODE_AI))
 Hotkey(direct_prefix . "3", (*) => SetModeDirect(MODE_TIKZ))
 Hotkey(mode_list_hk, ShowModeList)
 Hotkey(step_hotkey, StepPlay)
+
+; 径向菜单触发快捷键（[radial] trigger 配置，默认 Ctrl+Shift+M）
+if (radialTrigger != "")
+    Hotkey(radialTrigger, RadialShow)
 
 ; ============================================================================
 ; 12. 主入口 —— 触发命令（默认 Ctrl+J）
