@@ -39,7 +39,7 @@
 
 直接切换命令  →  模式切换（直接切换到指定模式：0=latex，1=unicode，2=AI，3=tikz）
 
-触发模式列表  →  弹出无边框列表  →  上下键移动选择  →  模式切换（直接切换到指定模式）
+触发模式列表  →  弹出无边框列表  →  上下键移动选择 / 鼠标点击目标项  →  模式切换（直接切换到指定模式）
 
 步进执行命令  →  play 模式：关闭状态（未绑定脚本）下，未配置 `[play] script_path` 时弹出脚本文件选择窗口并绑定，
                  且立即执行第 1 个动作；已配置则直接绑定配置的脚本并立即执行第 1 个动作；
@@ -55,7 +55,7 @@
 | 触发命令 | `Ctrl+J` | `[trigger] hotkey` |
 | 循环切换命令 | `Ctrl+Shift+J` | `[trigger] toggle_hotkey` |
 | 直接切换命令 | `Ctrl+Shift+0`（latex）/ `Ctrl+Shift+1`（unicode）/ `Ctrl+Shift+2`（AI）/ `Ctrl+Shift+3`（tikz） | `[trigger] direct_prefix`（前缀） |
-| 触发模式列表 | `Ctrl+Shift+\`（弹出无框列表，上下键选择模式后 Enter 切换） | `[trigger] mode_list_hotkey` |
+| 触发模式列表 | `Ctrl+Shift+\`（弹出无框列表，上下键选择 + Enter 切换，或鼠标点击目标项直接切换） | `[trigger] mode_list_hotkey` |
 | 步进执行命令 | `Ctrl+R`（play 模式专属，无论处于哪个状态都有效） | `[trigger] step_hotkey` |
 | 循环提醒 | `Ctrl+Alt+H`（启动/停止站立→坐下→走动循环，见下文「循环提醒」） | `[health] hotkey` |
 
@@ -65,7 +65,7 @@
 - **unicode 模式**：把上下文替换为对应的 Unicode 字符。
 - **AI 模式**：把 AI 生成的结果追加到上下文之后（两个内容之间隔一行）；思考模式（`[ai] thinking=enabled`）且流式请求（`[ai] stream=true`）下，会弹出一个无边框窗口**实时**滚动呈现思考过程，思考完毕后自动离开（窗口保留，可随时通过任务栏回到窗口按 Esc 关闭），随后才输出正式结果。代码在缺省值层面仍支持非流式回退；仓库提供的 `config.ini.example` 当前示例值为 `stream = true`。思考窗口**可拖动**（按住空白处拖动，移到不遮挡编辑区的位置）；思考过程中置顶，思考完毕离开后**不再置顶**——焦点回到编辑器时窗口被编辑器盖住（不可见但仍存在）。
 - **tikz 模式**：把选中的 TikZ 绘图代码自动编译渲染为图片，并复制到剪贴板、通过 **Snipaste 贴图**展示（Snipaste 自带拖动 / 缩放 / 编辑 / 标注能力）。
-- 循环切换命令在四个模式之间**循环切换**（latex → unicode → AI → tikz → latex）；直接切换命令可**一步直达**指定模式（`Ctrl+Shift+0/1/2/3`）；触发模式列表命令弹出**无框列表**（`latex 模式（0）` / `unicode 模式（1）` / `AI 模式（2）` / `tikz 模式（3）`），通过**上下键移动选择**、回车切换到指定模式（Esc 取消则无操作）。托盘菜单也可直接选择模式（`latex 模式` / `unicode 模式` / `AI 模式` / `tikz 模式`）。
+- 循环切换命令在四个模式之间**循环切换**（latex → unicode → AI → tikz → latex）；直接切换命令可**一步直达**指定模式（`Ctrl+Shift+0/1/2/3`）；触发模式列表命令弹出**无框列表**（`latex 模式（0）` / `unicode 模式（1）` / `AI 模式（2）` / `tikz 模式（3）`），既可通过**上下键移动选择**、回车切换到指定模式，也可**鼠标点击目标模式直接切换**（Esc 取消则无操作）。托盘菜单也可直接选择模式（`latex 模式` / `unicode 模式` / `AI 模式` / `tikz 模式`）。
 - **play 模式**：**独立模式**，不与上述四种互斥模式共用切换命令；可与当前生效的互斥模式**并存**，拥有独立的 *步进执行命令*（`Ctrl+R`）。play 模式没有独立的开启/关闭操作，其状态由**是否绑定脚本文件**自然决定——已绑定脚本文件即处于开启状态，脚本执行完毕后自动解绑回到关闭状态。关闭状态下脚本的选定有两种方式（仅是选择途径不同，其余行为完全一致）：未配置时触发弹出**文件选择框**手动选择；也可在 `config.ini` 的 `[play] script_path` 预置脚本**全路径**，触发时直接绑定该脚本、省略选择框。脚本格式与步进语义详见下文「play 脚本格式」。
 
 ## 4b. 循环提醒（健康提醒）
@@ -222,7 +222,7 @@ play 模式的脚本是一个 **UTF-8 编码的 JSON 文件**（扩展名 `.json
 hotkey = ^j            ; 触发命令（^=Ctrl, !=Alt, +=Shift, #=Win）
 toggle_hotkey = ^+j    ; 循环切换命令
 direct_prefix = ^+     ; 直接切换命令的前缀（前缀+0/1/2/3：0=latex，1=unicode，2=AI，3=tikz）
-mode_list_hotkey = ^+\ ; 触发模式列表（弹出无框列表，上下键选择模式）
+mode_list_hotkey = ^+\ ; 触发模式列表（弹出无框列表，上下键选择 + 回车切换，或鼠标点击目标项直接切换）
 step_hotkey = ^r      ; 步进执行命令（play 模式专属，无论处于哪个状态都有效）
 
 [health]               ; —— 循环提醒（健康提醒）——
@@ -289,13 +289,13 @@ snipaste_path =         ; Snipaste 路径（留空自动探测 PATH / 常见安�
 - `IsValidStar(s)`：`*` 通配符校验（空串，或仅含英文字母 / 数字 / 非 `_ ^ \` 符号）
 - `FindMatches(info)`：按当前模式过滤后，按 `<前缀>*<S>*` 匹配，返回 `{key, f2, f3, hasF3, type}` 数组；排序 `=` > `>` > `<` > `~`，同类型按键长升序
 - `ProcessLatexTemplate(f3)`：解析 `{Text}` 与 `##{Left N}`
-- `ShowMultiSelection()` / `ShowList()`：无框列表（深色背景、最多 10 行、上下键滚动、Esc 取消、Enter 选择）
+- `ShowMultiSelection()` / `ShowList()`：无框列表（深色背景、最多 10 行、上下键滚动、Esc 取消、Enter 选择）；`ShowList()` 支持 `clickSubmit` 参数，为真时鼠标点击列表项即直接确认（触发模式列表用到，实现“鼠标点击目标模式直接切换”）
 - `GetCaretScreenPos()`：多层级获取光标屏幕坐标（AHK 原生 → GetGUIThreadInfo → EM_POSFROMCHAR → UIA → 鼠标位置）
 - `AIRequest()`：非流式 WinHttp 请求，响应体按 UTF-8 字节解码（避免中文乱码）；chat / completion 两种风格；`thinking` / `reasoning_effort` 附加参数；返回 `result`（最终补全文本）与 `reasoning`（思考过程）；推理型模型 `content` 为空时回退读取 `reasoning_content`；`[ai] x_opencode_session` 非空时追加 `x-opencode-session` 请求头（OpenCode Go 会话 id，满足 https://opencode.ai/docs/go 的“可以在哪里使用”要求）
 - `AIRequestStream()`：流式请求（`[ai] stream=true`，仅 chat 风格）——用 `curl.exe -N` 发起、`stream=true` 请求体，响应写临时文件并用 `SetTimer` 轮询增量解析 SSE（`data:` 行）；`delta.content` 累积为 `result`，`delta.reasoning_content` / `delta.reasoning` 实时追加到思考窗口；`stream` 请求同样在 `[ai] x_opencode_session` 非空时附带 `x-opencode-session` 请求头；`StreamProcessFile()` 按字节偏移 + 完整行边界读取，规避 UTF-8 半字符 / 半行截断
 - `ShowThinkingWindow()` / `AppendThinkingText()` / `ThinkingWindowDrag()` / `LeaveThinkingWindow()` / `CloseThinkingWindow()`：思考模式下弹出无框窗口（进任务栏，标题“AI 思考过程”，便于随时回到），`AppendThinkingText()` 把思考增量实时追加并滚动到底（`WM_VSCROLL` + `SB_BOTTOM`）；`ThinkingWindowDrag()` 在按住窗口空白处（Edit 之外）时发送 `WM_NCLBUTTONDOWN` + `HTCAPTION` 让系统接管拖动，使无边框窗口**可拖动**；思考完毕后 `LeaveThinkingWindow()` 先**取消置顶**（`WinSetAlwaysOnTop 0`）再自动离开（窗口保留、焦点还给原编辑器继续输出正式结果，窗口被编辑器盖住；用户可点击窗口按 Esc 触发 `CloseThinkingWindow()` 关闭）。窗口以 `Show("NA")` 显示，不抢焦点，避免插入结果按键发错窗口
 - 文本插入使用 `SendText` 逐字符（受 `type_delay_ms` 控制），避免 `^` `{` `+` 等被解释为修饰键
-- 触发 / 循环切换 / 直接切换 / 模式列表热键均通过 config.ini 配置，启动时注册（`Hotkey` 指令）；直接切换为 `direct_prefix` + 数字 0/1/2/3；模式列表复用 `ShowList()` 无框列表（`ShowModeList()`），选择后调用 `SetModeDirect()` 直达对应模式
+- 触发 / 循环切换 / 直接切换 / 模式列表热键均通过 config.ini 配置，启动时注册（`Hotkey` 指令）；直接切换为 `direct_prefix` + 数字 0/1/2/3；模式列表复用 `ShowList()` 无框列表（`ShowModeList()`，以 `clickSubmit=true` 支持鼠标点击目标项直接切换），选择后调用 `SetModeDirect()` 直达对应模式
 - `StepPlay()`：play 模式专属的步进执行命令（默认 `Ctrl+R`）——`playScriptFile` 为空（关闭状态）时，若配置 `[play] script_path` 非空则直接绑定该脚本（`PlayBindFile`，与手动选择同一条绑定路径）并立即执行第 1 步，配置的脚本不存在 / 加载失败时非阻塞提示后回退到 `FileSelect()` 文件选择框；未配置则用 `FileSelect()` 弹出脚本文件选择窗口（过滤 `*.json`）并绑定脚本进入开启状态、立即执行第 1 步；非空（开启状态）且无动作执行中时执行下一步（`PlayRunStepFrame()`）
 - 循环提醒：`HealthToggle()`（默认 `Ctrl+Alt+H`，`[health] hotkey`）同一键启动/停止——`HealthStart()` 置 `healthActive` 并以 1 秒滴答定时器（`HealthTick()`）倒数剩余秒数，归零由 `HealthNextPhase()` 在阶段间循环（`Mod(healthPhase + 1, 阶段数 N)`，N=`health_durations.Length`，默认 站立→坐下→走动 闭环，可多可少），时长与名称来自**列表配置**：`[health] step_min` / `step_name` / `step_sound`。配置读取时 `HealthParseMinList()` / `HealthParseNameList()` / `HealthParseStrList()` 解析方括号包裹、逗号分隔的列表（`HealthStripBrackets()` 剥外层 `[]`，AHK v2 取末字符须用 `StrLen` 而非索引 0）；`step_name` 缺省按“站立N分钟/坐下N分钟/走动N分钟”派生、`step_sound` 缺省全部默认蜂鸣。阶段名统一经 `HealthPhaseName(phase)` 安全获取（越界回退“阶段N”）。`HealthStop()` 取消定时器并收起提示。每次切换 `HealthPhaseBegin()` 播放阶段提示音（`HealthPlaySound()`：`health_sounds[阶段]` 配置了有效音频路径（相对路径经 `HealthResolveSoundPath()` 以脚本目录解析）即 `SoundPlay` 播放并返回，**未配置/路径无效/播放失败回退默认蜂鸣**——站立=上行三音 C-E-G、坐下=下行三音 G-E-C、走动=高低两音 A-D；`[health] sound=false` 静音），并 `HealthShowOverlay()` 在**屏幕右上角**弹出无框置顶显著提示（`+AlwaysOnTop`、`Show("NA")` 不抢焦点、`WinMove` 贴右上角、阶段色随阶段数轮换），`healthOverlayTimer` 一次性定时器（`-health_notify_ms`，默认 5000）到期 `HealthHideOverlay()` 自动消失。**托盘菜单**：`RefreshTrayMenu()` 内建 `A_TrayMenu.Add(HealthTrayLabel(), HealthToggle)` 状态项（`HealthTrayLabel()` 返回 `循环提醒：停止/…阶段名…`），启动/停止/阶段切换经 `HealthRefreshTrayState()` 用 `A_TrayMenu.Rename()` **就地刷新**（免整表重建），点击该项亦可切换启动/停止
 - play 脚本引擎：`PlayBind()` / `PlayUnbind()` 绑定与解绑；`PlayRunStepFrame()` / `PlayAdvanceStepFrame()` / `PlayPopStepFrame()` / `PlayPushSeqFrame()` 维护**步进游标栈**（栈底顶层游标 + 单步 `seq` 的内部游标）与**执行中标记** `playBusy`；`PlayIsOneShot()` 判定一次性 `seq`；`PlayDispatchStepAction()` / `PlayExecTree()` / `PlayExecList()` / `PlayExecAll()` / `PlayParChildDone()` 派发并驱动 9 类动作

@@ -5,7 +5,7 @@
 ; 数据源：latexs.cvs
 ; 触发命令：Ctrl+J（可通过配置修改）；循环切换命令：Ctrl+Shift+J（可通过配置修改）；
 ; 直接切换命令：Ctrl+Shift+0/1/2/3（0=latex，1=unicode，2=AI，3=tikz，前缀可通过配置修改）；
-; 触发模式列表：Ctrl+Shift+\（弹出无框列表，上下键选择模式，可通过配置修改）；
+; 触发模式列表：Ctrl+Shift+\（弹出无框列表，上下键选择 + 回车切换，或鼠标点击目标模式直接切换，可通过配置修改）；
 ; 步进执行命令：Ctrl+R（play 模式专属，可通过配置修改）；
 ; 循环提醒：Ctrl+Alt+H 启动/停止（站立/坐下/走动循环，可通过配置修改）
 ; ==============================================================================
@@ -38,7 +38,7 @@ toggle_hk     := IniRead(configFile, "trigger", "toggle_hotkey", "^+j")
 direct_prefix := IniRead(configFile, "trigger", "direct_prefix", "^+")  ; 直接切换前缀（+0/1/2/3）
 if (direct_prefix = "")
     direct_prefix := "^+"   ; 防止前缀为空时把裸数字 0/1/2/3 注册为热键
-mode_list_hk := IniRead(configFile, "trigger", "mode_list_hotkey", "^+\")  ; 触发模式列表（弹出无框列表，上下键选择模式）
+mode_list_hk := IniRead(configFile, "trigger", "mode_list_hotkey", "^+\")  ; 触发模式列表（弹出无框列表，上下键选择 + 回车切换，或鼠标点击目标模式直接切换）
 if (mode_list_hk = "")
     mode_list_hk := "^+\"    ; 防空守卫：配置为空时恢复默认
 step_hotkey := IniRead(configFile, "trigger", "step_hotkey", "^r")  ; 步进执行命令（play 模式专属，无论处于哪个状态都有效）
@@ -282,10 +282,13 @@ SetModeDirect(newMode, *) {
 }
 
 ; 触发模式列表：弹出无框列表（latex 模式（0）/ unicode 模式（1）/ AI 模式（2）/ tikz 模式（3）），
-; 上下键移动选择，Enter 切换，Esc 取消（取消 → 无操作，保持当前模式）
+; 上下键移动选择 + Enter 切换，或鼠标点击目标模式直接切换；Esc 取消（取消 → 无操作，保持当前模式）
 ShowModeList(*) {
+    global mode
     items := ["latex 模式（0）", "unicode 模式（1）", "AI 模式（2）", "tikz 模式（3）"]
-    idx := ShowList(items, "选择模式：")
+    ; clickSubmit=true：鼠标点击目标项即直接切换；preselect=当前模式+1：高亮落在当前模式，
+    ; 点击任意其它项必然产生选择变化 → 立即切换到该模式（点击当前模式项本无操作，不提交、语义正确）
+    idx := ShowList(items, "选择模式：", true, mode + 1)
     if (idx = 0) {
         DebugLog("ShowModeList：用户取消，无操作")
         return
@@ -1298,7 +1301,7 @@ TypeTextSlowly(text) {
 ; 11. 模式切换命令 —— 均可通过配置修改
 ;     循环切换：默认 Ctrl+Shift+J（latex → unicode → AI → tikz → latex）
 ;     直接切换：默认 Ctrl+Shift+0/1/2/3（0=latex，1=unicode，2=AI，3=tikz），前缀可配置
-;     模式列表：默认 Ctrl+Shift+\（弹出无框列表，上下键选择模式，Enter 切换）
+;     模式列表：默认 Ctrl+Shift+\（弹出无框列表，上下键选择 + Enter 切换，或鼠标点击目标模式直接切换）
 ; ============================================================================
 Hotkey(toggle_hk, ToggleMode)
 Hotkey(direct_prefix . "0", (*) => SetModeDirect(MODE_LATEX))
@@ -2163,9 +2166,14 @@ StreamProcessFile(showThinking, &contentAcc, &reasoningAcc) {
 ; ============================================================================
 ; 17. ShowList —— 通用无框候选列表（最多显示 10 行，上下键滚动查看全部）
 ;     items：显示字符串数组；title：标题
+;     clickSubmit（可选，默认 false）：为 true 时，鼠标点击某个列表项即直接确认该项
+;       （等价于“上下键选中该项 + 回车”）；供触发模式列表使用，实现“鼠标点击目标模式直接切换”。
+;     preselect（可选，默认 1）：初始高亮项（1 起）。触发模式列表传入“当前模式 + 1”，
+;       使高亮落在当前模式上：点击任意其它项必产生选择变化 → Change 事件 → 立即确认；
+;       点击当前模式项本身即是“无操作”（切换到当前模式无意义），不发生选择变化、不提交，语义正确。
 ;     返回：选中项索引（1 起），取消返回 0
 ; ============================================================================
-ShowList(items, title) {
+ShowList(items, title, clickSubmit := false, preselect := 1) {
     global ui_font_size
     prevWin := WinExist("A")          ; 记录当前前台窗口，GUI 关闭后等待焦点归还
     cp := GetCaretScreenPos()
@@ -2176,8 +2184,25 @@ ShowList(items, title) {
     selGui.Add("Text", "cAAAAAA x10 y6", title)
     rows := Min(items.Length, 10)
     lb := selGui.Add("ListBox", "x10 y+4 w480 r" rows " cFFFFFF Background2D2D2D vSelectedItem", items)
-    lb.Choose(1)
-    selGui.Add("Text", "c888888 x10 y+4", Chr(8593) . Chr(8595) . " 移动  Enter 选择  Esc 取消")
+    lb.Choose(preselect)
+    ; clickSubmit（鼠标点击项即确认）：借用 ListBox 的 Change 事件——“当前选择发生变化”时必然触发
+    ; （鼠标点击某项、上下键移动某项都会引起选择变化）。Change 响起时用 ModeListChangeIsClick 判定
+    ; 是否鼠标点击：↑/↓/Home/End/PgUp/PgDn 任一正物理按下 → 键盘移动引起 → 不提交（等 Enter 确认）；
+    ; 否则鼠标光标此刻必位于列表控件之上（点击不移动鼠标）→ 判定为鼠标点击 → 立即提交，
+    ; 走与回车/OK 按钮同一条 Submit 通道（与回车同级的原生事件可靠性，探针已验证点击可触发 Change）。
+    ; 配合 preselect 预选中当前模式项：点击任意非当前模式项必然产生选择变化 → 直接切换；
+    ; 点击当前模式项本无操作（不发生选择变化），不提交，语义正确。
+    if (clickSubmit)
+        lb.OnEvent("Change", (*) => (
+            ModeListChangeIsClick(lb) ? (
+                chosen := SendMessage(0x0188, 0, 0, lb),
+                DebugLog("ShowList：Change 判定为鼠标点击，选中第 " . (chosen + 1) . " 项，直接确认"),
+                selGui.Submit()
+            ) : (
+                DebugLog("ShowList：Change 判定为键盘移动（方向键物理按下或光标不在列表上），等待 Enter 确认")
+            )
+        ))
+    selGui.Add("Text", "c888888 x10 y+4", Chr(8593) . Chr(8595) . " 移动  Enter 选择" . (clickSubmit ? "  点击即选" : "") . "  Esc 取消")
     okBtn := selGui.Add("Button", "Hidden Default", "OK")
     okBtn.OnEvent("Click", (*) => (
         chosen := SendMessage(0x0188, 0, 0, lb),
@@ -2224,6 +2249,20 @@ ShowList(items, title) {
     if (chosen < 0)
         return 0
     return chosen + 1
+}
+
+; 判定 ListBox 的 Change（选择变化）是否由鼠标点击引起（而非键盘移动选择）：
+; ① 若 ↑/↓/←/→/Home/End/PgUp/PgDn 任一键此刻正物理按下（GetKeyState P 模式）→ 选择变化来自键盘 → 非点击；
+; ② 否则看鼠标光标是否正位于列表控件之上（MouseGetPos 以 Flag=2 取“光标下控件 HWND”比对）——
+;    鼠标点击引起的选择变化其时刻光标必然仍在列表上（点击不移动鼠标），故 ② 成立即可判定为点击。
+; 两者互补：键盘移动时正按着方向键（① 拦截，即使鼠标恰好悬在列表上也不误判）；
+; 鼠标点击检测不看按键时序（② 与“左键是否已松开”无关，快速点击不丢判）。
+ModeListChangeIsClick(lbCtrl) {
+    for k in ["Up", "Down", "Left", "Right", "Home", "End", "PgUp", "PgDn"]
+        if (GetKeyState(k, "P"))
+            return false
+    MouseGetPos(, , , &mCtrl, 2)     ; Flag=2：OutputVarControl 返回控件 HWND
+    return (mCtrl = lbCtrl.Hwnd)
 }
 
 ; ============================================================================
