@@ -235,6 +235,13 @@ global radialCurrentGroup := 0 ; 第二级时当前组的索引
 global radialFocusWin := 0     ; 弹窗前的焦点窗口
 global radialCenterX := 0      ; 菜单中心 X 坐标
 global radialCenterY := 0      ; 菜单中心 Y 坐标
+global radialMenuItems := []   ; 当前菜单项列表 [{name, _idx}]
+global radialHover := 0        ; 当前悬停：0=无，-1=圆心，>0=扇区索引
+global radialLayout := 0       ; 当前布局 {n, cx, cy, outerR, innerR, winSize, half, startRad}
+global radialMsgMove := 0      ; OnMessage 注册句柄（WM_MOUSEMOVE）
+global radialMsgDown := 0      ; OnMessage 注册句柄（WM_LBUTTONDOWN）
+global radialMsgRDown := 0     ; OnMessage 注册句柄（WM_RBUTTONDOWN）
+global radialMsgLeave := 0     ; OnMessage 注册句柄（WM_MOUSELEAVE）
 
 ; 径向菜单配置加载（必须在全局变量声明后调用，否则 global 赋值会重置数据）
 RadialLoadConfig()
@@ -1438,117 +1445,394 @@ RadialLoadConfig() {
     DebugLog("[radial] RadialLoadConfig 完成：groups=" . radialGroups.Length . " trigger=" . radialTrigger)
 }
 
-; ---- 构建并显示菜单 GUI ----
+; ---- 构建并显示菜单 GUI（GDI 自绘，不用 GDI+）----
+; 用经典 Win32 GDI（CreateCompatibleDC / CreateEllipticRgn / Pie / FillRgn / TextOut）
+; 双缓冲绘制真正的环形扇区菜单：外环按角度均分扇区，圆心为真正的圆形按钮，
+; 扇区之间用细线分隔，文字水平居中。
 RadialBuildMenu() {
-    global radialGroups, radialGui, radialLevel, radialCurrentGroup, radialCenterX, radialCenterY, ui_font_size
+    global radialGroups, radialGui, radialLevel, radialCurrentGroup, radialCenterX, radialCenterY
+    global radialMenuItems, radialHover, radialLayout
 
     ; 销毁旧 GUI
     if (radialGui) {
+        RadialUnregisterMsg()
         radialGui.Destroy()
         radialGui := 0
     }
+    radialHover := 0
 
     ; 确定菜单项和圆心文字
+    radialMenuItems := []
     if (radialLevel = 1) {
-        items := []
         for g in radialGroups
-            items.Push({name: g.name, _idx: A_Index})
+            radialMenuItems.Push({name: g.name, _idx: A_Index})
         centerText := "快捷菜单"
     } else {
         group := radialGroups[radialCurrentGroup]
-        items := []
         for item in group.items
-            items.Push({name: item.name, _idx: A_Index})
+            radialMenuItems.Push({name: item.name, _idx: A_Index})
         centerText := group.name
     }
 
-    n := items.Length
+    n := radialMenuItems.Length
     if (n = 0)
         return
 
-    ; 布局参数
-    BTN_W := 80
-    BTN_H := 35
-    CENTER_SIZE := 90
-    PI := 3.14159265
+    ; 布局参数：单环等分，环形半径自适应
+    PI := 3.141592653589793
+    OUTER_R := 150                     ; 外环半径
+    INNER_R := 54                      ; 圆心半径（环形内边界）
+    MARGIN := 10                       ; 窗口边距
+    winSize := Round(2 * (OUTER_R + MARGIN))
+    half := winSize // 2
 
-    isTwoRing := (n >= 6)
-    if (isTwoRing) {
-        innerN := Ceil(n / 2)
-        outerN := n - innerN
-        R_INNER := 85
-        R_OUTER := 145
-        maxR := R_OUTER
-    } else {
-        R := 120
-        maxR := R
-    }
+    radialLayout := {n: n, cx: half, cy: half, outerR: OUTER_R, innerR: INNER_R, winSize: winSize, half: half, startRad: -PI / 2, centerText: centerText}
 
-    WIN_SIZE := Round(2 * (maxR + Max(BTN_W, BTN_H) / 2 + 20))
-    halfWin := WIN_SIZE // 2
-
-    ; 创建 GUI
+    ; 创建 GUI（纯自绘，无任何控件）
     radialGui := Gui("+AlwaysOnTop -Caption +ToolWindow")
     radialGui.BackColor := "2D2D3D"
-    radialGui.SetFont("s" . ui_font_size, "Microsoft YaHei")
+    radialGui.MarginX := 0
+    radialGui.MarginY := 0
     radialGui.OnEvent("Escape", (*) => RadialClose())
-    radialGui.OnEvent("ContextMenu", (*) => RadialClose())
-
-    cx := halfWin
-    cy := halfWin
-
-    ; 圆心按钮
-    centerBtn := radialGui.Add("Text"
-        , "+0x200 x" . (cx - CENTER_SIZE // 2) . " y" . (cy - CENTER_SIZE // 2)
-        . " w" . CENTER_SIZE . " h" . CENTER_SIZE
-        . " Center cWhite Background3D3D4D"
-        , centerText)
-    centerBtn.OnEvent("Click", (*) => RadialOnCenterClick())
-
-    ; 扇区按钮
-    startAngle := -PI / 2   ; 从正上方开始
-    if (!isTwoRing) {
-        angleStep := 2 * PI / n
-        for i, item in items {
-            angle := startAngle + (i - 1) * angleStep
-            bx := Round(cx + R * Cos(angle) - BTN_W / 2)
-            by := Round(cy + R * Sin(angle) - BTN_H / 2)
-            btn := radialGui.Add("Text"
-                , "+0x200 x" . bx . " y" . by
-                . " w" . BTN_W . " h" . BTN_H
-                . " Center cWhite Background4A5568"
-                , RadialTruncate(item.name))
-            idx := item._idx
-            btn.OnEvent("Click", RadialMakeClickHandler(idx))
-        }
-    } else {
-        ; 两圈：前半内圈，后半外圈
-        innerAngleStep := 2 * PI / innerN
-        outerAngleStep := 2 * PI / outerN
-        for i, item in items {
-            if (i <= innerN) {
-                angle := startAngle + (i - 1) * innerAngleStep
-                bx := Round(cx + R_INNER * Cos(angle) - BTN_W / 2)
-                by := Round(cy + R_INNER * Sin(angle) - BTN_H / 2)
-            } else {
-                angle := startAngle + (i - innerN - 1) * outerAngleStep
-                bx := Round(cx + R_OUTER * Cos(angle) - BTN_W / 2)
-                by := Round(cy + R_OUTER * Sin(angle) - BTN_H / 2)
-            }
-            btn := radialGui.Add("Text"
-                , "+0x200 x" . bx . " y" . by
-                . " w" . BTN_W . " h" . BTN_H
-                . " Center cWhite Background4A5568"
-                , RadialTruncate(item.name))
-            idx := item._idx
-            btn.OnEvent("Click", RadialMakeClickHandler(idx))
-        }
-    }
 
     ; 显示 GUI（确保不超出屏幕）
-    guiX := Max(0, Min(radialCenterX - halfWin, A_ScreenWidth - WIN_SIZE))
-    guiY := Max(0, Min(radialCenterY - halfWin, A_ScreenHeight - WIN_SIZE))
-    radialGui.Show("x" . guiX . " y" . guiY . " w" . WIN_SIZE . " h" . WIN_SIZE . " NoActivate")
+    guiX := Max(0, Min(radialCenterX - half, A_ScreenWidth - winSize))
+    guiY := Max(0, Min(radialCenterY - half, A_ScreenHeight - winSize))
+    radialGui.Show("x" . guiX . " y" . guiY . " w" . winSize . " h" . winSize . " NoActivate")
+
+    ; 注册鼠标消息（窗口已显示，Hwnd 有效）
+    RadialRegisterMsg()
+
+    ; 首次绘制
+    RadialDraw()
+}
+
+; ---- 布局常量 ----
+RadialGetLayout() {
+    global radialLayout
+    return radialLayout
+}
+
+; ---- 注册鼠标消息 ----
+RadialRegisterMsg() {
+    global radialGui, radialMsgMove, radialMsgDown, radialMsgRDown, radialMsgLeave
+    hwnd := radialGui.Hwnd
+    radialMsgMove   := OnMessage(0x0200, RadialOnMouseMove)   ; WM_MOUSEMOVE
+    radialMsgDown   := OnMessage(0x0201, RadialOnLButtonDown) ; WM_LBUTTONDOWN
+    radialMsgRDown  := OnMessage(0x0204, RadialOnRButtonDown) ; WM_RBUTTONDOWN
+    radialMsgLeave  := OnMessage(0x02A3, RadialOnMouseLeave)  ; WM_MOUSELEAVE
+    ; 请求鼠标离开通知
+    DllCall("TrackMouseEvent", "Ptr", TrackMouseEventStruct(), "Int")
+}
+
+; ---- 注销鼠标消息 ----
+RadialUnregisterMsg() {
+    global radialMsgMove, radialMsgDown, radialMsgRDown, radialMsgLeave
+    if (radialMsgMove) {
+        OnMessage(0x0200, radialMsgMove, 0)
+        radialMsgMove := 0
+    }
+    if (radialMsgDown) {
+        OnMessage(0x0201, radialMsgDown, 0)
+        radialMsgDown := 0
+    }
+    if (radialMsgRDown) {
+        OnMessage(0x0204, radialMsgRDown, 0)
+        radialMsgRDown := 0
+    }
+    if (radialMsgLeave) {
+        OnMessage(0x02A3, radialMsgLeave, 0)
+        radialMsgLeave := 0
+    }
+}
+
+; ---- TrackMouseEvent 结构（WM_MOUSELEAVE 需要）----
+TrackMouseEventStruct() {
+    static tme := 0
+    if (!tme) {
+        tme := Buffer(16)
+        NumPut("UInt", 16, tme, 0)           ; cbSize
+        NumPut("UInt", 0x00000002, tme, 4)   ; TME_LEAVE
+        NumPut("Ptr", 0, tme, 8)             ; hwndTrack（动态填）
+    }
+    global radialGui
+    if (radialGui)
+        NumPut("Ptr", radialGui.Hwnd, tme, 8)
+    return tme
+}
+
+; ---- 绘制菜单（内存 DC 双缓冲）----
+RadialDraw() {
+    global radialGui, radialHover, radialLayout, ui_font_size
+    if (!radialGui || !radialLayout)
+        return
+    hwnd := radialGui.Hwnd
+    L := radialLayout
+
+    hdc := DllCall("GetDC", "Ptr", hwnd, "Ptr")
+    if (!hdc)
+        return
+    memDC := DllCall("CreateCompatibleDC", "Ptr", hdc, "Ptr")
+    hbm := DllCall("CreateCompatibleBitmap", "Ptr", hdc, "Int", L.winSize, "Int", L.winSize, "Ptr")
+    oldBmp := DllCall("SelectObject", "Ptr", memDC, "Ptr", hbm, "Ptr")
+
+    ; 背景
+    bgFillBrush := BrushSolid("2D2D3D")
+    DllCall("FillRect", "Ptr", memDC, "Ptr", RectStruct(0, 0, L.winSize, L.winSize), "Ptr", bgFillBrush)
+    DllCall("DeleteObject", "Ptr", bgFillBrush)
+
+    cx := L.cx
+    cy := L.cy
+    n := L.n
+    startRad := L.startRad
+    angleStep := 2 * 3.141592653589793 / n
+
+    ; 画环形扇区（Pie 用当前画刷自动填充饼形；从正上方顺时针）
+    ; 顺序：先画非悬停扇区，最后画悬停扇区（保证高亮完整可见）
+    Loop n {
+        i := (radialHover > 0) ? n - A_Index + 1 : A_Index
+        a0 := startRad + (i - 1) * angleStep
+        a1 := a0 + angleStep
+        isHover := (radialHover = i)
+        bgColor := isHover ? "4A90D9" : "3A4455"
+        brush := BrushSolid(bgColor)
+        oldBrush := DllCall("SelectObject", "Ptr", memDC, "Ptr", brush, "Ptr")
+        penS := DllCall("CreatePen", "Int", 0, "Int", 1, "UInt", BrushColorVal(bgColor), "Ptr")
+        oldPenS := DllCall("SelectObject", "Ptr", memDC, "Ptr", penS, "Ptr")
+        ; 饼形边界端点（外圆上的两点）
+        DllCall("Pie"
+            , "Ptr", memDC
+            , "Int", cx - L.outerR, "Int", cy - L.outerR, "Int", cx + L.outerR, "Int", cy + L.outerR
+            , "Int", cx + Round(L.outerR * Cos(a0)), "Int", cy + Round(L.outerR * Sin(a0))
+            , "Int", cx + Round(L.outerR * Cos(a1)), "Int", cy + Round(L.outerR * Sin(a1)))
+        DllCall("SelectObject", "Ptr", memDC, "Ptr", oldPenS, "Ptr")
+        DllCall("DeleteObject", "Ptr", penS)
+        DllCall("SelectObject", "Ptr", memDC, "Ptr", oldBrush, "Ptr")
+        DllCall("DeleteObject", "Ptr", brush)
+    }
+
+    ; 用背景色饼形挖出圆心：画一个半径为 innerR 的完整圆（同背景色）
+    bgBrush := BrushSolid("2D2D3D")
+    oldBrush2 := DllCall("SelectObject", "Ptr", memDC, "Ptr", bgBrush, "Ptr")
+    penBG := DllCall("CreatePen", "Int", 0, "Int", 1, "UInt", BrushColorVal("2D2D3D"), "Ptr")
+    oldPenBG := DllCall("SelectObject", "Ptr", memDC, "Ptr", penBG, "Ptr")
+    DllCall("Ellipse"
+        , "Ptr", memDC
+        , "Int", cx - L.innerR, "Int", cy - L.innerR, "Int", cx + L.innerR, "Int", cy + L.innerR)
+    DllCall("SelectObject", "Ptr", memDC, "Ptr", oldPenBG, "Ptr")
+    DllCall("DeleteObject", "Ptr", penBG)
+    DllCall("SelectObject", "Ptr", memDC, "Ptr", oldBrush2, "Ptr")
+    DllCall("DeleteObject", "Ptr", bgBrush)
+
+    ; 圆心圆
+    centerBrush := BrushSolid("3D3D4D")
+    centerRgn := DllCall("CreateEllipticRgn", "Int", cx - L.innerR, "Int", cy - L.innerR, "Int", cx + L.innerR, "Int", cy + L.innerR, "Ptr")
+    DllCall("FillRgn", "Ptr", memDC, "Ptr", centerRgn, "Ptr", centerBrush)
+    DllCall("DeleteObject", "Ptr", centerRgn)
+    DllCall("DeleteObject", "Ptr", centerBrush)
+
+    ; 细线分隔扇区
+    pen := DllCall("CreatePen", "Int", 0, "Int", 1, "UInt", 0x333333, "Ptr")
+    oldPen := DllCall("SelectObject", "Ptr", memDC, "Ptr", pen, "Ptr")
+    Loop n {
+        i := A_Index
+        a := startRad + (i - 1) * angleStep
+        DllCall("MoveToEx", "Ptr", memDC, "Int", cx + Round(L.innerR * Cos(a)), "Int", cy + Round(L.innerR * Sin(a)), "Ptr", 0)
+        DllCall("LineTo", "Ptr", memDC, "Int", cx + Round(L.outerR * Cos(a)), "Int", cy + Round(L.outerR * Sin(a)))
+    }
+    DllCall("SelectObject", "Ptr", memDC, "Ptr", oldPen, "Ptr")
+    DllCall("DeleteObject", "Ptr", pen)
+
+    ; 圆心文字
+    RadialDrawText(memDC, L.centerText, cx, cy, L.innerR, "3D3D4D", true)
+
+    ; 扇区文字（水平居中，放在扇区角平分线与半径中点处）
+    font := RadialCreateFont(ui_font_size, "Microsoft YaHei")
+    oldFont := DllCall("SelectObject", "Ptr", memDC, "Ptr", font, "Ptr")
+    DllCall("SetBkMode", "Ptr", memDC, "Int", 1)              ; TRANSPARENT
+    Loop n {
+        i := A_Index
+        item := radialMenuItems[i]
+        aMid := startRad + (i - 0.5) * angleStep
+        rMid := (L.innerR + L.outerR) / 2
+        tx := cx + Round(rMid * Cos(aMid))
+        ty := cy + Round(rMid * Sin(aMid))
+        DllCall("SetTextAlign", "Ptr", memDC, "UInt", 0x0004 | 0x0008, "UInt")  ; TA_CENTER | TA_BASELINE
+        DllCall("SetTextColor", "Ptr", memDC, "UInt", 0xFFFFFF)
+        DllCall("TextOutW", "Ptr", memDC, "Int", tx, "Int", ty, "Str", RadialTruncate(item.name), "Int", StrLen(RadialTruncate(item.name)))
+    }
+    DllCall("SelectObject", "Ptr", memDC, "Ptr", oldFont, "Ptr")
+    DllCall("DeleteObject", "Ptr", font)
+
+    ; 外环描边
+    outerBrush := BrushSolid("2A2A38")
+    outerRgn := DllCall("CreateEllipticRgn", "Int", cx - L.outerR, "Int", cy - L.outerR, "Int", cx + L.outerR, "Int", cy + L.outerR, "Ptr")
+    DllCall("FrameRgn", "Ptr", memDC, "Ptr", outerRgn, "Ptr", outerBrush, "Int", 1, "Int", 1)
+    DllCall("DeleteObject", "Ptr", outerRgn)
+    DllCall("DeleteObject", "Ptr", outerBrush)
+
+    ; 一次 BitBlt 到位
+    DllCall("BitBlt", "Ptr", hdc, "Int", 0, "Int", 0, "Int", L.winSize, "Int", L.winSize, "Ptr", memDC, "Int", 0, "Int", 0, "UInt", 0x00CC0020)
+
+    ; 清理
+    DllCall("SelectObject", "Ptr", memDC, "Ptr", oldBmp, "Ptr")
+    DllCall("DeleteObject", "Ptr", hbm)
+    DllCall("DeleteDC", "Ptr", memDC)
+    DllCall("ReleaseDC", "Ptr", hwnd, "Ptr", hdc)
+}
+
+; ---- 环形区域（外圆减内圆，返回区域句柄）----
+RadialRingRgn(cx, cy, outerR, innerR) {
+    outer := DllCall("CreateEllipticRgn", "Int", cx - outerR, "Int", cy - outerR, "Int", cx + outerR, "Int", cy + outerR, "Ptr")
+    inner := DllCall("CreateEllipticRgn", "Int", cx - innerR, "Int", cy - innerR, "Int", cx + innerR, "Int", cy + innerR, "Ptr")
+    DllCall("CombineRgn", "Ptr", outer, "Ptr", outer, "Ptr", inner, "Int", 4)  ; RGN_DIFF
+    DllCall("DeleteObject", "Ptr", inner)
+    return outer
+}
+
+; ---- 颜色： "RRGGBB" → 0xBBGGRR（COLORREF）----
+BrushColorVal(rgbHex) {
+    r := Integer("0x" . SubStr(rgbHex, 1, 2))
+    g := Integer("0x" . SubStr(rgbHex, 3, 2))
+    b := Integer("0x" . SubStr(rgbHex, 5, 2))
+    return r | (g << 8) | (b << 16)
+}
+
+; ---- 实心画刷 ----
+BrushSolid(rgbHex) {
+    return DllCall("CreateSolidBrush", "UInt", BrushColorVal(rgbHex), "Ptr")
+}
+
+; ---- RECT 结构 ----
+RectStruct(x, y, w, h) {
+    static rect := 0
+    if (!rect)
+        rect := Buffer(16)
+    NumPut("Int", x, rect, 0)
+    NumPut("Int", y, rect, 4)
+    NumPut("Int", w, rect, 8)
+    NumPut("Int", h, rect, 12)
+    return rect
+}
+
+; ---- 创建 GDI 字体 ----
+RadialCreateFont(sizePt, face) {
+    ; 点 → 像素（96 DPI）
+    px := Round(sizePt * 96 / 72)
+    return DllCall("CreateFontW"
+        , "Int", -px, "Int", 0, "Int", 0, "Int", 0
+        , "Int", 400, "UInt", 0, "UInt", 0, "UInt", 0
+        , "UInt", 1, "UInt", 0, "UInt", 0
+        , "UInt", 0x01 | 0x04, "UInt", 0   ; CLEARTYPE_NATURAL_QUALITY | DEFAULT_PITCH
+        , "Str", face, "Ptr")
+}
+
+; ---- 绘制文字（水平居中）----
+RadialDrawText(memDC, text, cx, cy, maxR, bgColor, isCenter) {
+    global ui_font_size
+    font := RadialCreateFont(ui_font_size, "Microsoft YaHei")
+    oldFont := DllCall("SelectObject", "Ptr", memDC, "Ptr", font, "Ptr")
+    DllCall("SetBkMode", "Ptr", memDC, "Int", 1)   ; TRANSPARENT
+    DllCall("SetTextAlign", "Ptr", memDC, "UInt", 0x0004 | 0x0008, "UInt")  ; TA_CENTER | TA_BASELINE
+    DllCall("SetTextColor", "Ptr", memDC, "UInt", 0xFFFFFF)
+    DllCall("TextOutW", "Ptr", memDC, "Int", cx, "Int", cy, "Str", text, "Int", StrLen(text))
+    DllCall("SelectObject", "Ptr", memDC, "Ptr", oldFont, "Ptr")
+    DllCall("DeleteObject", "Ptr", font)
+}
+
+; ---- 命中检测：返回 0=无，-1=圆心，i=扇区索引(1基) ----
+RadialHitTest(mx, my) {
+    global radialGui, radialLayout
+    if (!radialGui || !radialLayout)
+        return 0
+    WinGetPos(&wx, &wy, , , "ahk_id " . radialGui.Hwnd)
+    L := radialLayout
+    cx := wx + L.cx
+    cy := wy + L.cy
+    dx := mx - cx
+    dy := my - cy
+    d := Sqrt(dx * dx + dy * dy)
+    if (d <= L.innerR)
+        return -1
+    if (d > L.outerR)
+        return 0
+    ; 角度（标准 atan2）
+    ang := ATan2(dy, dx)
+    ; 转成相对 startRad（-90°=正上方）顺时针
+    rel := ang - L.startRad
+    ; 规整到 [0, 2π)
+    while (rel < 0)
+        rel += 2 * 3.141592653589793
+    while (rel >= 2 * 3.141592653589793)
+        rel -= 2 * 3.141592653589793
+    idx := Floor(rel / (2 * 3.141592653589793 / L.n)) + 1
+    return (idx >= 1 && idx <= L.n) ? idx : 0
+}
+
+; ---- ATan2 ----
+ATan2(y, x) {
+    if (x > 0)
+        return ATan(y / x)
+    if (x < 0)
+        return ATan(y / x) + 3.141592653589793
+    if (y >= 0)
+        return 3.141592653589793 / 2
+    return -3.141592653589793 / 2
+}
+
+; ---- 鼠标移动：更新悬停并重绘 ----
+RadialOnMouseMove(wParam, lParam, msg, hwnd) {
+    global radialGui, radialHover
+    if (!radialGui || hwnd != radialGui.Hwnd)
+        return 0
+    x := lParam & 0xFFFF
+    y := (lParam >> 16) & 0xFFFF
+    WinGetPos(&wx, &wy, , , "ahk_id " . hwnd)
+    hit := RadialHitTest(wx + x, wy + y)
+    if (hit != radialHover) {
+        radialHover := hit
+        RadialDraw()
+    }
+    ; 请求持续追踪
+    DllCall("TrackMouseEvent", "Ptr", TrackMouseEventStruct(), "Int")
+    return 0
+}
+
+; ---- 鼠标离开：清除悬停 ----
+RadialOnMouseLeave(wParam, lParam, msg, hwnd) {
+    global radialGui, radialHover
+    if (!radialGui || hwnd != radialGui.Hwnd)
+        return 0
+    if (radialHover != 0) {
+        radialHover := 0
+        RadialDraw()
+    }
+    return 0
+}
+
+; ---- 左键点击 ----
+RadialOnLButtonDown(wParam, lParam, msg, hwnd) {
+    global radialGui, radialHover
+    if (!radialGui || hwnd != radialGui.Hwnd)
+        return 0
+    x := lParam & 0xFFFF
+    y := (lParam >> 16) & 0xFFFF
+    WinGetPos(&wx, &wy, , , "ahk_id " . hwnd)
+    hit := RadialHitTest(wx + x, wy + y)
+    if (hit = -1)
+        RadialOnCenterClick()
+    else if (hit > 0)
+        RadialOnItemClick(hit)
+    return 0
+}
+
+; ---- 右键点击：关闭 ----
+RadialOnRButtonDown(wParam, lParam, msg, hwnd) {
+    global radialGui
+    if (!radialGui || hwnd != radialGui.Hwnd)
+        return 0
+    RadialClose()
+    return 0
 }
 
 ; ---- 触发：弹出第一级菜单（或关闭已打开的菜单）----
@@ -1595,6 +1879,7 @@ RadialClose() {
     global radialGui, radialLevel, radialCurrentGroup, radialFocusWin
 
     if (radialGui) {
+        RadialUnregisterMsg()
         radialGui.Destroy()
         radialGui := 0
     }
