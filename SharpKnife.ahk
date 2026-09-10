@@ -1456,6 +1456,7 @@ RadialBuildMenu() {
     ; 销毁旧 GUI
     if (radialGui) {
         RadialUnregisterMsg()
+        RadialFreeRgns()
         radialGui.Destroy()
         radialGui := 0
     }
@@ -1486,7 +1487,11 @@ RadialBuildMenu() {
     winSize := Round(2 * (OUTER_R + MARGIN))
     half := winSize // 2
 
-    radialLayout := {n: n, cx: half, cy: half, outerR: OUTER_R, innerR: INNER_R, winSize: winSize, half: half, startRad: -PI / 2, centerText: centerText}
+    radialLayout := {n: n, cx: half, cy: half, outerR: OUTER_R, innerR: INNER_R, winSize: winSize, half: half, startRad: -PI / 2, centerText: centerText, sectorRgns: []}
+
+    ; 先构建扇区多边形区域 + 圆心区域（只需几何参数；必须在 Show 之前，
+    ; 否则 Show 触发的 WM_MOUSEMOVE 会经由全局 OnMessage 钩子访问空区域而越界）
+    RadialBuildRgns()
 
     ; 创建 GUI（纯自绘，无任何控件）
     radialGui := Gui("+AlwaysOnTop -Caption +ToolWindow")
@@ -1499,6 +1504,12 @@ RadialBuildMenu() {
     guiX := Max(0, Min(radialCenterX - half, A_ScreenWidth - winSize))
     guiY := Max(0, Min(radialCenterY - half, A_ScreenHeight - winSize))
     radialGui.Show("x" . guiX . " y" . guiY . " w" . winSize . " h" . winSize . " NoActivate")
+
+    ; 把窗口裁剪成真正的圆形（SetWindowRgn 后系统接管区域，勿 DeleteObject）
+    hRgn := DllCall("CreateEllipticRgn"
+        , "Int", 0, "Int", 0
+        , "Int", winSize, "Int", winSize, "Ptr")
+    DllCall("SetWindowRgn", "Ptr", radialGui.Hwnd, "Ptr", hRgn, "Int", 1)
 
     ; 注册鼠标消息（窗口已显示，Hwnd 有效）
     RadialRegisterMsg()
@@ -1587,48 +1598,45 @@ RadialDraw() {
     startRad := L.startRad
     angleStep := 2 * 3.141592653589793 / n
 
-    ; 画环形扇区（Pie 用当前画刷自动填充饼形；从正上方顺时针）
-    ; 顺序：先画非悬停扇区，最后画悬停扇区（保证高亮完整可见）
-    Loop n {
-        i := (radialHover > 0) ? n - A_Index + 1 : A_Index
-        a0 := startRad + (i - 1) * angleStep
-        a1 := a0 + angleStep
-        isHover := (radialHover = i)
-        bgColor := isHover ? "4A90D9" : "3A4455"
-        brush := BrushSolid(bgColor)
-        oldBrush := DllCall("SelectObject", "Ptr", memDC, "Ptr", brush, "Ptr")
-        penS := DllCall("CreatePen", "Int", 0, "Int", 1, "UInt", BrushColorVal(bgColor), "Ptr")
-        oldPenS := DllCall("SelectObject", "Ptr", memDC, "Ptr", penS, "Ptr")
-        ; 饼形边界端点（外圆上的两点）
-        DllCall("Pie"
-            , "Ptr", memDC
-            , "Int", cx - L.outerR, "Int", cy - L.outerR, "Int", cx + L.outerR, "Int", cy + L.outerR
-            , "Int", cx + Round(L.outerR * Cos(a0)), "Int", cy + Round(L.outerR * Sin(a0))
-            , "Int", cx + Round(L.outerR * Cos(a1)), "Int", cy + Round(L.outerR * Sin(a1)))
-        DllCall("SelectObject", "Ptr", memDC, "Ptr", oldPenS, "Ptr")
-        DllCall("DeleteObject", "Ptr", penS)
-        DllCall("SelectObject", "Ptr", memDC, "Ptr", oldBrush, "Ptr")
-        DllCall("DeleteObject", "Ptr", brush)
+    ; 颜色三态：无悬停=全部常态；悬停扇区=该区高亮+其余暗；悬停圆心=全部扇区暗+圆心高亮
+    COLOR_NORMAL := "3A4455"     ; 扇区常态
+    COLOR_DIM := "242B38"        ; 扇区暗态（他区被悬停时）
+    COLOR_HILITE := "4A90D9"     ; 高亮（悬停区）
+    CK_NORMAL := "3D3D4D"        ; 圆心常态
+    CK_DIM := "2A2A38"           ; 圆心暗态（悬停扇区时）
+    CK_HILITE := "4A90D9"        ; 圆心高亮（悬停圆心时）
+
+    ; 画环形扇区（FillRgn 用构建好的多边形区域，绘制位置与命中检测完全一致）
+    if (L.HasOwnProp("sectorRgns") && L.sectorRgns.Length >= n) {
+        Loop n {
+            i := A_Index
+            ; 三态着色：无悬停=全部常态；有悬停=悬停区域高亮，其余所有区域变暗
+            if (radialHover = 0) {
+                bgColor := COLOR_NORMAL
+            } else if (radialHover = i) {
+                bgColor := COLOR_HILITE
+            } else {
+                bgColor := COLOR_DIM
+            }
+            hRgn := L.sectorRgns[i]
+            if (!hRgn)
+                continue
+            brush := BrushSolid(bgColor)
+            DllCall("FillRgn", "Ptr", memDC, "Ptr", hRgn, "Ptr", brush)
+            DllCall("DeleteObject", "Ptr", brush)
+        }
     }
 
-    ; 用背景色饼形挖出圆心：画一个半径为 innerR 的完整圆（同背景色）
-    bgBrush := BrushSolid("2D2D3D")
-    oldBrush2 := DllCall("SelectObject", "Ptr", memDC, "Ptr", bgBrush, "Ptr")
-    penBG := DllCall("CreatePen", "Int", 0, "Int", 1, "UInt", BrushColorVal("2D2D3D"), "Ptr")
-    oldPenBG := DllCall("SelectObject", "Ptr", memDC, "Ptr", penBG, "Ptr")
-    DllCall("Ellipse"
-        , "Ptr", memDC
-        , "Int", cx - L.innerR, "Int", cy - L.innerR, "Int", cx + L.innerR, "Int", cy + L.innerR)
-    DllCall("SelectObject", "Ptr", memDC, "Ptr", oldPenBG, "Ptr")
-    DllCall("DeleteObject", "Ptr", penBG)
-    DllCall("SelectObject", "Ptr", memDC, "Ptr", oldBrush2, "Ptr")
-    DllCall("DeleteObject", "Ptr", bgBrush)
-
-    ; 圆心圆
-    centerBrush := BrushSolid("3D3D4D")
-    centerRgn := DllCall("CreateEllipticRgn", "Int", cx - L.innerR, "Int", cy - L.innerR, "Int", cx + L.innerR, "Int", cy + L.innerR, "Ptr")
-    DllCall("FillRgn", "Ptr", memDC, "Ptr", centerRgn, "Ptr", centerBrush)
-    DllCall("DeleteObject", "Ptr", centerRgn)
+    ; 圆心圆（三态着色，FillRgn 用圆心区域；立即重建/复用 L.centerRgn）
+    if (radialHover = -1)
+        ckColor := CK_HILITE
+    else if (radialHover > 0)
+        ckColor := CK_DIM
+    else
+        ckColor := CK_NORMAL
+    centerBrush := BrushSolid(ckColor)
+    if (L.centerRgn)
+        DllCall("FillRgn", "Ptr", memDC, "Ptr", L.centerRgn, "Ptr", centerBrush)
     DllCall("DeleteObject", "Ptr", centerBrush)
 
     ; 细线分隔扇区
@@ -1646,10 +1654,7 @@ RadialDraw() {
     ; 圆心文字
     RadialDrawText(memDC, L.centerText, cx, cy, L.innerR, "3D3D4D", true)
 
-    ; 扇区文字（水平居中，放在扇区角平分线与半径中点处）
-    font := RadialCreateFont(ui_font_size, "Microsoft YaHei")
-    oldFont := DllCall("SelectObject", "Ptr", memDC, "Ptr", font, "Ptr")
-    DllCall("SetBkMode", "Ptr", memDC, "Int", 1)              ; TRANSPARENT
+    ; 扇区文字（水平垂直双居中，放在扇区角平分线与半径中点处）
     Loop n {
         i := A_Index
         item := radialMenuItems[i]
@@ -1657,12 +1662,8 @@ RadialDraw() {
         rMid := (L.innerR + L.outerR) / 2
         tx := cx + Round(rMid * Cos(aMid))
         ty := cy + Round(rMid * Sin(aMid))
-        DllCall("SetTextAlign", "Ptr", memDC, "UInt", 0x0004 | 0x0008, "UInt")  ; TA_CENTER | TA_BASELINE
-        DllCall("SetTextColor", "Ptr", memDC, "UInt", 0xFFFFFF)
-        DllCall("TextOutW", "Ptr", memDC, "Int", tx, "Int", ty, "Str", RadialTruncate(item.name), "Int", StrLen(RadialTruncate(item.name)))
+        RadialDrawText(memDC, RadialTruncate(item.name), tx, ty, L.innerR, "", false)
     }
-    DllCall("SelectObject", "Ptr", memDC, "Ptr", oldFont, "Ptr")
-    DllCall("DeleteObject", "Ptr", font)
 
     ; 外环描边
     outerBrush := BrushSolid("2A2A38")
@@ -1681,13 +1682,85 @@ RadialDraw() {
     DllCall("ReleaseDC", "Ptr", hwnd, "Ptr", hdc)
 }
 
-; ---- 环形区域（外圆减内圆，返回区域句柄）----
-RadialRingRgn(cx, cy, outerR, innerR) {
-    outer := DllCall("CreateEllipticRgn", "Int", cx - outerR, "Int", cy - outerR, "Int", cx + outerR, "Int", cy + outerR, "Ptr")
-    inner := DllCall("CreateEllipticRgn", "Int", cx - innerR, "Int", cy - innerR, "Int", cx + innerR, "Int", cy + innerR, "Ptr")
-    DllCall("CombineRgn", "Ptr", outer, "Ptr", outer, "Ptr", inner, "Int", 4)  ; RGN_DIFF
-    DllCall("DeleteObject", "Ptr", inner)
-    return outer
+; ---- 构建扇区多边形区域 + 圆心区域（存入 radialLayout；绘制与命中共用）----
+; 每个扇区 = 环形多边形：外弧细分为 RGN_SEG 段 + 内弧反向细分闭合。
+; 用同一个区域句柄 FillRgn（绘制）与 PtInRegion（命中）→ 位置绝对一致，无角度歧义。
+RadialBuildRgns() {
+    global radialLayout
+    L := radialLayout
+    cx := L.cx
+    cy := L.cy
+    n := L.n
+    startRad := L.startRad
+    angleStep := 2 * 3.141592653589793 / n
+    RGN_SEG := 24                     ; 每扇区弧细分段数（越大越圆滑）
+    rgns := []
+
+    Loop n {
+        i := A_Index
+        a0 := startRad + (i - 1) * angleStep
+        a1 := a0 + angleStep
+        ; 收集多边形顶点：外弧 a0→a1，内弧 a1→a0（反向闭合）
+        pts := []
+        ; 外弧
+        Loop RGN_SEG + 1 {
+            t := a0 + (a1 - a0) * (A_Index - 1) / RGN_SEG
+            pts.Push(cx + Round(L.outerR * Cos(t)))
+            pts.Push(cy + Round(L.outerR * Sin(t)))
+        }
+        ; 内弧（从 a1 回到 a0，去掉重复的 a1 外顶点起点？保留闭合）
+        Loop RGN_SEG + 1 {
+            t := a1 - (a1 - a0) * (A_Index - 1) / RGN_SEG
+            pts.Push(cx + Round(L.innerR * Cos(t)))
+            pts.Push(cy + Round(L.innerR * Sin(t)))
+        }
+        ; 构建 POINT 数组（x,y 交替）
+        cnt := pts.Length // 2
+        buf := Buffer(cnt * 8)
+        Loop cnt {
+            NumPut("Int", pts[(A_Index - 1) * 2 + 1], buf, (A_Index - 1) * 8)
+            NumPut("Int", pts[(A_Index - 1) * 2 + 2], buf, (A_Index - 1) * 8 + 4)
+        }
+        ; WINDING 填充模式（=2），复杂多边形正确填充
+        hRgn := DllCall("CreatePolygonRgn", "Ptr", buf, "Int", cnt, "Int", 2, "Ptr")
+        rgns.Push(hRgn)
+    }
+
+    ; 圆心区域：真正的圆
+    hCenter := DllCall("CreateEllipticRgn"
+        , "Int", cx - L.innerR, "Int", cy - L.innerR
+        , "Int", cx + L.innerR, "Int", cy + L.innerR, "Ptr")
+
+    ; 释放旧的
+    if (L.HasOwnProp("centerRgn") && L.centerRgn) {
+        DllCall("DeleteObject", "Ptr", L.centerRgn)
+    }
+    if (L.sectorRgns) {
+        for old in L.sectorRgns
+            DllCall("DeleteObject", "Ptr", old)
+    }
+
+    L.sectorRgns := rgns
+    L.centerRgn := hCenter
+}
+
+; ---- 释放扇区/圆心区域 ----
+RadialFreeRgns() {
+    global radialLayout
+    if (!radialLayout)
+        return
+    L := radialLayout
+    if (L.HasOwnProp("centerRgn") && L.centerRgn) {
+        DllCall("DeleteObject", "Ptr", L.centerRgn)
+        L.centerRgn := 0
+    }
+    if (L.HasOwnProp("sectorRgns") && L.sectorRgns) {
+        for r in L.sectorRgns {
+            if (r)
+                DllCall("DeleteObject", "Ptr", r)
+        }
+        L.sectorRgns := []
+    }
 }
 
 ; ---- 颜色： "RRGGBB" → 0xBBGGRR（COLORREF）----
@@ -1727,46 +1800,54 @@ RadialCreateFont(sizePt, face) {
         , "Str", face, "Ptr")
 }
 
-; ---- 绘制文字（水平居中）----
+; ---- 绘制文字（水平垂直双居中）----
 RadialDrawText(memDC, text, cx, cy, maxR, bgColor, isCenter) {
     global ui_font_size
     font := RadialCreateFont(ui_font_size, "Microsoft YaHei")
     oldFont := DllCall("SelectObject", "Ptr", memDC, "Ptr", font, "Ptr")
     DllCall("SetBkMode", "Ptr", memDC, "Int", 1)   ; TRANSPARENT
-    DllCall("SetTextAlign", "Ptr", memDC, "UInt", 0x0004 | 0x0008, "UInt")  ; TA_CENTER | TA_BASELINE
     DllCall("SetTextColor", "Ptr", memDC, "UInt", 0xFFFFFF)
-    DllCall("TextOutW", "Ptr", memDC, "Int", cx, "Int", cy, "Str", text, "Int", StrLen(text))
+    ; 测量文字尺寸
+    sz := Buffer(8)
+    DllCall("GetTextExtentPoint32W", "Ptr", memDC, "Str", text, "Int", StrLen(text), "Ptr", sz)
+    tw := NumGet(sz, 0, "Int")
+    th := NumGet(sz, 4, "Int")
+    ; 以 (cx,cy) 为中心的矩形 → DrawTextW 双居中
+    rc := Buffer(16)
+    NumPut("Int", cx - tw // 2, rc, 0)
+    NumPut("Int", cy - th // 2, rc, 4)
+    NumPut("Int", cx + tw // 2, rc, 8)
+    NumPut("Int", cy + th // 2, rc, 12)
+    DllCall("DrawTextW", "Ptr", memDC, "Str", text, "Int", -1, "Ptr", rc
+        , "UInt", 0x0001 | 0x0004 | 0x0020 | 0x0800)   ; DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
     DllCall("SelectObject", "Ptr", memDC, "Ptr", oldFont, "Ptr")
     DllCall("DeleteObject", "Ptr", font)
 }
 
-; ---- 命中检测：返回 0=无，-1=圆心，i=扇区索引(1基) ----
+; ---- 命中检测：返回 0=无，-1=圆心，i=扇区索引(1基) ----（基于区域句柄 PtInRegion，与绘制完全一致）
 RadialHitTest(mx, my) {
     global radialGui, radialLayout
     if (!radialGui || !radialLayout)
         return 0
     WinGetPos(&wx, &wy, , , "ahk_id " . radialGui.Hwnd)
     L := radialLayout
-    cx := wx + L.cx
-    cy := wy + L.cy
-    dx := mx - cx
-    dy := my - cy
-    d := Sqrt(dx * dx + dy * dy)
-    if (d <= L.innerR)
+    ; 转窗口客户区坐标
+    lx := mx - wx
+    ly := my - wy
+    ; 圆心
+    if (L.HasOwnProp("centerRgn") && L.centerRgn
+        && DllCall("PtInRegion", "Ptr", L.centerRgn, "Int", lx, "Int", ly)) {
         return -1
-    if (d > L.outerR)
-        return 0
-    ; 角度（标准 atan2）
-    ang := ATan2(dy, dx)
-    ; 转成相对 startRad（-90°=正上方）顺时针
-    rel := ang - L.startRad
-    ; 规整到 [0, 2π)
-    while (rel < 0)
-        rel += 2 * 3.141592653589793
-    while (rel >= 2 * 3.141592653589793)
-        rel -= 2 * 3.141592653589793
-    idx := Floor(rel / (2 * 3.141592653589793 / L.n)) + 1
-    return (idx >= 1 && idx <= L.n) ? idx : 0
+    }
+    ; 扇区（按序检测，区域不重叠；区域数组未就绪/为空时直接返回 0 防御越界）
+    if (L.HasOwnProp("sectorRgns") && L.sectorRgns.Length >= L.n) {
+        Loop L.n {
+            hRgn := L.sectorRgns[A_Index]
+            if (hRgn && DllCall("PtInRegion", "Ptr", hRgn, "Int", lx, "Int", ly))
+                return A_Index
+        }
+    }
+    return 0
 }
 
 ; ---- ATan2 ----
@@ -1880,6 +1961,7 @@ RadialClose() {
 
     if (radialGui) {
         RadialUnregisterMsg()
+        RadialFreeRgns()
         radialGui.Destroy()
         radialGui := 0
     }
