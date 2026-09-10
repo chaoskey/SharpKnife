@@ -234,6 +234,7 @@ global playFocusWin := 0      ; 弹窗动作前记录的焦点窗口（弹窗后
 ; 径向菜单全局状态
 global radialGroups := []      ; 组数组 [{name, id, items: [{name, hotkey}]}]
 global radialTrigger := ""     ; 触发快捷键
+global radialFontSize := 0     ; 径向菜单字体大小（磅；[radial] font_size，缺省=全局 ui_font_size）
 global radialGui := 0          ; 当前菜单 GUI 对象
 global radialLevel := 0        ; 当前层级：0=未显示，1=第一级，2=第二级
 global radialCurrentGroup := 0 ; 第二级时当前组的索引
@@ -1326,15 +1327,6 @@ TypeTextSlowly(text) {
 ; 10. 径向菜单（Radial Menu）—— 两级圆形菜单，执行预配置快捷键
 ; ============================================================================
 
-; ---- 辅助：截断文字至 maxChars 个汉字（默认 8），超出追加省略号 ----
-; maxChars 由调用方按扇区弧长动态计算（至少 2 字，上限 8 字）
-RadialTruncate(text, maxChars := 8) {
-    maxChars := Max(2, Min(8, maxChars))
-    if (StrLen(text) > maxChars)
-        return SubStr(text, 1, maxChars) "…"
-    return text
-}
-
 ; ---- 辅助：创建点击回调闭包（捕获 idx 值，避免 for 循环闭包陷阱）----
 RadialMakeClickHandler(idx) {
     return (*) => RadialOnItemClick(idx)
@@ -1342,9 +1334,10 @@ RadialMakeClickHandler(idx) {
 
 ; ---- 加载 config.ini 的 [radial] 段（逐行扫描，保证顺序）----
 RadialLoadConfig() {
-    global radialGroups, radialTrigger, configFile
+    global radialGroups, radialTrigger, configFile, radialFontSize, ui_font_size
     radialGroups := []
-    radialTrigger := "^+m"   ; 默认触发键
+    radialTrigger := "^+m"              ; 默认触发键
+    radialFontSize := Max(ui_font_size, 6)   ; 字体大小默认 = 全局 [ui] font_size
 
     DebugLog("[radial] RadialLoadConfig 入口 configFile=" . configFile)
 
@@ -1382,6 +1375,12 @@ RadialLoadConfig() {
         line := Trim(A_LoopField)
         if (line = "" || SubStr(line, 1, 1) = ";")
             continue
+        ; 剥离行内注释（"空白+分号"起至行尾）：支持 `key = value  ; 注释` 与 `[节名]  ; 注释`；
+        ; 用「空白+分号」而非裸分号，避免误伤值里紧贴的分号（如分号键 `{;}`）
+        if RegExMatch(line, "\s;", &cm)
+            line := Trim(SubStr(line, 1, cm.Pos - 1))
+        if (line = "")
+            continue
 
         ; 节头
         if (SubStr(line, 1, 1) = "[") {
@@ -1415,6 +1414,11 @@ RadialLoadConfig() {
             ; [radial] 段
             if (key = "trigger")
                 radialTrigger := value
+            else if (key = "font_size") {
+                ; 径向菜单字体大小（磅）；非法值忽略（沿用默认）
+                if RegExMatch(value, "^\d+(\.\d+)?$")
+                    radialFontSize := Max(value + 0, 6)
+            }
         } else {
             ; [radial.xxx] 段
             if (key = "name") {
@@ -1449,16 +1453,52 @@ RadialLoadConfig() {
             g.items := sorted
         }
     }
-    DebugLog("[radial] RadialLoadConfig 完成：groups=" . radialGroups.Length . " trigger=" . radialTrigger)
+    DebugLog("[radial] RadialLoadConfig 完成：groups=" . radialGroups.Length . " trigger=" . radialTrigger . " font_size=" . radialFontSize)
+}
+
+; ---- 紧凑自适应布局：按字号与各菜单名的实际渲染宽度计算中心圆/外环半径 ----
+; 三条约束取最小满足值，使圆盘尽可能紧凑：
+;   ① 圆心文字（水平居中的 w×h 矩形）须完全内接于中心圆；
+;   ② 内边界处每个扇区的弧长须容下文字高度（相邻扇区文字不重叠）；
+;   ③ 环宽须容下最长的扇区文字（放射性排布，文字沿径向展开）。
+RadialComputeLayout(n, centerText, items, sizePt) {
+    PI := 3.141592653589793
+    fontPx := Max(Round(sizePt * 96 / 72), 8)
+    pad := Max(Round(fontPx * 0.45), 5)          ; 文字与边界的呼吸间距
+    angleStep := 2 * PI / n
+
+    ; ① 圆心文字内接约束：矩形半对角 + 间距
+    cw := RadialMeasureText(centerText, sizePt).w
+    needA := Sqrt((cw / 2) ** 2 + (fontPx / 2) ** 2) + pad
+
+    ; ② 内边界弧长约束：内圈弧长足够放下字高
+    needB := (fontPx * 1.15) / angleStep
+
+    innerR := Ceil(Max(needA, needB, fontPx * 0.85))
+
+    ; ③ 环宽：容下最长的扇区文字（先按硬上限 8 字截断再实测宽度）
+    maxLen := 0
+    for it in items {
+        w := RadialMeasureText(RadialTruncateToWidth(it.name, sizePt, 999999), sizePt).w
+        if (w > maxLen)
+            maxLen := w
+    }
+    ringW := maxLen + 2 * pad
+    outerR := innerR + ringW
+
+    margin := Max(pad, 6)
+    winSize := Round(2 * (outerR + margin))
+    return {innerR: innerR, outerR: outerR, ringW: ringW, pad: pad, fontPx: fontPx
+            , winSize: winSize, half: winSize // 2, margin: margin}
 }
 
 ; ---- 构建并显示菜单 GUI（GDI 自绘，不用 GDI+）----
-; 用经典 Win32 GDI（CreateCompatibleDC / CreateEllipticRgn / Pie / FillRgn / TextOut）
+; 用经典 Win32 GDI（CreateCompatibleDC / CreateEllipticRgn / FillRgn / TextOut）
 ; 双缓冲绘制真正的环形扇区菜单：外环按角度均分扇区，圆心为真正的圆形按钮，
-; 扇区之间用细线分隔，文字水平居中。
+; 扇区之间用细线分隔，文字放射状排布（沿径向，正立可读）。
 RadialBuildMenu() {
     global radialGroups, radialGui, radialLevel, radialCurrentGroup, radialCenterX, radialCenterY
-    global radialMenuItems, radialHover, radialLayout
+    global radialMenuItems, radialHover, radialLayout, radialFontSize
 
     ; 销毁旧 GUI
     if (radialGui) {
@@ -1486,15 +1526,26 @@ RadialBuildMenu() {
     if (n = 0)
         return
 
-    ; 布局参数：单环等分，环形半径自适应
-    PI := 3.141592653589793
-    OUTER_R := 168                     ; 外环半径（放宽到 8 字需要更大环宽）
-    INNER_R := 42                      ; 圆心半径（环形内边界）
-    MARGIN := 10                       ; 窗口边距
-    winSize := Round(2 * (OUTER_R + MARGIN))
-    half := winSize // 2
+    ; 圆心文字先按 8 字硬上限截断（布局与绘制用同一文本，保证紧凑一致）
+    centerText := RadialTruncateToWidth(centerText, radialFontSize, 999999)
 
-    radialLayout := {n: n, cx: half, cy: half, outerR: OUTER_R, innerR: INNER_R, winSize: winSize, half: half, startRad: -PI / 2, centerText: centerText, sectorRgns: []}
+    ; 布局参数：紧凑自适应（随字号与各菜单名长度变化，取满足约束的最小半径）
+    PI := 3.141592653589793
+    LO := RadialComputeLayout(n, centerText, radialMenuItems, radialFontSize)
+    OUTER_R := LO.outerR
+    INNER_R := LO.innerR
+    MARGIN := LO.margin
+    winSize := LO.winSize
+    half := LO.half
+
+    radialLayout := {n: n, cx: half, cy: half, outerR: OUTER_R, innerR: INNER_R
+        , winSize: winSize, half: half, startRad: -PI / 2, centerText: centerText
+        , pad: LO.pad, fontPx: LO.fontPx, sectorRgns: []}
+
+    ; 预计算每个扇区的显示文本（按环宽实测截断），避免每次悬停重绘重复测量
+    radialSpace := LO.ringW - 2 * LO.pad
+    for it in radialMenuItems
+        it.shownName := RadialTruncateToWidth(it.name, radialFontSize, radialSpace)
 
     ; 先构建扇区多边形区域 + 圆心区域（只需几何参数；必须在 Show 之前，
     ; 否则 Show 触发的 WM_MOUSEMOVE 会经由全局 OnMessage 钩子访问空区域而越界）
@@ -1576,7 +1627,7 @@ TrackMouseEventStruct() {
 
 ; ---- 绘制菜单（内存 DC 双缓冲）----
 RadialDraw() {
-    global radialGui, radialHover, radialLayout, ui_font_size
+    global radialGui, radialHover, radialLayout, radialFontSize
     if (!radialGui || !radialLayout)
         return
     hwnd := radialGui.Hwnd
@@ -1687,12 +1738,8 @@ RadialDraw() {
         }
         ; 屏幕视觉角 → GDI 数学角（y 向上逆时针正；屏幕 y 向下 → 取负）
         gdiEsc := Round(-escVis * 10)
-        ; 动态截断：放射性排布文字沿径向展开，长度受环宽（outerR-innerR）限制；
-        ; 按环宽可容纳字数计算（汉字≈方块，单字宽≈字号像素；由 RadialTruncate 封顶 8 字）
-        fontSizePx := Max(ui_font_size * 96 / 72, 8)
-        radialSpace := (L.outerR - L.innerR) - 16   ; 环宽再留 16px 边距
-        maxChars := Floor(radialSpace / fontSizePx)
-        RadialDrawRotatedText(memDC, RadialTruncate(item.name, maxChars), tx, ty, gdiEsc)
+        ; 显示文本已在布局阶段按环宽实测截断并缓存（见 RadialBuildMenu）
+        RadialDrawRotatedText(memDC, item.shownName, tx, ty, gdiEsc)
     }
 
     ; 外环描边
@@ -1830,14 +1877,54 @@ RadialCreateFont(sizePt, face, escapement := 0) {
         , "Str", face, "Ptr")
 }
 
+; ---- 测量文字像素宽高（离屏 DC + 指定字号字体）----
+; 用于径向菜单的紧凑自适应布局：按文字实际渲染尺寸算半径与截断。
+RadialMeasureText(text, sizePt) {
+    hdc := DllCall("GetDC", "Ptr", 0, "Ptr")
+    if (!hdc)
+        return {w: 0, h: 0}
+    font := RadialCreateFont(sizePt, "Microsoft YaHei", 0)
+    old := DllCall("SelectObject", "Ptr", hdc, "Ptr", font, "Ptr")
+    sz := Buffer(8)
+    DllCall("GetTextExtentPoint32W", "Ptr", hdc, "Str", text, "Int", StrLen(text), "Ptr", sz)
+    w := NumGet(sz, 0, "Int")
+    h := NumGet(sz, 4, "Int")
+    DllCall("SelectObject", "Ptr", hdc, "Ptr", old, "Ptr")
+    DllCall("DeleteObject", "Ptr", font)
+    DllCall("ReleaseDC", "Ptr", 0, "Ptr", hdc)
+    return {w: w, h: h}
+}
+
+; ---- 按最大像素宽度截断文字（至少 2 字、硬上限 hardMax 字，超出追加省略号）----
+; 与"按字数估算"相比，此处按字体实际渲染宽度收缩，更精确也更紧凑。
+RadialTruncateToWidth(text, sizePt, maxWidth, hardMax := 8) {
+    if (text = "")
+        return text
+    ; 先按硬上限截断（截断后含省略号不超过 hardMax 个字符）
+    if (StrLen(text) > hardMax)
+        text := SubStr(text, 1, hardMax - 1) "…"
+    if (RadialMeasureText(text, sizePt).w <= maxWidth)
+        return text
+    ; 逐步缩短到「正文 + 省略号」宽度放得下（至少保留 2 字）
+    base := SubStr(text, 1, StrLen(text) - (SubStr(text, -1) = "…" ? 1 : 0))
+    n := StrLen(base)
+    while (n > 2) {
+        n--
+        cand := SubStr(base, 1, n) "…"
+        if (RadialMeasureText(cand, sizePt).w <= maxWidth)
+            return cand
+    }
+    return SubStr(base, 1, Min(2, StrLen(base)))
+}
+
 ; ---- 绘制旋转文字（放射性排布）----
 ; escapementTenths：GDI 旋转角度（0.1 度单位，正=逆时针/数学角）。
 ; 锚点 (cx,cy) = 文字在旋转方向上的中点位置（TA_CENTER 对齐）；
 ; 基线对齐（TA_BASELINE）使文字落在锚点的基线上，文字沿旋转方向展开，
 ; 不额外做投影偏移（以防漂移出扇区）。
 RadialDrawRotatedText(memDC, text, cx, cy, escapementTenths) {
-    global ui_font_size
-    font := RadialCreateFont(ui_font_size, "Microsoft YaHei", escapementTenths)
+    global radialFontSize
+    font := RadialCreateFont(radialFontSize, "Microsoft YaHei", escapementTenths)
     oldFont := DllCall("SelectObject", "Ptr", memDC, "Ptr", font, "Ptr")
     DllCall("SetBkMode", "Ptr", memDC, "Int", 1)   ; TRANSPARENT
     ; TA_CENTER（文字方向中点）| TA_BASELINE（基线）：锚点=文字行中点
@@ -1850,8 +1937,8 @@ RadialDrawRotatedText(memDC, text, cx, cy, escapementTenths) {
 
 ; ---- 绘制文字（水平垂直双居中，圆心文字用）----
 RadialDrawText(memDC, text, cx, cy, maxR, bgColor, isCenter) {
-    global ui_font_size
-    font := RadialCreateFont(ui_font_size, "Microsoft YaHei")
+    global radialFontSize
+    font := RadialCreateFont(radialFontSize, "Microsoft YaHei")
     oldFont := DllCall("SelectObject", "Ptr", memDC, "Ptr", font, "Ptr")
     DllCall("SetBkMode", "Ptr", memDC, "Int", 1)   ; TRANSPARENT
     DllCall("SetTextColor", "Ptr", memDC, "UInt", 0xFFFFFF)
