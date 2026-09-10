@@ -1528,6 +1528,12 @@ RadialGetLayout() {
 RadialRegisterMsg() {
     global radialGui, radialMsgMove, radialMsgDown, radialMsgRDown, radialMsgLeave
     hwnd := radialGui.Hwnd
+    ; 先注销可能残留的旧回调（OnMessage MaxThreads=0 注销指定回调），避免重复注册累积
+    OnMessage(0x0200, RadialOnMouseMove, 0)
+    OnMessage(0x0201, RadialOnLButtonDown, 0)
+    OnMessage(0x0204, RadialOnRButtonDown, 0)
+    OnMessage(0x02A3, RadialOnMouseLeave, 0)
+    ; 注册
     radialMsgMove   := OnMessage(0x0200, RadialOnMouseMove)   ; WM_MOUSEMOVE
     radialMsgDown   := OnMessage(0x0201, RadialOnLButtonDown) ; WM_LBUTTONDOWN
     radialMsgRDown  := OnMessage(0x0204, RadialOnRButtonDown) ; WM_RBUTTONDOWN
@@ -1538,23 +1544,12 @@ RadialRegisterMsg() {
 
 ; ---- 注销鼠标消息 ----
 RadialUnregisterMsg() {
-    global radialMsgMove, radialMsgDown, radialMsgRDown, radialMsgLeave
-    if (radialMsgMove) {
-        OnMessage(0x0200, radialMsgMove, 0)
-        radialMsgMove := 0
-    }
-    if (radialMsgDown) {
-        OnMessage(0x0201, radialMsgDown, 0)
-        radialMsgDown := 0
-    }
-    if (radialMsgRDown) {
-        OnMessage(0x0204, radialMsgRDown, 0)
-        radialMsgRDown := 0
-    }
-    if (radialMsgLeave) {
-        OnMessage(0x02A3, radialMsgLeave, 0)
-        radialMsgLeave := 0
-    }
+    ; OnMessage 注销：Callback 传原回调函数对象 + MaxThreads=0
+    ; （传 "" 或 0 会报错：Parameter #2 requires an Object）
+    OnMessage(0x0200, RadialOnMouseMove, 0)
+    OnMessage(0x0201, RadialOnLButtonDown, 0)
+    OnMessage(0x0204, RadialOnRButtonDown, 0)
+    OnMessage(0x02A3, RadialOnMouseLeave, 0)
 }
 
 ; ---- TrackMouseEvent 结构（WM_MOUSELEAVE 需要）----
@@ -1862,10 +1857,11 @@ ATan2(y, x) {
 }
 
 ; ---- 鼠标移动：更新悬停并重绘 ----
+; 返回空值放行消息（悬停检测不吞 WM_MOUSEMOVE，避免影响其它窗口/控件）
 RadialOnMouseMove(wParam, lParam, msg, hwnd) {
     global radialGui, radialHover
     if (!radialGui || hwnd != radialGui.Hwnd)
-        return 0
+        return
     x := lParam & 0xFFFF
     y := (lParam >> 16) & 0xFFFF
     WinGetPos(&wx, &wy, , , "ahk_id " . hwnd)
@@ -1876,26 +1872,28 @@ RadialOnMouseMove(wParam, lParam, msg, hwnd) {
     }
     ; 请求持续追踪
     DllCall("TrackMouseEvent", "Ptr", TrackMouseEventStruct(), "Int")
-    return 0
+    return
 }
 
 ; ---- 鼠标离开：清除悬停 ----
 RadialOnMouseLeave(wParam, lParam, msg, hwnd) {
     global radialGui, radialHover
     if (!radialGui || hwnd != radialGui.Hwnd)
-        return 0
+        return
     if (radialHover != 0) {
         radialHover := 0
         RadialDraw()
     }
-    return 0
+    return
 }
 
 ; ---- 左键点击 ----
+; 注意：OnMessage 回调返回「空值」（return / return ""）才放行消息让其正常流转；
+; 返回整数（含 0）会被当作已回复而吞掉消息。径向菜单未打开或不属于它时务必返回空。
 RadialOnLButtonDown(wParam, lParam, msg, hwnd) {
     global radialGui, radialHover
     if (!radialGui || hwnd != radialGui.Hwnd)
-        return 0
+        return
     x := lParam & 0xFFFF
     y := (lParam >> 16) & 0xFFFF
     WinGetPos(&wx, &wy, , , "ahk_id " . hwnd)
@@ -1904,16 +1902,19 @@ RadialOnLButtonDown(wParam, lParam, msg, hwnd) {
         RadialOnCenterClick()
     else if (hit > 0)
         RadialOnItemClick(hit)
-    return 0
+    return
 }
 
 ; ---- 右键点击：关闭 ----
+; 菜单打开且点击在菜单上 → 关闭并吞掉消息（防止穿透到下层窗口产生右键菜单）；
+; 菜单未打开/不属于它 → 返回空放行
 RadialOnRButtonDown(wParam, lParam, msg, hwnd) {
     global radialGui
-    if (!radialGui || hwnd != radialGui.Hwnd)
+    if (radialGui && hwnd = radialGui.Hwnd) {
+        RadialClose()
         return 0
-    RadialClose()
-    return 0
+    }
+    return
 }
 
 ; ---- 触发：弹出第一级菜单（或关闭已打开的菜单）----
@@ -2988,9 +2989,12 @@ ShowList(items, title, clickSubmit := false, preselect := 1) {
 ; 鼠标点击检测不看按键时序（② 与“左键是否已松开”无关，快速点击不丢判）。
 ModeListChangeIsClick(lbCtrl) {
     for k in ["Up", "Down", "Left", "Right", "Home", "End", "PgUp", "PgDn"]
-        if (GetKeyState(k, "P"))
+        if (GetKeyState(k, "P")) {
+            DebugLog("ModeListChangeIsClick：键盘键按下 " . k . " → 判为键盘移动")
             return false
+        }
     MouseGetPos(, , , &mCtrl, 2)     ; Flag=2：OutputVarControl 返回控件 HWND
+    DebugLog("ModeListChangeIsClick：光标下控件 HWND=" . mCtrl . " 列表控件 HWND=" . lbCtrl.Hwnd)
     return (mCtrl = lbCtrl.Hwnd)
 }
 
@@ -3040,6 +3044,8 @@ ShowThinkingWindow() {
     ; 用户可随时点击思考窗口（激活）后按 Esc 键关闭它
     thinkingGui.OnEvent("Escape", (*) => CloseThinkingWindow())
     ; 无边框窗口默认不可拖动：注册 WM_LBUTTONDOWN 处理，按住窗口空白处（Edit 之外）可拖动
+    ; 先注销旧的再注册，避免重复挂载（OnMessage 注销：Callback 传函数对象 + MaxThreads=0）
+    OnMessage(0x0201, ThinkingWindowDrag, 0)
     OnMessage(0x0201, ThinkingWindowDrag)
     thinkingGui.Show("AutoSize Hide")
     thinkingGui.GetPos(&gx, &gy, &gw, &gh)
@@ -3169,6 +3175,8 @@ CloseThinkingWindow() {
     global thinkingGui, thinkingEdit, thinkingPending, thinkingTimer
     StopThinkingTicker()
     thinkingPending := ""
+    ; 注销思考窗口的全局 WM_LBUTTONDOWN 钩子（Call back 传函数对象 + MaxThreads=0）
+    OnMessage(0x0201, ThinkingWindowDrag, 0)
     if (thinkingGui != "") {
         try thinkingGui.Destroy()
         thinkingGui := ""
