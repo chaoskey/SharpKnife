@@ -1,3 +1,5 @@
+
+
 # SharpKnife —— LaTeX / Unicode / AI / TikZ 四模式补全（AutoHotkey v2）
 
 > 本项目完全由 AI 反复迭代而成。
@@ -6,7 +8,26 @@
 
 ---
 
-## 1. 项目文件
+## 目录
+
+- [项目文件](#项目文件)
+- [安装与启动](#安装与启动)
+- [整体逻辑](#整体逻辑)
+- [快捷键](#快捷键)
+  - [模式切换](#模式切换)
+  - [径向菜单（快捷菜单）](#径向菜单快捷菜单)
+  - [循环提醒（健康提醒）](#循环提醒健康提醒)
+- [上下文选择](#上下文选择)
+- [上下文匹配](#上下文匹配)
+- [动作触发](#动作触发)
+- [配置说明](#配置说明)
+- [实现要点](#实现要点)
+- [目录结构](#目录结构)
+- [许可](#许可)
+
+---
+
+## 项目文件
 
 | 文件 | 作用 |
 |------|------|
@@ -19,7 +40,7 @@
 
 ---
 
-## 2. 安装与启动
+## 安装与启动
 
 1. 安装 **AutoHotkey v2**（https://www.autohotkey.com/ ，必须是 v2，不是 v1），要求 Windows 10。
 2. 双击 `SharpKnife.ahk`。托盘区出现图标即就绪，启动时会弹出中文提示（当前模式、补全/循环切换/直接切换/模式列表快捷键）。
@@ -28,7 +49,7 @@
 
 ---
 
-## 3. 整体逻辑
+## 整体逻辑
 
 ```
 触发命令  →  上下文选择（空上下文 / 非法上下文 → 直接返回，无操作）
@@ -44,11 +65,19 @@
 步进执行命令  →  play 模式：关闭状态（未绑定脚本）下，未配置 `[play] script_path` 时弹出脚本文件选择窗口并绑定，
                  且立即执行第 1 个动作；已配置则直接绑定配置的脚本并立即执行第 1 个动作；
                  开启状态（已绑定脚本）执行脚本下一步
+
+径向菜单触发  →  弹出第一级圆形菜单（外环=各功能组，圆心="快捷菜单"）
+              →  点击某组 → 弹出第二级圆形菜单（外环=组内各功能，圆心=组名）
+              →  点击某功能 → 执行该功能预配置的快捷键并关闭菜单
+              →  点击圆心（第二级）→ 退回第一级；点击圆心（第一级）→ 关闭菜单
+              →  Esc / 鼠标右键 / 点击菜单外 → 关闭菜单
 ```
 
 ---
 
-## 4. 快捷键（均可通过 config.ini 修改）
+## 快捷键
+
+所有快捷键均可通过 `config.ini` 修改：
 
 | 命令 | 默认 | 配置项 |
 |------|------|--------|
@@ -57,6 +86,7 @@
 | 直接切换命令 | `Ctrl+Shift+0`（latex）/ `Ctrl+Shift+1`（unicode）/ `Ctrl+Shift+2`（AI）/ `Ctrl+Shift+3`（tikz） | `[trigger] direct_prefix`（前缀） |
 | 触发模式列表 | `Ctrl+Shift+\`（弹出无框列表，上下键选择 + Enter 切换，或鼠标点击目标项直接切换） | `[trigger] mode_list_hotkey` |
 | 步进执行命令 | `Ctrl+R`（play 模式专属，无论处于哪个状态都有效） | `[trigger] step_hotkey` |
+| 径向菜单（快捷菜单） | `Ctrl+Shift+M`（弹出圆形两级菜单，见下文「径向菜单（快捷菜单）」） | `[radial] trigger` |
 | 循环提醒 | `Ctrl+Alt+H`（启动/停止站立→坐下→走动循环，见下文「循环提醒」） | `[health] hotkey` |
 
 ### 模式切换
@@ -68,19 +98,34 @@
 - 循环切换命令在四个模式之间**循环切换**（latex → unicode → AI → tikz → latex）；直接切换命令可**一步直达**指定模式（`Ctrl+Shift+0/1/2/3`）；触发模式列表命令弹出**无框列表**（`latex 模式（0）` / `unicode 模式（1）` / `AI 模式（2）` / `tikz 模式（3）`），既可通过**上下键移动选择**、回车切换到指定模式，也可**鼠标点击目标模式直接切换**（Esc 取消则无操作）。托盘菜单也可直接选择模式（`latex 模式` / `unicode 模式` / `AI 模式` / `tikz 模式`）。
 - **play 模式**：**独立模式**，不与上述四种互斥模式共用切换命令；可与当前生效的互斥模式**并存**，拥有独立的 *步进执行命令*（`Ctrl+R`）。play 模式没有独立的开启/关闭操作，其状态由**是否绑定脚本文件**自然决定——已绑定脚本文件即处于开启状态，脚本执行完毕后自动解绑回到关闭状态。关闭状态下脚本的选定有两种方式（仅是选择途径不同，其余行为完全一致）：未配置时触发弹出**文件选择框**手动选择；也可在 `config.ini` 的 `[play] script_path` 预置脚本**全路径**，触发时直接绑定该脚本、省略选择框。脚本格式与步进语义详见下文「play 脚本格式」。
 
-## 4b. 循环提醒（健康提醒）
+### 径向菜单（快捷菜单）
 
-每天长时间伏案时，用 `Ctrl+Alt+H`（默认，见 `config.ini` 的 `[health] hotkey`）**启动 / 停止**“循环提醒”（同一键切换）：
+一个**独立的全局快捷键入口**（默认 `Ctrl+Shift+M`，见 `config.ini` 的 `[radial] trigger`），与 latex / unicode / AI / tikz / play 各模式互不干扰。触发后以鼠标为圆心弹出**圆形两級菜单**，通过点击扇区完成快捷操作：
+
+1. **第一级**：外环扇区显示各功能组名（`name`），圆心显示"快捷菜单"（可点击关闭菜单）。
+2. **点击某组**：进入**第二级**——外环扇区显示该组内各功能名，圆心显示该组名（可点击**退回第一级**）。
+3. **点击某功能**：执行该功能预配置的快捷键（如 `^c`、`{Del}`、`#e`），并关闭菜单。
+4. **关闭方式**：Esc 键、鼠标右键、点击圆心（第一级）。
+
+**配置格式**（`config.ini` 的 `[radial]` 段，详见「配置说明」）：每个功能组一个子节 `[radial.xxx]`（`xxx` 为英文标识符，不显示），组显示名由 `name` 指定（中文）；组内功能以编号 `1`/`2`/`3`... 为 key，值格式为 `中文功能名 | 快捷键`。**组的出现顺序 = 节在文件中的行序；编号决定功能排列顺序**。
+
+**界面**：真正的圆形窗口（`SetWindowRgn` 裁剪），GDI 双缓冲自绘。扇区按角度等分（1~5 项单圈、6~10 项两圈），**悬停的扇区高亮（浅蓝）、其余区域变暗**；文字**放射性排布**（沿扇区径向、正立可读：上下竖排、左右横排、斜侧沿径向外/内），按环宽动态截断（最多 **8 字**，超出追加 `…`）；圆心文字水平居中。
+
+> **注意**：快捷键 `Del`、`Enter` 等多字符键名必须写成花括号形式（`{Del}`、`+{Del}`），否则会被 AHK 当作字母逐字输入。见「配置说明」。
+
+### 循环提醒（健康提醒）
+
+每天长时间伏案时，用 `Ctrl+Alt+H`（默认，见 `config.ini` 的 `[health] hotkey`）**启动 / 停止**"循环提醒"（同一键切换）：
 
 1. 启动后自动循环：**站立 20 分钟 → 坐下 8 分钟 → 走动 2 分钟 → 回到站立**……，直到再次按 `Ctrl+Alt+H` 停止。各阶段时长在 `[health] step_min` **列表**配置（默认 `[20, 8, 2]`，可用小数如 `0.1`=6 秒便于快速体验）。
-2. 每个阶段切换时，**发出声音提醒**——内置默认蜂鸣为 站立=上行三音、坐下=下行三音、走动=高低两音；若在 `config.ini` 的 `[health] step_sound` **列表**里为各阶段配置音频路径（WAV/MP3），则对应阶段改播该音频（仓库自带三段**中文女声** WAV：`audio\20-8-2-stand.wav` 等，内容“站立20分钟 / 坐下8分钟 / 走动2分钟”）；**未配置（留空/被注释）、路径无效或播放失败时自动回退默认蜂鸣**；`[health] sound=false` 可整体静音。同时屏幕**右上角**显示显著提示文字**“站立20分钟 / 坐下8分钟 / 走动2分钟”**（文字随 `[health] step_name` 列表配置），**5 秒后自动消失**（`[health] notify_ms` 可调）。
+2. 每个阶段切换时，**发出声音提醒**——内置默认蜂鸣为 站立=上行三音、坐下=下行三音、走动=高低两音；若在 `config.ini` 的 `[health] step_sound` **列表**里为各阶段配置音频路径（WAV/MP3），则对应阶段改播该音频（仓库自带三段**中文女声** WAV：`audio\20-8-2-stand.wav` 等，内容"站立20分钟 / 坐下8分钟 / 走动2分钟"）；**未配置（留空/被注释）、路径无效或播放失败时自动回退默认蜂鸣**；`[health] sound=false` 可整体静音。同时屏幕**右上角**显示显著提示文字**"站立20分钟 / 坐下8分钟 / 走动2分钟"**（文字随 `[health] step_name` 列表配置），**5 秒后自动消失**（`[health] notify_ms` 可调）。
 3. **托盘菜单**中始终显示当前状态（`循环提醒：停止 / 站立20分钟 / 坐下8分钟 / 走动2分钟`，文字随 `step_name`），启动、停止、阶段切换时实时刷新；该托盘项也可直接点击切换启动/停止（与热键等效）。
 
-> **列表语法**：三行 `step_name` / `step_min` / `step_sound` 为**等长列表**，下标一一对应同一阶段（如 `step_min = [20, 8, 2]`）；`step_min` 必填，`step_name` / `step_sound` 可缺省（缺 `step_name` 时自动按“站立N分钟/坐下N分钟/走动N分钟”命名，缺 `step_sound` 时全部用默认蜂鸣），且支持 3 个及以上任意阶段数（循环自动按阶段数闭环）。
+> **列表语法**：三行 `step_name` / `step_min` / `step_sound` 为**等长列表**，下标一一对应同一阶段（如 `step_min = [20, 8, 2]`）；`step_min` 必填，`step_name` / `step_sound` 可缺省（缺 `step_name` 时自动按"站立N分钟/坐下N分钟/走动N分钟"命名，缺 `step_sound` 时全部用默认蜂鸣），且支持 3 个及以上任意阶段数（循环自动按阶段数闭环）。
 
 ---
 
-## 5. 上下文选择
+## 上下文选择
 
 **优先使用触发前人工选择的内容**作为上下文（选区优先）；否则取**文字光标前的非空连续字符串**（即光标前紧邻的一段不含空格 / Tab 的连续文本）。
 
@@ -100,7 +145,7 @@ play 模式**不参与上下文选择与上下文匹配**（步进执行完全�
 
 ---
 
-## 6. 上下文匹配（基于 latexs.cvs，仅 latex / unicode 模式）
+## 上下文匹配（基于 latexs.cvs，仅 latex / unicode 模式）
 
 ### 触发表格式
 
@@ -140,16 +185,25 @@ play 模式**不参与上下文选择与上下文匹配**（步进执行完全�
 
 ---
 
-## 7. 动作触发
+## 动作触发
 
-### 动作触发（latex / unicode：先删除上下文，再插入替换文本；AI：追加到上下文之后）
+### latex / unicode 模式
 
 - **latex 模式 · 2 字段**：删除上下文（选区整体删除；光标前上下文先选中再删除），用第 1 字段替换上下文，并在**尾部追加一个空格**
 - **latex 模式 · 3 字段**：删除上下文，用第 3 字段解析后的模板替换上下文，并将**光标左移指定格数**（`##{Left N}`）
 - **unicode 模式**：删除上下文，用第 2 字段（剔除 `:` 前缀）替换上下文，并在**尾部追加一个空格**
-- **AI 模式**：上下文保持不变，把 AI 生成的结果追加到上下文之后——两个内容之间**隔一行**（即一个空行）。思考模式（`[ai] thinking=enabled`）且流式请求（`[ai] stream=true`）下，弹出无边框窗口**实时**滚动呈现思考过程，思考完毕后自动离开（窗口保留，可随时通过任务栏回到窗口按 Esc 关闭），随后才输出正式结果。代码缺省值仍支持非流式；仓库提供的 `config.ini.example` 当前示例值为流式。思考窗口**可拖动**（按住空白处拖动）；思考过程中置顶，思考完毕离开后**不再置顶**——焦点回到编辑器时窗口被编辑器盖住（不可见但仍存在）
-- **tikz 模式**：把上下文作为 TikZ 绘图代码 → 自动包装为完整 LaTeX 文档 → `pdflatex` 编译 → 转 PNG → 复制到剪贴板并通过 **Snipaste 贴图**展示（未运行 Snipaste 时自动启动）。编译失败显示 `main.log` 错误行；超时自动终止并提示。触发时记录调试日志（`[debug] enabled=true` 时）
-- **play 模式**：根据**自定义格式脚本**步进式执行，与上述互斥模式并存、状态由是否绑定脚本文件决定。关闭状态下触发 *步进执行命令*：若 `config.ini` 的 `[play] script_path` 已设置为脚本**全路径**，则直接绑定该脚本（不弹选择框）并**立即执行第 1 个动作**；未设置则弹出**系统文件选择框**（`FileSelect`，过滤 `*.json`，初始目录 = 脚本所在目录），选定后绑定进入开启状态并**立即执行第 1 个动作**。两种方式仅是脚本的选定途径不同，后续行为完全一致；若配置的脚本不存在或加载失败，**不绑定**并**回退到文件选择框**由用户手动选择（原因记入调试日志并作非阻塞提示）。取消选择则不绑定、无动作。开启状态下触发则执行脚本**下一步**（已有动作执行中则本次无动作）。脚本执行完最后一步自动解绑回到关闭状态；脚本加载失败（JSON 无法解析或结构/字段非法）→ 弹错误提示、不绑定；动作执行失败 → 记日志 / 提示后**跳过该动作**继续前进，不中断脚本。
+
+### AI 模式
+
+上下文保持不变，把 AI 生成的结果追加到上下文之后——两个内容之间**隔一行**（即一个空行）。思考模式（`[ai] thinking=enabled`）且流式请求（`[ai] stream=true`）下，弹出无边框窗口**实时**滚动呈现思考过程，思考完毕后自动离开（窗口保留，可随时通过任务栏回到窗口按 Esc 关闭），随后才输出正式结果。代码缺省值仍支持非流式；仓库提供的 `config.ini.example` 当前示例值为流式。思考窗口**可拖动**（按住空白处拖动）；思考过程中置顶，思考完毕离开后**不再置顶**——焦点回到编辑器时窗口被编辑器盖住（不可见但仍存在）。
+
+### TikZ 模式
+
+把上下文作为 TikZ 绘图代码 → 自动包装为完整 LaTeX 文档 → `pdflatex` 编译 → 转 PNG → 复制到剪贴板并通过 **Snipaste 贴图**展示（未运行 Snipaste 时自动启动）。编译失败显示 `main.log` 错误行；超时自动终止并提示。触发时记录调试日志（`[debug] enabled=true` 时）。
+
+### play 模式
+
+根据**自定义格式脚本**步进式执行，与上述互斥模式并存、状态由是否绑定脚本文件决定。关闭状态下触发 *步进执行命令*：若 `config.ini` 的 `[play] script_path` 已设置为脚本**全路径**，则直接绑定该脚本（不弹选择框）并**立即执行第 1 个动作**；未设置则弹出**系统文件选择框**（`FileSelect`，过滤 `*.json`，初始目录 = 脚本所在目录），选定后绑定进入开启状态并**立即执行第 1 个动作**。两种方式仅是脚本的选定途径不同，后续行为完全一致；若配置的脚本不存在或加载失败，**不绑定**并**回退到文件选择框**由用户手动选择（原因记入调试日志并作非阻塞提示）。取消选择则不绑定、无动作。开启状态下触发则执行脚本**下一步**（已有动作执行中则本次无动作）。脚本执行完最后一步自动解绑回到关闭状态；脚本加载失败（JSON 无法解析或结构/字段非法）→ 弹错误提示、不绑定；动作执行失败 → 记日志 / 提示后**跳过该动作**继续前进，不中断脚本。
 
 ### play 脚本格式
 
@@ -159,7 +213,7 @@ play 模式的脚本是一个 **UTF-8 编码的 JSON 文件**（扩展名 `.json
 - 每个动作是一个 JSON 对象，用 `type` 区分 9 类动作：`text` / `sleep` / `run` / `note` / `paste` / `audio` / `video` / `seq` / `par`；可携带可选 `note`（注释，仅人工阅读，执行时忽略）；未定义字段一律忽略。
 - **校验**（加载阶段一次完成）：结构非法（根非数组、缺必填字段、字段类型错误、`type` 未知、`pos` / `size` 非 `[x, y]` 数字对、时间格式非法）→ 整体拒绝、不绑定；数值越界（`opacity` 超 0~100、`volume` 为负）→ 截断到最近边界，不视为非法。
 
-九类动作：
+### 九类动作详解
 
 | type | 说明 | 必填 / 可选字段 |
 |------|------|----------------|
@@ -170,18 +224,20 @@ play 模式的脚本是一个 **UTF-8 编码的 JSON 文件**（扩展名 `.json
 | `seq` | 顺序嵌套 | `actions`（子动作数组）；`step`（缺省 true = 单步，false = 一次性依次执行完） |
 | `par` | 并行嵌套 | `actions`（子动作数组）；并行启动全部子动作，全部完成后才算完成 |
 
+### 步进语义与播放控制
+
 - `audio` / `video` 是否阻塞步进仅由 `wait` 决定：`false` 启动即完成（后台继续播），`true` 非阻塞等待播放结束（期间占用执行中标记）。
 - **嵌套规则**：`seq` / `par` 负责推进自己的直接子动作；若其中再嵌套 `seq`，该子 `seq` 在真正启动后仍按它自身的 `step` 配置决定是单步还是一次性。
 - **步进语义**：绑定即执行第 1 个动作（顶层数组为空则绑定后立即自动解绑）；每次步进命令推进一个动作，执行中标记为真时本次无动作；顶层游标越过末尾即执行完毕、自动解绑。`seq` 单步（`step=true`）只启动第 1 个子动作并压入内部游标，子动作全部完成才弹出并前移顶层游标。
 - **失败处理**：动作执行失败（文件不存在、ffplay / Snipaste 未安装等）→ 记日志 / 提示后跳过该动作继续前进，不中断脚本（`seq` / `par` 的子动作同理）。
 
-**text 动作的`delay` 与 `{Delay N}`（自造扩展，控制打字速度）：**
+### text 动作的 `delay` 与 `{Delay N}`
 
 - **`delay`**（可选，毫秒，缺省 0=即时）：整条 text 动作的字符输出间隔；每发一个字符（或按键动作）后等待 `delay` 毫秒；负值截断为 0。
 - **`{Delay N}`**（文本内记号，非官方）：在 `value` 中插入后，**之后所有内容**（字符与按键）按 `N` 毫秒间隔输出，直到下一个 `{Delay M}` 切换；记号本身不输出。`delay` 字段为整串初始间隔，`{Delay N}` 运行时覆盖/切换。
 - 典型：数组内让某行慢速——在该行行首放 `{Delay 100}`；同段内前即时后慢，用 `"{Delay 0}前半{Delay 100}后半"`。
 
-示例：
+### play 脚本示例
 
 ```json
 [
@@ -215,7 +271,9 @@ play 模式的脚本是一个 **UTF-8 编码的 JSON 文件**（扩展名 `.json
 
 ---
 
-## 8. 配置说明（以下示例取自 `config.ini.example`）
+## 配置说明
+
+以下示例取自 `config.ini.example`：
 
 ```ini
 [trigger]
@@ -228,7 +286,7 @@ step_hotkey = ^r      ; 步进执行命令（play 模式专属，无论处于哪
 [health]               ; —— 循环提醒（健康提醒）——
 hotkey = ^!h          ; 启动/停止热键（默认 Ctrl+Alt+H，与默认快捷键无冲突）
 ; 阶段表：下面三行等长列表，下标一一对应同一阶段（0=第一种…）
-; step_name  各阶段在 托盘 / 右上角提示 显示的文字；缺省时自动“站立N分钟/坐下N分钟/走动N分钟”
+; step_name  各阶段在 托盘 / 右上角提示 显示的文字；缺省时自动"站立N分钟/坐下N分钟/走动N分钟"
 ; step_min   各阶段时长（分钟，必填；可用小数如 0.1=6 秒便于快速体验）
 ; step_sound 各阶段提示音频（WAV/MP3，相对路径以脚本目录为基准；留空/被注释=该阶段默认蜂鸣）
 step_name  = [站立20分钟, 坐下8分钟, 走动2分钟]
@@ -236,6 +294,49 @@ step_min   = [20, 8, 2]
 step_sound = [audio\20-8-2-stand.wav, audio\20-8-2-sit.wav, audio\20-8-2-walk.wav]
 sound = true          ; 阶段切换时发声提醒（true/false）
 notify_ms = 5000      ; 右上角提示显示时长（毫秒，5 秒后自动消失）
+
+[radial]               ; —— 径向菜单（快捷菜单）——
+trigger = ^+m         ; 触发径向菜单的全局快捷键（默认 Ctrl+Shift+M）
+
+; 每个功能组一个子节 [radial.xxx]（xxx 为英文标识符，不显示，可自由命名）
+; 组的出现顺序 = 节在文件中的出现顺序；组内功能以编号 1/2/3... 为 key，
+; 值格式 = "中文功能名 | 快捷键"（编号决定功能排列顺序）
+[radial.base]
+name = 基础通用        ; 组的中文显示名（显示在菜单扇区上）
+1 = 复制 | ^c
+2 = 剪切 | ^x
+3 = 粘贴 | ^v
+4 = 撤销 | ^z
+5 = 重做 | ^y
+6 = 全选 | ^a
+7 = 保存 | ^s
+8 = 搜索框 | ^f
+9 = 删除 | {Del}       ; 多字符键名必须用花括号（Del → {Del}）
+10 = 永久删除 | +{Del} ; Shift+Delete
+
+[radial.win]
+name = Win键
+1 = 开始菜单 | {LWin}
+2 = 文件管理 | #e
+3 = 设置 | #i
+4 = 锁定电脑 | #l
+5 = 显示桌面 | #d
+6 = 运行框 | #r
+7 = 任务视图 | #{Tab}
+8 = 高级功能 | #x
+9 = 剪贴历史 | #v
+10 = 表情符号 | #.
+
+[radial.sharpknife]
+name = 利刃
+1 = 触发 | ^j
+2 = 循环切换 | ^+j
+3 = LaTeX | ^+0
+4 = Unicode | ^+1
+5 = AI | ^+2
+6 = TikZ | ^+3
+7 = 触发列表 | ^+\
+8 = 步进 | ^r
 
 [play]                 ; —— 仅对 play 模式有效 ——
 script_path =          ; play 脚本文件全路径（可选，可设可不设）
@@ -281,43 +382,41 @@ snipaste_path =         ; Snipaste 路径（留空自动探测 PATH / 常见安�
 
 ---
 
-## 9. 实现要点（供复现）
+## 实现要点
 
-- `cvsEntries`：启动时读取 `latexs.cvs` 得到条目数组 `{key, f2, f3, hasF3}`；`hasF3` 表示是否为 3 列条目；模式过滤在触发时进行
-- `GetContext()` / `GetContextAI()`：上下文选择（选区优先 + 光标前连续串），返回 `{text, fromSelection}`
-- `GetContextInfo(context)`：解析合法上下文，返回 `{prefix, search}`；非法返回 0
-- `IsValidStar(s)`：`*` 通配符校验（空串，或仅含英文字母 / 数字 / 非 `_ ^ \` 符号）
-- `FindMatches(info)`：按当前模式过滤后，按 `<前缀>*<S>*` 匹配，返回 `{key, f2, f3, hasF3, type}` 数组；排序 `=` > `>` > `<` > `~`，同类型按键长升序
-- `ProcessLatexTemplate(f3)`：解析 `{Text}` 与 `##{Left N}`
-- `ShowMultiSelection()` / `ShowList()`：无框列表（深色背景、最多 10 行、上下键滚动、Esc 取消、Enter 选择）；`ShowList()` 支持 `clickSubmit` 参数，为真时鼠标点击列表项即直接确认（触发模式列表用到，实现“鼠标点击目标模式直接切换”）
-- `GetCaretScreenPos()`：多层级获取光标屏幕坐标（AHK 原生 → GetGUIThreadInfo → EM_POSFROMCHAR → UIA → 鼠标位置）
-- `AIRequest()`：非流式 WinHttp 请求，响应体按 UTF-8 字节解码（避免中文乱码）；chat / completion 两种风格；`thinking` / `reasoning_effort` 附加参数；返回 `result`（最终补全文本）与 `reasoning`（思考过程）；推理型模型 `content` 为空时回退读取 `reasoning_content`；`[ai] x_opencode_session` 非空时追加 `x-opencode-session` 请求头（OpenCode Go 会话 id，满足 https://opencode.ai/docs/go 的“可以在哪里使用”要求）
-- `AIRequestStream()`：流式请求（`[ai] stream=true`，仅 chat 风格）——用 `curl.exe -N` 发起、`stream=true` 请求体，响应写临时文件并用 `SetTimer` 轮询增量解析 SSE（`data:` 行）；`delta.content` 累积为 `result`，`delta.reasoning_content` / `delta.reasoning` 实时追加到思考窗口；`stream` 请求同样在 `[ai] x_opencode_session` 非空时附带 `x-opencode-session` 请求头；`StreamProcessFile()` 按字节偏移 + 完整行边界读取，规避 UTF-8 半字符 / 半行截断
-- `ShowThinkingWindow()` / `AppendThinkingText()` / `ThinkingWindowDrag()` / `LeaveThinkingWindow()` / `CloseThinkingWindow()`：思考模式下弹出无框窗口（进任务栏，标题“AI 思考过程”，便于随时回到），`AppendThinkingText()` 把思考增量实时追加并滚动到底（`WM_VSCROLL` + `SB_BOTTOM`）；`ThinkingWindowDrag()` 在按住窗口空白处（Edit 之外）时发送 `WM_NCLBUTTONDOWN` + `HTCAPTION` 让系统接管拖动，使无边框窗口**可拖动**；思考完毕后 `LeaveThinkingWindow()` 先**取消置顶**（`WinSetAlwaysOnTop 0`）再自动离开（窗口保留、焦点还给原编辑器继续输出正式结果，窗口被编辑器盖住；用户可点击窗口按 Esc 触发 `CloseThinkingWindow()` 关闭）。窗口以 `Show("NA")` 显示，不抢焦点，避免插入结果按键发错窗口
-- 文本插入使用 `SendText` 逐字符（受 `type_delay_ms` 控制），避免 `^` `{` `+` 等被解释为修饰键
-- 触发 / 循环切换 / 直接切换 / 模式列表热键均通过 config.ini 配置，启动时注册（`Hotkey` 指令）；直接切换为 `direct_prefix` + 数字 0/1/2/3；模式列表复用 `ShowList()` 无框列表（`ShowModeList()`，以 `clickSubmit=true` 支持鼠标点击目标项直接切换），选择后调用 `SetModeDirect()` 直达对应模式
-- `StepPlay()`：play 模式专属的步进执行命令（默认 `Ctrl+R`）——`playScriptFile` 为空（关闭状态）时，若配置 `[play] script_path` 非空则直接绑定该脚本（`PlayBindFile`，与手动选择同一条绑定路径）并立即执行第 1 步，配置的脚本不存在 / 加载失败时非阻塞提示后回退到 `FileSelect()` 文件选择框；未配置则用 `FileSelect()` 弹出脚本文件选择窗口（过滤 `*.json`）并绑定脚本进入开启状态、立即执行第 1 步；非空（开启状态）且无动作执行中时执行下一步（`PlayRunStepFrame()`）
-- 循环提醒：`HealthToggle()`（默认 `Ctrl+Alt+H`，`[health] hotkey`）同一键启动/停止——`HealthStart()` 置 `healthActive` 并以 1 秒滴答定时器（`HealthTick()`）倒数剩余秒数，归零由 `HealthNextPhase()` 在阶段间循环（`Mod(healthPhase + 1, 阶段数 N)`，N=`health_durations.Length`，默认 站立→坐下→走动 闭环，可多可少），时长与名称来自**列表配置**：`[health] step_min` / `step_name` / `step_sound`。配置读取时 `HealthParseMinList()` / `HealthParseNameList()` / `HealthParseStrList()` 解析方括号包裹、逗号分隔的列表（`HealthStripBrackets()` 剥外层 `[]`，AHK v2 取末字符须用 `StrLen` 而非索引 0）；`step_name` 缺省按“站立N分钟/坐下N分钟/走动N分钟”派生、`step_sound` 缺省全部默认蜂鸣。阶段名统一经 `HealthPhaseName(phase)` 安全获取（越界回退“阶段N”）。`HealthStop()` 取消定时器并收起提示。每次切换 `HealthPhaseBegin()` 播放阶段提示音（`HealthPlaySound()`：`health_sounds[阶段]` 配置了有效音频路径（相对路径经 `HealthResolveSoundPath()` 以脚本目录解析）即 `SoundPlay` 播放并返回，**未配置/路径无效/播放失败回退默认蜂鸣**——站立=上行三音 C-E-G、坐下=下行三音 G-E-C、走动=高低两音 A-D；`[health] sound=false` 静音），并 `HealthShowOverlay()` 在**屏幕右上角**弹出无框置顶显著提示（`+AlwaysOnTop`、`Show("NA")` 不抢焦点、`WinMove` 贴右上角、阶段色随阶段数轮换），`healthOverlayTimer` 一次性定时器（`-health_notify_ms`，默认 5000）到期 `HealthHideOverlay()` 自动消失。**托盘菜单**：`RefreshTrayMenu()` 内建 `A_TrayMenu.Add(HealthTrayLabel(), HealthToggle)` 状态项（`HealthTrayLabel()` 返回 `循环提醒：停止/…阶段名…`），启动/停止/阶段切换经 `HealthRefreshTrayState()` 用 `A_TrayMenu.Rename()` **就地刷新**（免整表重建），点击该项亦可切换启动/停止
-- play 脚本引擎：`PlayBind()` / `PlayUnbind()` 绑定与解绑；`PlayRunStepFrame()` / `PlayAdvanceStepFrame()` / `PlayPopStepFrame()` / `PlayPushSeqFrame()` 维护**步进游标栈**（栈底顶层游标 + 单步 `seq` 的内部游标）与**执行中标记** `playBusy`；`PlayIsOneShot()` 判定一次性 `seq`；`PlayDispatchStepAction()` / `PlayExecTree()` / `PlayExecList()` / `PlayExecAll()` / `PlayParChildDone()` 派发并驱动 9 类动作
-- play 动作实现：`PlayDoText()` / `PlaySendText()` / `PlayFlushLiteral()`（`{KEY}` 键名按 `Send` 发送、`` ` `` 转义字面 `{`/`}`、`\n`/`\r` 换行、其余字符含修饰符 `+!#^%` 走 `SendText` 字面输出）；`PlayDoSleep()` / `PlayDoRun()` / `PlayDoNote()` 负责等待、外部运行与提示；`PlayDoPaste()`（入口：`delay > 0` 时用一次性定时器延迟 `delay` 毫秒后调 `PlayDoPasteNow()` 执行实际贴图）→ `PlayDoPasteNow()`（按 `size` / `opacity` 需要时先生成临时 PNG，再通过 Snipaste `paste --files` 贴图；路径含空格时复制到无空格临时目录兜底；`ttl > 0` 时用定时器在 `ttl` 毫秒后自动销毁贴图窗口；`wait` 仅在 `delay>0` 或 `ttl>0` 时有意义，`true` 时经 `PlayWatchPaster()` / `PlayPasterPoll()` 轮询等贴图窗口关闭后才完成动作）；`PlayStartMedia()` / `PlayWaitSdlWindow()` / `PlayWatchMedia()` / `PlayMediaPoll()`（ffplay `-nodisp`/`-left`/`-top`/`-x`/`-y`/`-ss`/`-t`/`-af volume=...`，`pos` 含负值时 `-left`/`-top` 不传、启动后用 `WinMove` 做居中修正；video 透明度仍通过 `WinSetTransparent` 设置；`wait=true` 时非阻塞轮询进程退出 / 窗口关闭判定完成）
-- play 解析与校验：`PlayLoadScript()` 及 `PlaySkipWs()` / `PlayParseValue()` / `PlayParseObject()` / `PlayParseArray()` / `PlayParseString()` / `PlayHexToInt()` / `PlayParseNumber()` 实现内置 JSON 解析；`PlayValidateAction()` / `PlayValidateText()` / `PlayValidatePaste()` / `PlayValidateMedia()` / `PlayValidateSeq()` / `PlayValidatePar()` / `PlayIsXY()` / `PlayIsNumber()` / `PlayIsBool()` / `PlayValidateTime()` / `PlayTimeToSeconds()` 加载阶段整体校验（结构非法整体拒绝；`opacity` / `volume` 越界截断）；`PlayResolvePath()` 以脚本所在目录解析相对路径
-- play 贴图辅助：`GdipEnsure()`（GDI+ 全局初始化一次，进程退出由系统释放、不调用 Shutdown）/ `PlayScalePng()` / `PlaySavePng()` / `PlayGetPngEncoderClsid()` / `PlayLoadHbitmap()` / `PlayCopyPngToClipboard()` / `PlayPasterHwnds()` / `PlayPasterEnumHwnds()` / `PlayNewPaster()`（枚举 Snipaste 贴图窗口以定位新贴图）；`PlayPinPaster()` / `PlayPinPoll()` / `PlayBelowAbovePinned()` / `PlayRaiseTop()`（paste `pin` 置顶守护：贴图成功后登记该贴图与"贴图时已存在的贴图集合"，约 100ms 沿 Z 序链检查被压住窗口是否跑到上方，是则 `WinMoveTop` 提回最前，贴图销毁自动解除）；`PlayShowError()` / `PlayNoteFail()` / `PlayNum()` 错误提示与失败记录
-- `CompleteTikz()`：tikz 模式主流程——建临时目录 → `WrapTikzDocument()` 包装（裸语句 / 含 `tikzpicture` / 含 `document` 三形态自动识别，`\usepackage` / `\usetikzlibrary` / `\tikzset` / `\pgfplotsset` 开头行自动提取到导言区）→ `CompileTikz()`（`Run` + `ProcessExist` 轮询实现超时保护——`ProcessWaitClose` 对已退出进程会假超时、不能用；失败读 `main.log` 错误行）→ `ConvertPdfToPng()`（按配置顺序尝试 pdftoppm / mutool / gswin64c / magick）→ `PasteTikzImage()` 把图片复制到剪贴板（PNG + CF_DIB 双格式）并通过 Snipaste 贴图展示；`FindSnipaste()` 自动探测 Snipaste 路径（配置 → PATH → 常见安装路径），未运行时自动启动并等待就绪；`TikzCopyPng()` 复制图片到剪贴板（`HbmToDib()` 生成 CF_DIB）；贴图成功后延迟 8 秒清理临时目录
-- 调试日志由本地 `config.ini` 的 `[debug] enabled` 开关控制；代码缺省值为 `false`，而仓库提供的 `config.ini.example` 当前示例值为 `true`。开启时写入 `debug.log`，启动时清空旧日志
+- **核心数据处理**：`cvsEntries` 在启动时读取 `latexs.cvs` 得到条目数组 `{key, f2, f3, hasF3}`；`hasF3` 表示是否为 3 列条目；模式过滤在触发时进行。
+- **上下文解析**：`GetContext()` / `GetContextAI()` 实现上下文选择（选区优先 + 光标前连续串），返回 `{text, fromSelection}`；`GetContextInfo(context)` 解析合法上下文，返回 `{prefix, search}`；非法返回 0。
+- **通配符校验**：`IsValidStar(s)` 校验 `*` 通配符（空串，或仅含英文字母 / 数字 / 非 `_ ^ \` 符号）。
+- **匹配算法**：`FindMatches(info)` 按当前模式过滤后，按 `<前缀>*<S>*` 匹配，返回 `{key, f2, f3, hasF3, type}` 数组；排序 `=` > `>` > `<` > `~`，同类型按键长升序。
+- **模板解析**：`ProcessLatexTemplate(f3)` 解析 `{Text}` 与 `##{Left N}`。
+- **UI 组件**：`ShowMultiSelection()` / `ShowList()` 实现无框列表（深色背景、最多 10 行、上下键滚动、Esc 取消、Enter 选择）；`ShowList()` 支持 `clickSubmit` 参数，为真时鼠标点击列表项即直接确认。
+- **坐标获取**：`GetCaretScreenPos()` 多层级获取光标屏幕坐标（AHK 原生 → GetGUIThreadInfo → EM_POSFROMCHAR → UIA → 鼠标位置）。
+- **AI 请求**：非流式 `AIRequest()` 用 WinHttp 发起请求，响应体按 UTF-8 字节解码；流式 `AIRequestStream()` 用 `curl.exe -N` 发起，轮询增量解析 SSE；思考窗口支持实时滚动显示和拖动。
+- **文本插入**：使用 `SendText` 逐字符（受 `type_delay_ms` 控制），避免 `^` `{` `+` 等被解释为修饰键。
+- **循环提醒**：`HealthToggle()` 同一键启动/停止，支持阶段循环、声音提示、屏幕通知；托盘菜单实时显示当前状态。
+- **径向菜单**：`RadialLoadConfig()` 逐行解析 `[radial]` 各子节保证组/功能顺序（UTF-16 用 `FileRead` 读取）；`RadialBuildRgns()` 用 `CreatePolygonRgn` 为每扇区构建环形多边形区域，绘制用 `FillRgn`、命中用 `PtInRegion`（同一区域句柄，位置绝对一致）；`SetWindowRgn` 裁剪出真正圆形窗口；`OnMessage` 钩子处理悬停高亮与点击（未处理的鼠标消息返回空值放行，避免吞掉其它窗口点击）；文字用 GDI `CreateFontW` escapement 旋转做放射性排布。
+- **play 引擎**：维护步进游标栈与执行中标记，支持 9 类动作的解析与执行。
+- **TikZ 编译**：`CompleteTikz()` 自动包装文档、编译 PDF、转换 PNG、复制剪贴板并贴图展示。
+- **调试日志**：`debug.log` 由 `config.ini` 的 `[debug] enabled` 控制开关。
 
 ---
 
-## 10. 目录结构
+## 目录结构
 
 ```
 SharpKnife/
-    SharpKnife.ahk   ← 主脚本（启动它）
-    latexs.cvs       ← 触发表（数据源）
-    config.ini.example ← 仓库提交的配置样例
-    config.ini       ← 本地运行时配置
-    README.md        ← 本文档
-    debug.log        ← 调试日志（由本地 config.ini 的 [debug] enabled 控制）
-    images/          ← 托盘图标
+    SharpKnife.ahk        ← 主脚本（启动它）
+    SharpKnifeCore.ahk    ← 核心功能模块
+    latexs.cvs            ← 触发表（数据源）
+    config.ini.example    ← 仓库提交的配置样例
+    config.ini            ← 本地运行时配置
+    README.md             ← 本文档
+    Requirements.md       ← 需求文档
+    play-script-manual.md ← play 模式 JSON 脚本手册
+    scale.ps1             ← 缩放脚本
+    debug.log             ← 调试日志
+    images/
+        SharpKnife.ico    ← 托盘图标
 ```
 
 ---
