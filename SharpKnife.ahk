@@ -25,6 +25,11 @@ if (A_Args.Length >= 1 && A_Args[1] = "--selftest") {
 KeyHistory 0
 A_MaxHotkeysPerInterval := 200
 SendMode("Input")
+; 坐标系默认改为屏幕坐标（默认是"当前激活窗口客户区"，会导致非全屏窗口下
+; MouseGetPos 等返回客户区坐标、而 Gui.Show/WinMove 用屏幕坐标 → 弹出位置偏移；
+; 在 script startup 设置后所有热键线程默认继承该值）
+CoordMode("Mouse", "Screen")   ; MouseGetPos / Click / MouseMove 等用屏幕坐标
+CoordMode("Caret", "Screen")   ; CaretGetPos 用屏幕坐标（GetCaretScreenPos 已自设，此处兜底）
 SetWorkingDir(A_ScriptDir)
 #Include SharpKnifeCore.ahk   ; 纯逻辑核心（匹配 / 模板 / play 解析校验 / JSON 工具）
 
@@ -1933,6 +1938,8 @@ RadialShow(*) {
     ; 保存焦点窗口
     radialFocusWin := WinExist("A")
 
+    ; 确保鼠标坐标为屏幕坐标（热键线程默认是"客户区坐标"，会导致非全屏窗口下弹出偏移）
+    CoordMode("Mouse", "Screen")
     ; 获取鼠标位置作为菜单中心
     MouseGetPos(&mx, &my)
     radialCenterX := mx
