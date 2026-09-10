@@ -1326,10 +1326,12 @@ TypeTextSlowly(text) {
 ; 10. 径向菜单（Radial Menu）—— 两级圆形菜单，执行预配置快捷键
 ; ============================================================================
 
-; ---- 辅助：截断文字至 4 个汉字，超出追加省略号 ----
-RadialTruncate(text) {
-    if (StrLen(text) > 4)
-        return SubStr(text, 1, 4) "…"
+; ---- 辅助：截断文字至 maxChars 个汉字（默认 8），超出追加省略号 ----
+; maxChars 由调用方按扇区弧长动态计算（至少 2 字，上限 8 字）
+RadialTruncate(text, maxChars := 8) {
+    maxChars := Max(2, Min(8, maxChars))
+    if (StrLen(text) > maxChars)
+        return SubStr(text, 1, maxChars) "…"
     return text
 }
 
@@ -1486,8 +1488,8 @@ RadialBuildMenu() {
 
     ; 布局参数：单环等分，环形半径自适应
     PI := 3.141592653589793
-    OUTER_R := 150                     ; 外环半径
-    INNER_R := 54                      ; 圆心半径（环形内边界）
+    OUTER_R := 168                     ; 外环半径（放宽到 8 字需要更大环宽）
+    INNER_R := 42                      ; 圆心半径（环形内边界）
     MARGIN := 10                       ; 窗口边距
     winSize := Round(2 * (OUTER_R + MARGIN))
     half := winSize // 2
@@ -1654,7 +1656,7 @@ RadialDraw() {
     ; 圆心文字
     RadialDrawText(memDC, L.centerText, cx, cy, L.innerR, "3D3D4D", true)
 
-    ; 扇区文字（水平垂直双居中，放在扇区角平分线与半径中点处）
+    ; 扇区文字（放射性排布：文字沿径向，正立可读，左右横排、上下竖排、斜侧沿径向外/内）
     Loop n {
         i := A_Index
         item := radialMenuItems[i]
@@ -1662,7 +1664,35 @@ RadialDraw() {
         rMid := (L.innerR + L.outerR) / 2
         tx := cx + Round(rMid * Cos(aMid))
         ty := cy + Round(rMid * Sin(aMid))
-        RadialDrawText(memDC, RadialTruncate(item.name), tx, ty, L.innerR, "", false)
+        ; 屏幕视觉角（度，与锚点/命中一致：0=右, +90=下, -90=上）
+        deg := aMid * 180 / 3.141592653589793
+        ; 归一化到 (-180, 180]
+        while (deg > 180)
+            deg -= 360
+        while (deg <= -180)
+            deg += 360
+        ; 文字基线目标视觉角：右半圆（含正上/正右/正下）沿径向朝外；
+        ; 左半圆翻转 180° 保持正立（正左即水平从左到右）。
+        ; 底部（"正下"）用户要求同顶部"从上到下"竖排 → 翻转到字头朝上。
+        ; 目标：视觉上文字"字头朝远离圆心"或"水平正立"——用统一规则：
+        ;   右半圆 (-90..90)：esc 视觉 = deg（顶部-90竖排朝上、右侧0横排、右下45斜）
+        ;   左半圆 (<-90 或 >90)：esc 视觉 = deg - 180（翻转，正左=0水平）
+        escVis := 0
+        if (deg >= -90 && deg <= 90) {
+            escVis := deg                 ; 右半圆
+        } else {
+            escVis := deg - 180           ; 左半圆翻转
+            if (escVis < -180)            ; 规整（deg≈-180 时 -> -360→0）
+                escVis += 360
+        }
+        ; 屏幕视觉角 → GDI 数学角（y 向上逆时针正；屏幕 y 向下 → 取负）
+        gdiEsc := Round(-escVis * 10)
+        ; 动态截断：放射性排布文字沿径向展开，长度受环宽（outerR-innerR）限制；
+        ; 按环宽可容纳字数计算（汉字≈方块，单字宽≈字号像素；由 RadialTruncate 封顶 8 字）
+        fontSizePx := Max(ui_font_size * 96 / 72, 8)
+        radialSpace := (L.outerR - L.innerR) - 16   ; 环宽再留 16px 边距
+        maxChars := Floor(radialSpace / fontSizePx)
+        RadialDrawRotatedText(memDC, RadialTruncate(item.name, maxChars), tx, ty, gdiEsc)
     }
 
     ; 外环描边
@@ -1788,19 +1818,37 @@ RectStruct(x, y, w, h) {
     return rect
 }
 
-; ---- 创建 GDI 字体 ----
-RadialCreateFont(sizePt, face) {
+; ---- 创建 GDI 字体（escapement：文字旋转角度，单位 0.1 度；0=水平）----
+RadialCreateFont(sizePt, face, escapement := 0) {
     ; 点 → 像素（96 DPI）
     px := Round(sizePt * 96 / 72)
     return DllCall("CreateFontW"
-        , "Int", -px, "Int", 0, "Int", 0, "Int", 0
+        , "Int", -px, "Int", 0, "Int", escapement, "Int", escapement
         , "Int", 400, "UInt", 0, "UInt", 0, "UInt", 0
         , "UInt", 1, "UInt", 0, "UInt", 0
         , "UInt", 0x01 | 0x04, "UInt", 0   ; CLEARTYPE_NATURAL_QUALITY | DEFAULT_PITCH
         , "Str", face, "Ptr")
 }
 
-; ---- 绘制文字（水平垂直双居中）----
+; ---- 绘制旋转文字（放射性排布）----
+; escapementTenths：GDI 旋转角度（0.1 度单位，正=逆时针/数学角）。
+; 锚点 (cx,cy) = 文字在旋转方向上的中点位置（TA_CENTER 对齐）；
+; 基线对齐（TA_BASELINE）使文字落在锚点的基线上，文字沿旋转方向展开，
+; 不额外做投影偏移（以防漂移出扇区）。
+RadialDrawRotatedText(memDC, text, cx, cy, escapementTenths) {
+    global ui_font_size
+    font := RadialCreateFont(ui_font_size, "Microsoft YaHei", escapementTenths)
+    oldFont := DllCall("SelectObject", "Ptr", memDC, "Ptr", font, "Ptr")
+    DllCall("SetBkMode", "Ptr", memDC, "Int", 1)   ; TRANSPARENT
+    ; TA_CENTER（文字方向中点）| TA_BASELINE（基线）：锚点=文字行中点
+    DllCall("SetTextAlign", "Ptr", memDC, "UInt", 0x0006 | 0x0008, "UInt")
+    DllCall("SetTextColor", "Ptr", memDC, "UInt", 0xFFFFFF)
+    DllCall("TextOutW", "Ptr", memDC, "Int", cx, "Int", cy, "Str", text, "Int", StrLen(text))
+    DllCall("SelectObject", "Ptr", memDC, "Ptr", oldFont, "Ptr")
+    DllCall("DeleteObject", "Ptr", font)
+}
+
+; ---- 绘制文字（水平垂直双居中，圆心文字用）----
 RadialDrawText(memDC, text, cx, cy, maxR, bgColor, isCenter) {
     global ui_font_size
     font := RadialCreateFont(ui_font_size, "Microsoft YaHei")
