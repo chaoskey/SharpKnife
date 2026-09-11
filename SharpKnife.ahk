@@ -1945,18 +1945,27 @@ RadialTruncateToWidth(text, sizePt, maxWidth, hardMax := 8) {
 
 ; ---- 绘制旋转文字（放射性排布）----
 ; escapementTenths：GDI 旋转角度（0.1 度单位，正=逆时针/数学角）。
-; 锚点 (cx,cy) = 文字在旋转方向上的中点位置（TA_CENTER 对齐）；
-; 基线对齐（TA_BASELINE）使文字落在锚点的基线上，文字沿旋转方向展开，
-; 不额外做投影偏移（以防漂移出扇区）。
+; 输入 (cx,cy) 视为目标视觉中心：文字包围盒中心应落在按钮中心，
+; 因此需先按字体 ascent/descent 把 TextOut 的基线锚点沿文字法线方向补偿。
 RadialDrawRotatedText(memDC, text, cx, cy, escapementTenths) {
     global radialFontSize
     font := RadialCreateFont(radialFontSize, "Microsoft YaHei", escapementTenths)
     oldFont := DllCall("SelectObject", "Ptr", memDC, "Ptr", font, "Ptr")
     DllCall("SetBkMode", "Ptr", memDC, "Int", 1)   ; TRANSPARENT
-    ; TA_CENTER（文字方向中点）| TA_BASELINE（基线）：锚点=文字行中点
+    tm := Buffer(60, 0)
+    DllCall("GetTextMetricsW", "Ptr", memDC, "Ptr", tm)
+    ascent := NumGet(tm, 4, "Int")
+    descent := NumGet(tm, 8, "Int")
+    shift := (ascent - descent) / 2
+    screenDeg := -escapementTenths / 10.0
+    theta := screenDeg * 3.141592653589793 / 180.0
+    baseX := Round(cx + (-Sin(theta)) * shift)
+    baseY := Round(cy + Cos(theta) * shift)
+    ; TA_CENTER（文字方向中点）| TA_BASELINE（基线）：再配合上面的法线补偿，
+    ; 使最终可见文字中心尽量落在扇区按钮中心。
     DllCall("SetTextAlign", "Ptr", memDC, "UInt", 0x0006 | 0x0008, "UInt")
     DllCall("SetTextColor", "Ptr", memDC, "UInt", 0xFFFFFF)
-    DllCall("TextOutW", "Ptr", memDC, "Int", cx, "Int", cy, "Str", text, "Int", StrLen(text))
+    DllCall("TextOutW", "Ptr", memDC, "Int", baseX, "Int", baseY, "Str", text, "Int", StrLen(text))
     DllCall("SelectObject", "Ptr", memDC, "Ptr", oldFont, "Ptr")
     DllCall("DeleteObject", "Ptr", font)
 }
