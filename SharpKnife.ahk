@@ -235,22 +235,27 @@ global playFocusWin := 0      ; 弹窗动作前记录的焦点窗口（弹窗后
 global radialGroups := []      ; 组数组 [{name, id, items: [{name, hotkey}]}]
 global radialTrigger := ""     ; 触发快捷键
 global radialFontSize := 0     ; 径向菜单字体大小（磅；[radial] font_size，缺省=全局 ui_font_size）
+global radialCommonMax := 6    ; 第一层【常用】周边显示的高频菜单项个数（[radial] common_max，默认 6）
 global radialGui := 0          ; 当前菜单 GUI 对象
-global radialLevel := 0        ; 当前层级：0=未显示，1=第一级，2=第二级
+global radialLevel := 0        ; 当前层级：0=未显示，1=常用层，2=快捷菜单(分组)层，3=分组明细层
 global radialCurrentGroup := 0 ; 第二级时当前组的索引
 global radialFocusWin := 0     ; 弹窗前的焦点窗口
 global radialCenterX := 0      ; 菜单中心 X 坐标
 global radialCenterY := 0      ; 菜单中心 Y 坐标
-global radialMenuItems := []   ; 当前菜单项列表 [{name, _idx}]
+global radialMenuItems := []   ; 当前层菜单项 [{name, kind, gi, ii, shownName}]；kind: shortcut/group/exec/disabled
 global radialHover := 0        ; 当前悬停：0=无，-1=圆心，>0=扇区索引
 global radialLayout := 0       ; 当前布局 {n, cx, cy, outerR, innerR, winSize, half, startRad}
 global radialMsgMove := 0      ; OnMessage 注册句柄（WM_MOUSEMOVE）
 global radialMsgDown := 0      ; OnMessage 注册句柄（WM_LBUTTONDOWN）
 global radialMsgRDown := 0     ; OnMessage 注册句柄（WM_RBUTTONDOWN）
 global radialMsgLeave := 0     ; OnMessage 注册句柄（WM_MOUSELEAVE）
+global radialStatsFile := A_ScriptDir "\menu_stats.ini"  ; 快捷键执行次数统计（独立文件，不存在时自动创建）
 
 ; 径向菜单配置加载（必须在全局变量声明后调用，否则 global 赋值会重置数据）
 RadialLoadConfig()
+
+; 统计文件初始化（不存在则自动创建并写入说明头）
+RadialStatsInit()
 
 RefreshTrayMenu() {
     global mode, healthTrayStateText
@@ -1334,10 +1339,11 @@ RadialMakeClickHandler(idx) {
 
 ; ---- 加载 config.ini 的 [radial] 段（逐行扫描，保证顺序）----
 RadialLoadConfig() {
-    global radialGroups, radialTrigger, configFile, radialFontSize, ui_font_size
+    global radialGroups, radialTrigger, configFile, radialFontSize, radialCommonMax, ui_font_size
     radialGroups := []
     radialTrigger := "^+m"              ; 默认触发键
     radialFontSize := Max(ui_font_size, 6)   ; 字体大小默认 = 全局 [ui] font_size
+    radialCommonMax := 6                ; 第一层【常用】高频项个数默认 6
 
     DebugLog("[radial] RadialLoadConfig 入口 configFile=" . configFile)
 
@@ -1419,6 +1425,11 @@ RadialLoadConfig() {
                 if RegExMatch(value, "^\d+(\.\d+)?$")
                     radialFontSize := Max(value + 0, 6)
             }
+            else if (key = "common_max") {
+                ; 第一层【常用】显示的高频菜单项个数（0~20，默认 6）；非法值忽略
+                if RegExMatch(value, "^\d+$")
+                    radialCommonMax := Max(0, Min(Integer(value), 20))
+            }
         } else {
             ; [radial.xxx] 段
             if (key = "name") {
@@ -1453,7 +1464,7 @@ RadialLoadConfig() {
             g.items := sorted
         }
     }
-    DebugLog("[radial] RadialLoadConfig 完成：groups=" . radialGroups.Length . " trigger=" . radialTrigger . " font_size=" . radialFontSize)
+    DebugLog("[radial] RadialLoadConfig 完成：groups=" . radialGroups.Length . " trigger=" . radialTrigger . " font_size=" . radialFontSize . " common_max=" . radialCommonMax)
 }
 
 ; ---- 紧凑自适应布局：按字号与各菜单名的实际渲染宽度计算中心圆/外环半径 ----
@@ -1498,7 +1509,7 @@ RadialComputeLayout(n, centerText, items, sizePt) {
 ; 扇区之间用细线分隔，文字放射状排布（沿径向，正立可读）。
 RadialBuildMenu() {
     global radialGroups, radialGui, radialLevel, radialCurrentGroup, radialCenterX, radialCenterY
-    global radialMenuItems, radialHover, radialLayout, radialFontSize
+    global radialMenuItems, radialHover, radialLayout, radialFontSize, radialCommonMax
 
     ; 销毁旧 GUI
     if (radialGui) {
@@ -1509,18 +1520,33 @@ RadialBuildMenu() {
     }
     radialHover := 0
 
-    ; 确定菜单项和圆心文字
+    ; 确定菜单项（展现内容）与圆心文字：
+    ;   第一层【常用】：第 1 个周边固定为【快捷菜单】，其后按统计取高频前 6 的常用菜单项
+    ;   第二层【快捷菜单】：各菜单分组名
+    ;   第三层【<组名>】：该组内各菜单项
     radialMenuItems := []
     if (radialLevel = 1) {
-        for g in radialGroups
-            radialMenuItems.Push({name: g.name, _idx: A_Index})
+        centerText := "常用"
+        radialMenuItems.Push({name: "快捷菜单", kind: "shortcut"})
+        for f in RadialTopFrequent(radialCommonMax)
+            radialMenuItems.Push({name: f.name, kind: "exec", gi: f.gi, ii: f.ii})
+    } else if (radialLevel = 2) {
         centerText := "快捷菜单"
+        for gi, g in radialGroups
+            radialMenuItems.Push({name: g.name, kind: "group", gi: gi})
     } else {
+        ; 第三层：需有效的分组索引（防御越界）
+        if (radialCurrentGroup < 1 || radialCurrentGroup > radialGroups.Length)
+            return
         group := radialGroups[radialCurrentGroup]
-        for item in group.items
-            radialMenuItems.Push({name: item.name, _idx: A_Index})
         centerText := group.name
+        for ii, item in group.items
+            radialMenuItems.Push({name: item.name, kind: "exec", gi: radialCurrentGroup, ii: ii})
     }
+
+    ; 周边菜单至少 4 个：不足则补空位（无文字、禁止高亮、点击无效）
+    while (radialMenuItems.Length < 4)
+        radialMenuItems.Push({name: "", kind: "disabled"})
 
     n := radialMenuItems.Length
     if (n = 0)
@@ -1961,7 +1987,7 @@ RadialDrawText(memDC, text, cx, cy, maxR, bgColor, isCenter) {
 
 ; ---- 命中检测：返回 0=无，-1=圆心，i=扇区索引(1基) ----（基于区域句柄 PtInRegion，与绘制完全一致）
 RadialHitTest(mx, my) {
-    global radialGui, radialLayout
+    global radialGui, radialLayout, radialMenuItems
     if (!radialGui || !radialLayout)
         return 0
     WinGetPos(&wx, &wy, , , "ahk_id " . radialGui.Hwnd)
@@ -1978,8 +2004,12 @@ RadialHitTest(mx, my) {
     if (L.HasOwnProp("sectorRgns") && L.sectorRgns.Length >= L.n) {
         Loop L.n {
             hRgn := L.sectorRgns[A_Index]
-            if (hRgn && DllCall("PtInRegion", "Ptr", hRgn, "Int", lx, "Int", ly))
+            if (hRgn && DllCall("PtInRegion", "Ptr", hRgn, "Int", lx, "Int", ly)) {
+                ; 空位扇区（disabled）：视为未命中 → 禁止高亮、点击无效
+                if (A_Index <= radialMenuItems.Length && radialMenuItems[A_Index].kind = "disabled")
+                    return 0
                 return A_Index
+            }
         }
     }
     return 0
@@ -2080,21 +2110,9 @@ RadialShow(*) {
     radialCenterX := mx
     radialCenterY := my
 
-    ; 弹出第一级
+    ; 弹出第一层【常用】（第 1 个周边为【快捷菜单】，其后为高频常用项）
     radialLevel := 1
     radialCurrentGroup := 0
-    RadialBuildMenu()
-}
-
-; ---- 进入第二级（显示组内功能）----
-RadialShowGroup(groupIdx) {
-    global radialGroups, radialLevel, radialCurrentGroup
-
-    if (groupIdx < 1 || groupIdx > radialGroups.Length)
-        return
-
-    radialLevel := 2
-    radialCurrentGroup := groupIdx
     RadialBuildMenu()
 }
 
@@ -2118,34 +2136,52 @@ RadialClose() {
     }
 }
 
-; ---- 扇区点击处理 ----
+; ---- 扇区点击处理（按菜单项类型分发）----
 RadialOnItemClick(idx) {
-    global radialLevel, radialCurrentGroup, radialGroups
+    global radialLevel, radialCurrentGroup, radialGroups, radialMenuItems
 
-    if (radialLevel = 1) {
-        ; 第一级：点击组 → 进入第二级
-        RadialShowGroup(idx)
-    } else if (radialLevel = 2) {
-        ; 第二级：点击功能 → 执行快捷键
-        group := radialGroups[radialCurrentGroup]
-        if (idx >= 1 && idx <= group.items.Length) {
-            item := group.items[idx]
+    if (idx < 1 || idx > radialMenuItems.Length)
+        return
+    it := radialMenuItems[idx]
+
+    if (it.kind = "shortcut") {
+        ; 第一层【快捷菜单】→ 第二层（分组列表）
+        radialLevel := 2
+        radialCurrentGroup := 0
+        RadialBuildMenu()
+    } else if (it.kind = "group") {
+        ; 第二层某分组 → 第三层（该组菜单项）
+        radialLevel := 3
+        radialCurrentGroup := it.gi
+        RadialBuildMenu()
+    } else if (it.kind = "exec") {
+        ; 执行对应菜单项的快捷键（并按配置项统计 +1）
+        g := radialGroups[it.gi]
+        if (it.ii >= 1 && it.ii <= g.items.Length) {
+            item := g.items[it.ii]
+            RadialBumpStat(g.id, item._num)
             RadialClose()
             RadialExecHotkey(item.hotkey)
         }
     }
+    ; kind = "disabled"（空位）：点击无效，直接返回
 }
 
 ; ---- 圆心点击处理 ----
 RadialOnCenterClick() {
-    global radialLevel
+    global radialLevel, radialCurrentGroup
 
     if (radialLevel = 1) {
-        ; 第一级圆心 → 关闭菜单
+        ; 第一层中心【常用】→ 关闭菜单
         RadialClose()
     } else if (radialLevel = 2) {
-        ; 第二级圆心 → 退回第一级
+        ; 第二层中心【快捷菜单】→ 返回第一层
         radialLevel := 1
+        radialCurrentGroup := 0
+        RadialBuildMenu()
+    } else if (radialLevel = 3) {
+        ; 第三层中心【<组名>】→ 返回第二层
+        radialLevel := 2
         radialCurrentGroup := 0
         RadialBuildMenu()
     }
@@ -2163,6 +2199,91 @@ RadialExecHotkey(hotkey) {
 
     ; 发送快捷键
     Send(hotkey)
+}
+
+; ============================================================================
+; 10b. 径向菜单执行次数统计（menu_stats.ini，独立文件）
+;      每执行一次菜单功能，就按「配置项标识」radial.<组标识>.<编号> 为键把计数 +1
+;      并实时写入文件（如 radial.base.1 对应 [radial.base] 下编号 1 的那一项）；
+;      文件不存在时自动创建。可用任意文本编辑器查看各菜单项的使用次数，
+;      与 config.ini 的 [radial.*] 子节一一对应（改快捷键/改功能名不影响统计）。
+; ============================================================================
+
+; ---- 统计文件初始化：不存在则创建（写入说明头；IniWrite 会保留该注释）----
+RadialStatsInit() {
+    global radialStatsFile
+    if FileExist(radialStatsFile)
+        return
+    try {
+        FileAppend("; SharpKnife —— 径向菜单（快捷菜单）执行次数统计`r`n"
+            . "; 键 = 配置项，与 config.ini 的 [radial.*] 一一对应：radial.<组标识>.<编号>`r`n"
+            . "; 例：radial.base.1 表示 [radial.base] 下编号为 1 的那一项（改快捷键不影响其统计）`r`n"
+            . "; 自动维护：每执行一次即 +1 并实时写入；删除本文件即重新开始统计`r`n"
+            . "[stats]`r`n", radialStatsFile, "UTF-16")
+    } catch Error as e {
+        DebugLog("[radial] 统计文件创建失败：" . e.Message)
+    }
+}
+
+; ---- 统计键转义：INI 键不能含 '='（会被当作键值分隔符），转义为 %3D ----
+RadialStatKey(rawKey) {
+    return StrReplace(Trim(rawKey), "=", "%3D")
+}
+
+; ---- 计数 +1 并实时写入 ----
+; 键 = 配置项标识 radial.<组标识>.<编号>（如 radial.base.1），与 [radial.xxx] 子节一一对应；
+; 某配置项此前未统计过则从 0 开始，首次记为 1。
+RadialBumpStat(gid, num) {
+    global radialStatsFile
+    key := RadialStatKey("radial." . gid . "." . num)
+    cur := 0
+    try {
+        cur := Integer(IniRead(radialStatsFile, "stats", key, 0))
+    } catch {
+        cur := 0
+    }
+    try {
+        IniWrite(cur + 1, radialStatsFile, "stats", key)
+    } catch Error as e {
+        DebugLog("[radial] 统计写入失败：" . e.Message)
+    }
+}
+
+; ---- 取执行次数最高的前 maxN 个菜单项（供第一层【常用】的周边使用）----
+; 逐项查询 menu_stats.ini（只查 config.ini 中现存的配置项，忽略已删除项）；
+; 返回 [{gi, ii, name, cnt}]，按次数降序（同次数保持配置顺序），仅含次数 > 0 的项。
+RadialTopFrequent(maxN := 6) {
+    global radialGroups, radialStatsFile
+    list := []
+    for gi, g in radialGroups {
+        for ii, it in g.items {
+            cnt := 0
+            try {
+                cnt := Integer(IniRead(radialStatsFile, "stats", RadialStatKey("radial." . g.id . "." . it._num), 0))
+            } catch {
+                cnt := 0
+            }
+            if (cnt > 0)
+                list.Push({gi: gi, ii: ii, name: it.name, cnt: cnt})
+        }
+    }
+    ; 按次数降序的稳定插入排序：严格大于才前插 → 同次数保持原配置顺序
+    sorted := []
+    for x in list {
+        inserted := false
+        for i, s in sorted {
+            if (x.cnt > s.cnt) {
+                sorted.InsertAt(i, x)
+                inserted := true
+                break
+            }
+        }
+        if (!inserted)
+            sorted.Push(x)
+    }
+    while (sorted.Length > maxN)
+        sorted.Pop()
+    return sorted
 }
 
 ; ============================================================================
