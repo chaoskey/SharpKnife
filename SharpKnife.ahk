@@ -2096,13 +2096,12 @@ RadialOnRButtonDown(wParam, lParam, msg, hwnd) {
     return
 }
 
-; ---- 触发：弹出第一级菜单（或关闭已打开的菜单）----
+; ---- 触发：弹出第一级菜单（菜单已打开时忽略重复触发）----
 RadialShow(*) {
     global radialGroups, radialGui, radialLevel, radialCurrentGroup, radialFocusWin, radialCenterX, radialCenterY
 
-    ; 菜单已打开 → 关闭
+    ; 菜单已打开 → 忽略重复触发，直到显式关闭
     if (radialGui) {
-        RadialClose()
         return
     }
 
