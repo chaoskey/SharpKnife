@@ -3,7 +3,7 @@
 > **本文件的作用**：把本项目开发中形成的**约定、习惯、风格与踩过的坑**固化下来。
 > 即使历史会话被删除、或换到全新会话/新模型，只要读本文件，就应当能**按同样的方式接续开发**，不必重新摸索、也不该重复犯同样的错误。
 >
-> 最后更新：2026-09-11
+> 最后更新：2026-09-12
 
 ---
 
@@ -229,9 +229,24 @@ rm -f _t.ahk _t.log
 **三层结构**（外观形式固定：圆形窗口 + 单环扇区 + 放射性文字，仅流程/内容可变）：
 
 1. **第一层【常用】**：圆心 `常用`；周边第 1 个固定 `快捷菜单`，其后为**按统计排出的高频项**（个数 = `[radial] common_max`）。
-   点常用项 → 执行快捷键并关闭；点圆心 → 关闭。
+   点常用项 → 执行快捷键（**不关闭菜单**）；点圆心 → 关闭。
 2. **第二层【快捷菜单】**：圆心 `快捷菜单`；周边为**分组名**。点分组 → 第三层；点圆心 → 返回第一层。
-3. **第三层【<组名>】**：圆心 = 组名；周边为该组**菜单项**。点菜单项 → 执行快捷键并关闭；点圆心 → 返回第二层。
+3. **第三层【<组名>】**：圆心 = 组名；周边为该组**菜单项**。点菜单项 → 执行快捷键（**不关闭菜单**）；点圆心 → 返回第二层。
+
+**流程要点（2026-09-12 改造）**：
+
+- **触发键 = 开/关切换**：未打开则弹出，已打开则关闭（`RadialShow` 内 `if (radialGui) { RadialClose(); return }`）。
+- **执行功能不关闭菜单**：`RadialOnItemClick` 的 `exec` 分支只 `RadialBumpStat()` + `RadialExecHotkey()`，**不再调用 `RadialClose()`**；便于连续执行多个功能。
+- **圆心：点击 or 拖拽**（`RadialOnLButtonDown` / `RadialOnMouseMove` / `RadialOnLButtonUp`）：
+  按下圆心先记录（鼠标屏幕坐标 + 窗口左上角）+ `SetCapture`；移动时**位移 > 3px** 才判定为拖拽 →
+  `Gui.Move(按下时窗口位置 + 位移)` 移动圆盘（1:1 跟手，仅夹取在**虚拟屏幕**内）；抬起时若**没拖过**才触发圆心点击。
+  拖拽判定用 `GetCursorPos` 绝对坐标差分（不依赖会随窗口移动而变化的客户区 `lParam`，避免抖动）。
+  **拖拽分支只移动窗口，绝不做任何其它动作**（不切层/不关闭/不激活/不改焦点）。
+- 圆盘窗口带 **`+E0x08000000`（`WS_EX_NOACTIVATE`）**：点击/拖拽菜单都**不改变前台窗口**（不抢焦点，编辑器光标与焦点不受影响）。
+- 因窗口不获取键盘焦点，**Esc 由打开期间的全局热键接管**：`RadialRegisterMsg` 里 `Hotkey("Escape", RadialOnEscape)` + `Hotkey("Escape","On")`，`RadialUnregisterMsg` 里 `Hotkey("Escape","Off")`。
+  **坑**：`Hotkey(Key,"Off")` 之后，即使再用函数对象注册（不报错）也不会重新启用，必须显式调 `Hotkey(Key,"On")`。
+- **位置夹取必须用虚拟屏幕**（`SysGet(76/77/78/79)`），不能用 `A_ScreenWidth/A_ScreenHeight`（仅主屏）——否则多显示器下圆盘会被"拉回主屏"，表现为一拖动就"消失"。
+- `WM_LBUTTONUP` 需在 `RadialRegisterMsg`/`RadialUnregisterMsg` 成对注册/注销（`radialMsgUp`）。
 
 **每层周边至少 4 个扇区**，不足补空位（无文字、禁止高亮、点击无效）。
 
@@ -245,8 +260,12 @@ rm -f _t.ahk _t.log
 | `RadialBuildRgns()` / `RadialFreeRgns()` | 扇区多边形区域与圆心区域的建立/释放（绘制与命中共用） |
 | `RadialDraw()` | GDI 双缓冲绘制（三态着色：常态/高亮/变暗；放射性文字） |
 | `RadialHitTest()` | `PtInRegion` 命中；**空位扇区返回 0（不命中）** |
-| `RadialOnItemClick()` | 按 `kind` 分发：`shortcut`/`group`/`exec`/`disabled` |
+| `RadialOnItemClick()` | 按 `kind` 分发：`shortcut`/`group`/`exec`/`disabled`（`exec` 只执行不关闭） |
+| `RadialOnLButtonDown()` / `RadialOnMouseMove()` / `RadialOnLButtonUp()` | 扇区点击 + 圆心「点击/拖拽」判定（阈值 3px，`SetCapture`→`Gui.Move`→`ReleaseCapture`） |
 | `RadialOnCenterClick()` | 三层中心语义（关闭 / 返回上一层） |
+| `RadialOnEscape()` | 菜单打开期间接管的 Esc 全局热键 → 关闭菜单 |
+| `RadialVirtualBounds()` | 全部显示器合并区域（`SysGet(76..79)`），圆盘位置夹取用 |
+| `RadialRestoreFocus()` | 点击后把焦点还给触发菜单前的窗口（圆盘不持焦点；`WS_EX_NOACTIVATE` 下通常已是空操作） |
 | `RadialExecHotkey()` | 恢复焦点窗口后 `Send` 快捷键 |
 | `RadialStatsInit()` / `RadialStatKey()` / `RadialBumpStat()` / `RadialTopFrequent()` | 统计文件初始化、键转义、计数 +1（实时写盘）、取高频前 N |
 

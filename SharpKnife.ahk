@@ -247,8 +247,17 @@ global radialHover := 0        ; 当前悬停：0=无，-1=圆心，>0=扇区索
 global radialLayout := 0       ; 当前布局 {n, cx, cy, outerR, innerR, winSize, half, startRad}
 global radialMsgMove := 0      ; OnMessage 注册句柄（WM_MOUSEMOVE）
 global radialMsgDown := 0      ; OnMessage 注册句柄（WM_LBUTTONDOWN）
+global radialMsgUp := 0        ; OnMessage 注册句柄（WM_LBUTTONUP）
 global radialMsgRDown := 0     ; OnMessage 注册句柄（WM_RBUTTONDOWN）
 global radialMsgLeave := 0     ; OnMessage 注册句柄（WM_MOUSELEAVE）
+; 圆心区域「点击 / 拖拽」判定状态：按下时先记录起点，抬起时按位移判定
+global radialDragPending := false ; 圆心已按下、尚未判定是"点击"还是"拖拽"
+global radialDragging := false    ; 已判定为拖拽（圆盘正跟随鼠标移动）
+global radialDragMoved := false   ; 本次按下期间是否真的拖动过（拖动过则抬起时不触发点击）
+global radialDragStartX := 0      ; 按下时的鼠标屏幕 X
+global radialDragStartY := 0      ; 按下时的鼠标屏幕 Y
+global radialDragWinX := 0        ; 按下时的圆盘窗口左上角 X
+global radialDragWinY := 0        ; 按下时的圆盘窗口左上角 Y
 global radialStatsFile := A_ScriptDir "\menu_stats.ini"  ; 快捷键执行次数统计（独立文件，不存在时自动创建）
 
 ; 径向菜单配置加载（必须在全局变量声明后调用，否则 global 赋值会重置数据）
@@ -1329,7 +1338,7 @@ TypeTextSlowly(text) {
 ; ============================================================================
 
 ; ============================================================================
-; 10. 径向菜单（Radial Menu）—— 两级圆形菜单，执行预配置快捷键
+; 10. 径向菜单（Radial Menu）—— 三层圆形菜单，执行预配置快捷键
 ; ============================================================================
 
 ; ---- 辅助：创建点击回调闭包（捕获 idx 值，避免 for 循环闭包陷阱）----
@@ -1339,11 +1348,12 @@ RadialMakeClickHandler(idx) {
 
 ; ---- 加载 config.ini 的 [radial] 段（逐行扫描，保证顺序）----
 RadialLoadConfig() {
-    global radialGroups, radialTrigger, configFile, radialFontSize, radialCommonMax, ui_font_size
+    global radialGroups, radialTrigger, configFile, radialFontSize, radialCommonMax, ui_font_size, radialOpacity
     radialGroups := []
     radialTrigger := "^+m"              ; 默认触发键
     radialFontSize := Max(ui_font_size, 6)   ; 字体大小默认 = 全局 [ui] font_size
     radialCommonMax := 6                ; 第一层【常用】高频项个数默认 6
+    radialOpacity := 1.0                ; 菜单透明度（0.0~1.0），默认 1 = 不透明
 
     DebugLog("[radial] RadialLoadConfig 入口 configFile=" . configFile)
 
@@ -1424,6 +1434,13 @@ RadialLoadConfig() {
                 ; 径向菜单字体大小（磅）；非法值忽略（沿用默认）
                 if RegExMatch(value, "^\d+(\.\d+)?$")
                     radialFontSize := Max(value + 0, 6)
+            }
+            else if (key = "opacity") {
+                ; 菜单透明度，取值 0~1（支持小数），非法值忽略
+                if RegExMatch(value, "^\d*\.?\d+$") {
+                    v := value + 0
+                    radialOpacity := Max(0.0, Min(v, 1.0))
+                }
             }
             else if (key = "common_max") {
                 ; 第一层【常用】显示的高频菜单项个数（0~20，默认 6）；非法值忽略
@@ -1578,16 +1595,40 @@ RadialBuildMenu() {
     RadialBuildRgns()
 
     ; 创建 GUI（纯自绘，无任何控件）
-    radialGui := Gui("+AlwaysOnTop -Caption +ToolWindow")
+    ; +E0x08000000 = WS_EX_NOACTIVATE：点击 / 拖拽菜单**不会激活菜单窗口、不改变前台窗口**，
+    ; 因此"拖拽"只会移动圆盘，不会产生焦点切换等任何连带动作。
+    ; （副作用：窗口永不获得键盘焦点，Esc 改由打开期间的全局热键接管，见 RadialRegisterMsg）
+    radialGui := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x08000000")
     radialGui.BackColor := "2D2D3D"
     radialGui.MarginX := 0
     radialGui.MarginY := 0
     radialGui.OnEvent("Escape", (*) => RadialClose())
 
-    ; 显示 GUI（确保不超出屏幕）
-    guiX := Max(0, Min(radialCenterX - half, A_ScreenWidth - winSize))
-    guiY := Max(0, Min(radialCenterY - half, A_ScreenHeight - winSize))
+    ; 显示 GUI（限制在虚拟屏幕内；多显示器下同样以鼠标所在位置为准）
+    vb := RadialVirtualBounds()
+    guiX := Max(vb.x, Min(radialCenterX - half, vb.x + vb.w - winSize))
+    guiY := Max(vb.y, Min(radialCenterY - half, vb.y + vb.h - winSize))
     radialGui.Show("x" . guiX . " y" . guiY . " w" . winSize . " h" . winSize . " NoActivate")
+
+    ; 应用配置的透明度（radialOpacity 取值 0.0~1.0）
+    if (IsSet(radialOpacity) && (radialOpacity + 0) < 1.0) {
+        GWL_EXSTYLE := -20
+        WS_EX_LAYERED := 0x00080000
+        try {
+            ex := DllCall("GetWindowLongPtr", "Ptr", radialGui.Hwnd, "Int", GWL_EXSTYLE, "Ptr")
+        } catch {
+            ex := DllCall("GetWindowLong", "Int", radialGui.Hwnd, "Int", GWL_EXSTYLE)
+        }
+        ; 打开 WS_EX_LAYERED
+        DllCall("SetWindowLongPtr", "Ptr", radialGui.Hwnd, "Int", GWL_EXSTYLE, "Ptr", ex | WS_EX_LAYERED)
+        alpha := Round(radialOpacity * 255)
+        if (alpha < 0)
+            alpha := 0
+        if (alpha > 255)
+            alpha := 255
+        ; LWA_ALPHA = 0x2
+        DllCall("SetLayeredWindowAttributes", "Ptr", radialGui.Hwnd, "UInt", 0, "UChar", alpha, "UInt", 0x2)
+    }
 
     ; 把窗口裁剪成真正的圆形（SetWindowRgn 后系统接管区域，勿 DeleteObject）
     hRgn := DllCall("CreateEllipticRgn"
@@ -1608,20 +1649,40 @@ RadialGetLayout() {
     return radialLayout
 }
 
+; ---- 虚拟屏幕（所有显示器合并区域）边界：把圆盘限制在可见范围内 ----
+; 切勿用 A_ScreenWidth / A_ScreenHeight —— 它们只是**主显示器**的尺寸，
+; 在多显示器（例如副屏在左侧、坐标为负）下会把圆盘强行拉回主屏，
+; 表现为"一拖动窗口就消失 / 跑到别的地方"。
+RadialVirtualBounds() {
+    return {x: SysGet(76), y: SysGet(77), w: SysGet(78), h: SysGet(79)}
+}
+
 ; ---- 注册鼠标消息 ----
 RadialRegisterMsg() {
-    global radialGui, radialMsgMove, radialMsgDown, radialMsgRDown, radialMsgLeave
+    global radialGui, radialMsgMove, radialMsgDown, radialMsgUp, radialMsgRDown, radialMsgLeave
     hwnd := radialGui.Hwnd
     ; 先注销可能残留的旧回调（OnMessage MaxThreads=0 注销指定回调），避免重复注册累积
     OnMessage(0x0200, RadialOnMouseMove, 0)
     OnMessage(0x0201, RadialOnLButtonDown, 0)
+    OnMessage(0x0202, RadialOnLButtonUp, 0)
     OnMessage(0x0204, RadialOnRButtonDown, 0)
     OnMessage(0x02A3, RadialOnMouseLeave, 0)
     ; 注册
     radialMsgMove   := OnMessage(0x0200, RadialOnMouseMove)   ; WM_MOUSEMOVE
     radialMsgDown   := OnMessage(0x0201, RadialOnLButtonDown) ; WM_LBUTTONDOWN
+    radialMsgUp     := OnMessage(0x0202, RadialOnLButtonUp)   ; WM_LBUTTONUP
     radialMsgRDown  := OnMessage(0x0204, RadialOnRButtonDown) ; WM_RBUTTONDOWN
     radialMsgLeave  := OnMessage(0x02A3, RadialOnMouseLeave)  ; WM_MOUSELEAVE
+    ; 菜单窗口带 WS_EX_NOACTIVATE（永不获得键盘焦点），故 Esc 关闭由全局热键接管：
+    ; 菜单打开期间 Esc 关闭菜单，关闭菜单时立即注销该热键，不影响其它程序。
+    ; 注意（实测坑）：Hotkey(Key,"Off") 之后，即使再次用函数对象注册（不报错）
+    ; 也不会重新启用，必须显式再调一次 Hotkey(Key,"On")。
+    try {
+        Hotkey("Escape", RadialOnEscape)   ; 设定动作（首次注册；重复设置等价）
+        Hotkey("Escape", "On")             ; 若此前被 Off 过，这里重新启用
+    } catch Error as e {
+        DebugLog("[radial] Esc 全局热键注册失败：" . e.Message . " | What=" . e.What)
+    }
     ; 请求鼠标离开通知
     DllCall("TrackMouseEvent", "Ptr", TrackMouseEventStruct(), "Int")
 }
@@ -1632,8 +1693,16 @@ RadialUnregisterMsg() {
     ; （传 "" 或 0 会报错：Parameter #2 requires an Object）
     OnMessage(0x0200, RadialOnMouseMove, 0)
     OnMessage(0x0201, RadialOnLButtonDown, 0)
+    OnMessage(0x0202, RadialOnLButtonUp, 0)
     OnMessage(0x0204, RadialOnRButtonDown, 0)
     OnMessage(0x02A3, RadialOnMouseLeave, 0)
+    try Hotkey("Escape", "Off")
+}
+
+; ---- Esc 关闭菜单（菜单打开期间的全局热键）----
+RadialOnEscape(*) {
+    DebugLog("[radial] Esc 按下 → 关闭菜单")
+    RadialClose()
 }
 
 ; ---- TrackMouseEvent 结构（WM_MOUSELEAVE 需要）----
@@ -2035,14 +2104,53 @@ ATan2(y, x) {
     return -3.141592653589793 / 2
 }
 
-; ---- 鼠标移动：更新悬停并重绘 ----
+; ---- 鼠标移动：更新悬停并重绘；圆心按下期间改为「拖拽判定 / 移动圆盘」----
 ; 返回空值放行消息（悬停检测不吞 WM_MOUSEMOVE，避免影响其它窗口/控件）
 RadialOnMouseMove(wParam, lParam, msg, hwnd) {
-    global radialGui, radialHover
+    global radialGui, radialHover, radialCenterX, radialCenterY
+    global radialDragPending, radialDragging, radialDragMoved
+    global radialDragStartX, radialDragStartY, radialDragWinX, radialDragWinY
     if (!radialGui || hwnd != radialGui.Hwnd)
         return
+
+    ; --- 圆心按下期间：只判定拖拽并移动圆盘，绝不附加任何其它动作 ---
+    if (radialDragPending || radialDragging) {
+        ; 用 GetCursorPos 取屏幕坐标：窗口移动后 lParam 的客户区坐标会变化，
+        ; 用「鼠标屏幕坐标 − 按下时的鼠标屏幕坐标」算位移，绝对稳定不抖动。
+        pt := Buffer(8)
+        DllCall("GetCursorPos", "Ptr", pt)
+        dx := NumGet(pt, 0, "Int") - radialDragStartX
+        dy := NumGet(pt, 4, "Int") - radialDragStartY
+        ; 位移超过阈值才认定为拖拽（否则抬起时按点击处理）
+        if (!radialDragging && (Abs(dx) > 3 || Abs(dy) > 3)) {
+            radialDragging := true
+            radialDragMoved := true
+            DebugLog("[radial] 判定为拖拽：位移=" . dx . "," . dy)
+        }
+        if (radialDragging) {
+            WinGetPos(, , &ww, &wh, "ahk_id " . hwnd)
+            ; 位移与窗口位置 1:1 对应：窗口位置 = 按下时的位置 + 鼠标位移。
+            ; 只在**虚拟屏幕**（全部显示器合并区域）内夹取，避免圆盘被拖到所有屏幕之外；
+            ; 绝不做"拉回主屏"之类的吸附 —— 多显示器下那会导致窗口突然跑到别处（看似消失）。
+            vb := RadialVirtualBounds()
+            nx := Max(vb.x, Min(radialDragWinX + dx, vb.x + vb.w - ww))
+            ny := Max(vb.y, Min(radialDragWinY + dy, vb.y + vb.h - wh))
+            radialGui.Move(nx, ny)
+            ; 同步菜单中心：切层重建时仍在该位置弹出
+            radialCenterX := nx + ww // 2
+            radialCenterY := ny + wh // 2
+        }
+        DllCall("TrackMouseEvent", "Ptr", TrackMouseEventStruct(), "Int")
+        return
+    }
+
     x := lParam & 0xFFFF
     y := (lParam >> 16) & 0xFFFF
+    ; lParam 客户区坐标可能为负（鼠标被捕获时移出窗口），补 16 位有符号还原
+    if (x > 32767)
+        x -= 65536
+    if (y > 32767)
+        y -= 65536
     WinGetPos(&wx, &wy, , , "ahk_id " . hwnd)
     hit := RadialHitTest(wx + x, wy + y)
     if (hit != radialHover) {
@@ -2056,8 +2164,11 @@ RadialOnMouseMove(wParam, lParam, msg, hwnd) {
 
 ; ---- 鼠标离开：清除悬停 ----
 RadialOnMouseLeave(wParam, lParam, msg, hwnd) {
-    global radialGui, radialHover
+    global radialGui, radialHover, radialDragPending, radialDragging
     if (!radialGui || hwnd != radialGui.Hwnd)
+        return
+    ; 拖拽中不做悬停处理（鼠标被捕获，离开通知不代表真的移出）
+    if (radialDragPending || radialDragging)
         return
     if (radialHover != 0) {
         radialHover := 0
@@ -2066,21 +2177,68 @@ RadialOnMouseLeave(wParam, lParam, msg, hwnd) {
     return
 }
 
-; ---- 左键点击 ----
+; ---- 左键按下 ----
+; 扇区：立即执行对应动作；圆心：先只做「可能是点击」的记录，抬起时再判定
 ; 注意：OnMessage 回调返回「空值」（return / return ""）才放行消息让其正常流转；
 ; 返回整数（含 0）会被当作已回复而吞掉消息。径向菜单未打开或不属于它时务必返回空。
 RadialOnLButtonDown(wParam, lParam, msg, hwnd) {
-    global radialGui, radialHover
+    global radialGui, radialDragPending, radialDragging, radialDragMoved
+    global radialDragStartX, radialDragStartY, radialDragWinX, radialDragWinY
     if (!radialGui || hwnd != radialGui.Hwnd)
         return
     x := lParam & 0xFFFF
     y := (lParam >> 16) & 0xFFFF
+    if (x > 32767)
+        x -= 65536
+    if (y > 32767)
+        y -= 65536
     WinGetPos(&wx, &wy, , , "ahk_id " . hwnd)
     hit := RadialHitTest(wx + x, wy + y)
-    if (hit = -1)
-        RadialOnCenterClick()
-    else if (hit > 0)
+    if (hit = -1) {
+        ; 圆心：记录起点并捕获鼠标；是"点击"还是"拖拽"等到抬起时按位移判定
+        pt := Buffer(8)
+        DllCall("GetCursorPos", "Ptr", pt)
+        radialDragStartX := NumGet(pt, 0, "Int")
+        radialDragStartY := NumGet(pt, 4, "Int")
+        radialDragWinX := wx
+        radialDragWinY := wy
+        radialDragPending := true
+        radialDragging := false
+        radialDragMoved := false
+        DebugLog("[radial] 圆心按下：鼠标=" . radialDragStartX . "," . radialDragStartY . " 窗口=" . wx . "," . wy)
+        ; SetCapture：拖拽时指针移出圆盘也能持续收到 WM_MOUSEMOVE，抬起时释放
+        DllCall("SetCapture", "Ptr", hwnd, "Ptr")
+    } else if (hit > 0) {
+        ; 扇区点击：执行功能（菜单保持打开，见 RadialOnItemClick）
         RadialOnItemClick(hit)
+        ; 菜单不应抢占焦点：把焦点还给触发菜单前的窗口
+        RadialRestoreFocus()
+    }
+    return
+}
+
+; ---- 左键抬起：圆心区域按位移判定「点击（返回上一层/关闭）」或「拖拽（移动圆盘）」----
+; 拖拽分支**只结束拖拽**，不做任何其它事情（不切层、不关闭、不改焦点、不改激活窗口）。
+RadialOnLButtonUp(wParam, lParam, msg, hwnd) {
+    global radialGui, radialDragPending, radialDragging, radialDragMoved, radialLevel
+    if (!radialGui || hwnd != radialGui.Hwnd)
+        return
+    if (!radialDragPending && !radialDragging)
+        return
+    radialDragPending := false
+    radialDragging := false
+    DllCall("ReleaseCapture")
+    if (radialDragMoved) {
+        ; 拖动过 → 只移动了圆盘，不触发圆心点击（也不做任何其它动作）
+        radialDragMoved := false
+        DebugLog("[radial] 拖拽结束：仅移动圆盘，不触发圆心点击")
+        DllCall("TrackMouseEvent", "Ptr", TrackMouseEventStruct(), "Int")
+        return
+    }
+    radialDragMoved := false
+    ; 未拖动 → 视为圆心点击
+    DebugLog("[radial] 圆心点击：当前层级=" . radialLevel)
+    RadialOnCenterClick()
     return
 }
 
@@ -2096,12 +2254,13 @@ RadialOnRButtonDown(wParam, lParam, msg, hwnd) {
     return
 }
 
-; ---- 触发：弹出第一级菜单（菜单已打开时忽略重复触发）----
+; ---- 触发：菜单未打开则弹出第一级；已打开则关闭（同一热键开/关切换）----
 RadialShow(*) {
     global radialGroups, radialGui, radialLevel, radialCurrentGroup, radialFocusWin, radialCenterX, radialCenterY
 
-    ; 菜单已打开 → 忽略重复触发，直到显式关闭
+    ; 菜单已打开 → 同一个触发键关闭菜单
     if (radialGui) {
+        RadialClose()
         return
     }
 
@@ -2127,6 +2286,13 @@ RadialShow(*) {
 ; ---- 关闭菜单 ----
 RadialClose() {
     global radialGui, radialLevel, radialCurrentGroup, radialFocusWin
+    global radialDragPending, radialDragging, radialDragMoved
+
+    ; 清理拖拽状态并释放鼠标捕获（拖拽中途关闭时不留后遗症）
+    radialDragPending := false
+    radialDragging := false
+    radialDragMoved := false
+    DllCall("ReleaseCapture")
 
     if (radialGui) {
         RadialUnregisterMsg()
@@ -2142,6 +2308,17 @@ RadialClose() {
         try WinActivate("ahk_id " . radialFocusWin)
         radialFocusWin := 0
     }
+}
+
+; ---- 恢复焦点到触发菜单前的窗口（圆盘自身不应持有焦点）----
+RadialRestoreFocus() {
+    global radialGui, radialFocusWin
+    if (!radialFocusWin)
+        return
+    ; 仅当焦点确实落在圆盘窗口上时才恢复
+    if (radialGui && WinExist("A") != radialGui.Hwnd)
+        return
+    try WinActivate("ahk_id " . radialFocusWin)
 }
 
 ; ---- 扇区点击处理（按菜单项类型分发）----
@@ -2163,12 +2340,12 @@ RadialOnItemClick(idx) {
         radialCurrentGroup := it.gi
         RadialBuildMenu()
     } else if (it.kind = "exec") {
-        ; 执行对应菜单项的快捷键（并按配置项统计 +1）
+        ; 执行对应菜单项的快捷键（并按配置项统计 +1）；菜单保持打开，不关闭，
+        ; 便于连续执行多个功能（关闭请用同一触发键 / 右键 / 第一层圆心）
         g := radialGroups[it.gi]
         if (it.ii >= 1 && it.ii <= g.items.Length) {
             item := g.items[it.ii]
             RadialBumpStat(g.id, item._num)
-            RadialClose()
             RadialExecHotkey(item.hotkey)
         }
     }
