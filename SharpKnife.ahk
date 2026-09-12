@@ -1614,13 +1614,11 @@ RadialBuildMenu() {
     if (IsSet(radialOpacity) && (radialOpacity + 0) < 1.0) {
         GWL_EXSTYLE := -20
         WS_EX_LAYERED := 0x00080000
-        try {
-            ex := DllCall("GetWindowLongPtr", "Ptr", radialGui.Hwnd, "Int", GWL_EXSTYLE, "Ptr")
-        } catch {
-            ex := DllCall("GetWindowLong", "Int", radialGui.Hwnd, "Int", GWL_EXSTYLE)
-        }
+        getWindowLongFn := (A_PtrSize = 8) ? "GetWindowLongPtrW" : "GetWindowLongW"
+        setWindowLongFn := (A_PtrSize = 8) ? "SetWindowLongPtrW" : "SetWindowLongW"
+        ex := DllCall(getWindowLongFn, "Ptr", radialGui.Hwnd, "Int", GWL_EXSTYLE, "Ptr")
         ; 打开 WS_EX_LAYERED
-        DllCall("SetWindowLongPtr", "Ptr", radialGui.Hwnd, "Int", GWL_EXSTYLE, "Ptr", ex | WS_EX_LAYERED)
+        DllCall(setWindowLongFn, "Ptr", radialGui.Hwnd, "Int", GWL_EXSTYLE, "Ptr", ex | WS_EX_LAYERED, "Ptr")
         alpha := Round(radialOpacity * 255)
         if (alpha < 0)
             alpha := 0
