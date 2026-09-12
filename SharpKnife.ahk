@@ -2209,8 +2209,6 @@ RadialOnLButtonDown(wParam, lParam, msg, hwnd) {
     } else if (hit > 0) {
         ; 扇区点击：执行功能（菜单保持打开，见 RadialOnItemClick）
         RadialOnItemClick(hit)
-        ; 菜单不应抢占焦点：把焦点还给触发菜单前的窗口
-        RadialRestoreFocus()
     }
     return
 }
@@ -2300,23 +2298,16 @@ RadialClose() {
     }
     radialLevel := 0
     radialCurrentGroup := 0
-
-    ; 恢复焦点
-    if (radialFocusWin) {
-        try WinActivate("ahk_id " . radialFocusWin)
-        radialFocusWin := 0
-    }
+    ; 圆盘窗口本身不抢焦点，关闭时不应无条件把前台强拉回旧窗口，
+    ; 否则用户若已主动切到其它窗口，会感知为"焦点乱跳 / 系统自己在操作"。
+    radialFocusWin := 0
 }
 
 ; ---- 恢复焦点到触发菜单前的窗口（圆盘自身不应持有焦点）----
 RadialRestoreFocus() {
-    global radialGui, radialFocusWin
-    if (!radialFocusWin)
-        return
-    ; 仅当焦点确实落在圆盘窗口上时才恢复
-    if (radialGui && WinExist("A") != radialGui.Hwnd)
-        return
-    try WinActivate("ahk_id " . radialFocusWin)
+    ; 圆盘窗口带 WS_EX_NOACTIVATE，正常情况下不会夺走前台；
+    ; 当前策略要求菜单项始终作用于点击当下的前台窗口，故这里不再主动切焦点。
+    return
 }
 
 ; ---- 扇区点击处理（按菜单项类型分发）----
@@ -2372,16 +2363,79 @@ RadialOnCenterClick() {
 
 ; ---- 执行预配置快捷键 ----
 RadialExecHotkey(hotkey) {
-    global radialFocusWin
-
-    ; 恢复焦点窗口
-    if (radialFocusWin) {
-        try WinActivate("ahk_id " . radialFocusWin)
-        Sleep(50)
+    targetWin := RadialGetExecTargetWin()
+    if (!targetWin) {
+        DebugLog("[radial] 已取消发送快捷键：当前前台窗口不可用，hotkey=" . hotkey)
+        return false
+    }
+    if (!RadialActivateFocusWin(targetWin)) {
+        DebugLog("[radial] 已取消发送快捷键：目标窗口不存在或未能重新获得前台，hotkey=" . hotkey)
+        return false
+    }
+    if (!RadialWaitModifiersReleased()) {
+        DebugLog("[radial] 已取消发送快捷键：检测到物理修饰键仍按下，hotkey=" . hotkey)
+        return false
     }
 
-    ; 发送快捷键
-    Send(hotkey)
+    ; 用 SendEvent（keybd_event）发送组合键，避免 GUI 关闭/切换后的 SendInput 焦点竞态。
+    SendEvent(hotkey)
+    return true
+}
+
+; ---- 决定本次执行快捷键的目标窗口 ----
+; 仅使用“点击菜单项当下的前台窗口”：圆盘带 WS_EX_NOACTIVATE，
+; 用户在菜单打开后若主动切到新窗口，快捷键就应始终发往这个新窗口。
+; 若当前前台异常/丢失，则直接取消发送，绝不回退到打开菜单时的旧窗口。
+RadialGetExecTargetWin() {
+    global radialGui
+
+    cur := WinExist("A")
+    if (cur && (!radialGui || cur != radialGui.Hwnd))
+        return cur
+    return 0
+}
+
+; ---- 激活本次要执行快捷键的目标前台窗口，并确认它真的成为前台 ----
+; 若目标窗口已不存在、最小化、或系统前台锁导致激活失败，则放弃发送快捷键，
+; 避免把系统级快捷键误发给当前其它窗口或系统壳层。
+RadialActivateFocusWin(targetWin, timeoutMs := 400) {
+    if (!targetWin)
+        return false
+    if (!WinExist("ahk_id " . targetWin))
+        return false
+
+    cur := WinExist("A")
+    if (cur != targetWin) {
+        try WinActivate("ahk_id " . targetWin)
+        deadline := A_TickCount + timeoutMs
+        while (A_TickCount < deadline) {
+            if (WinExist("A") = targetWin)
+                return true
+            Sleep(10)
+        }
+    }
+    return (WinExist("A") = targetWin)
+}
+
+; ---- 等待物理修饰键释放后再发送快捷键 ----
+; 目的是避免圆盘触发过程或用户残留按键与待发送快捷键叠加，误形成更危险的系统组合键。
+RadialWaitModifiersReleased(timeoutMs := 400) {
+    deadline := A_TickCount + timeoutMs
+    while (A_TickCount < deadline) {
+        if (!GetKeyState("Ctrl", "P")
+            && !GetKeyState("Shift", "P")
+            && !GetKeyState("Alt", "P")
+            && !GetKeyState("LWin", "P")
+            && !GetKeyState("RWin", "P")) {
+            return true
+        }
+        Sleep(10)
+    }
+    return (!GetKeyState("Ctrl", "P")
+        && !GetKeyState("Shift", "P")
+        && !GetKeyState("Alt", "P")
+        && !GetKeyState("LWin", "P")
+        && !GetKeyState("RWin", "P"))
 }
 
 ; ============================================================================
