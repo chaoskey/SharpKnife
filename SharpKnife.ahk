@@ -232,7 +232,7 @@ global play_paster_hwnds := [] ; Snipaste 贴图窗口句柄收集缓冲（EnumW
 global playFocusWin := 0      ; 弹窗动作前记录的焦点窗口（弹窗后恢复焦点，保证文字输出继续）
 
 ; 径向菜单全局状态
-global radialGroups := []      ; 组数组 [{name, id, items: [{name, hotkey}]}]
+global radialGroups := []      ; 组数组 [{name, id, items: [{name, actionType, actionValue}]}]
 global radialTrigger := ""     ; 触发快捷键
 global radialFontSize := 0     ; 径向菜单字体大小（磅；[radial] font_size，缺省=全局 ui_font_size）
 global radialCommonMax := 6    ; 第一层【常用】周边显示的高频菜单项个数（[radial] common_max，默认 6）
@@ -1346,6 +1346,24 @@ RadialMakeClickHandler(idx) {
     return (*) => RadialOnItemClick(idx)
 }
 
+; ---- 解析径向菜单动作 ----
+; 兼容两种写法：
+;   1) 旧写法：^c / #x / {F5}        → actionType=hotkey
+;   2) 新写法：run:"C:\a b\app.exe" --x 1  → actionType=run
+; 为避免和 AHK 快捷键语法混淆，启动程序要求显式以 run: 前缀声明。
+RadialParseAction(raw) {
+    t := Trim(raw)
+    if (t = "")
+        return 0
+    if RegExMatch(t, "i)^run\s*:(.*)$", &m) {
+        cmdLine := Trim(m[1])
+        if (cmdLine = "")
+            return 0
+        return {type: "run", value: cmdLine}
+    }
+    return {type: "hotkey", value: t}
+}
+
 ; ---- 加载 config.ini 的 [radial] 段（逐行扫描，保证顺序）----
 RadialLoadConfig() {
     global radialGroups, radialTrigger, configFile, radialFontSize, radialCommonMax, ui_font_size, radialOpacity
@@ -1455,8 +1473,9 @@ RadialLoadConfig() {
                 pipePos := InStr(value, "|")
                 if (pipePos > 0) {
                     itemName := Trim(SubStr(value, 1, pipePos - 1))
-                    itemHotkey := Trim(SubStr(value, pipePos + 1))
-                    radialGroups[currentGroup].items.Push({name: itemName, hotkey: itemHotkey, _num: Integer(key)})
+                    itemAction := RadialParseAction(SubStr(value, pipePos + 1))
+                    if (itemName != "" && itemAction)
+                        radialGroups[currentGroup].items.Push({name: itemName, actionType: itemAction.type, actionValue: itemAction.value, _num: Integer(key)})
                 }
             }
         }
@@ -2335,7 +2354,7 @@ RadialOnItemClick(idx) {
         if (it.ii >= 1 && it.ii <= g.items.Length) {
             item := g.items[it.ii]
             RadialBumpStat(g.id, item._num)
-            RadialExecHotkey(item.hotkey)
+            RadialExecAction(item)
         }
     }
     ; kind = "disabled"（空位）：点击无效，直接返回
@@ -2361,6 +2380,15 @@ RadialOnCenterClick() {
     }
 }
 
+; ---- 执行径向菜单动作 ----
+RadialExecAction(item) {
+    if (!IsObject(item) || !item.HasOwnProp("actionType") || !item.HasOwnProp("actionValue"))
+        return false
+    if (item.actionType = "run")
+        return RadialRunCommand(item.actionValue)
+    return RadialExecHotkey(item.actionValue)
+}
+
 ; ---- 执行预配置快捷键 ----
 RadialExecHotkey(hotkey) {
     targetWin := RadialGetExecTargetWin()
@@ -2380,6 +2408,26 @@ RadialExecHotkey(hotkey) {
     ; 用 SendEvent（keybd_event）发送组合键，避免 GUI 关闭/切换后的 SendInput 焦点竞态。
     SendEvent(hotkey)
     return true
+}
+
+; ---- 启动指定路径 + 参数的程序 ----
+; 采用 AHK Run 直接执行配置的完整命令行；路径含空格时请在 config.ini 中自行加引号。
+RadialRunCommand(cmdLine) {
+    if (Trim(cmdLine) = "") {
+        DebugLog("[radial] 已取消启动程序：命令行为空")
+        return false
+    }
+    if (!RadialWaitModifiersReleased()) {
+        DebugLog("[radial] 已取消启动程序：检测到物理修饰键仍按下，cmd=" . cmdLine)
+        return false
+    }
+    try {
+        Run(cmdLine)
+        return true
+    } catch Error as e {
+        DebugLog("[radial] 启动程序失败：" . e.Message . " | cmd=" . cmdLine)
+        return false
+    }
 }
 
 ; ---- 决定本次执行快捷键的目标窗口 ----
