@@ -3019,6 +3019,7 @@ GetCaretViaUIA() {
 ; ============================================================================
 ShowMultiSelection(matches, partialCommand) {
     global ui_font_size
+    prevWin := WinExist("A")          ; 弹出前的原窗口：列表关闭后等焦点归还原窗口再返回
     ; 构建显示项：<匹配类型> <第一个字段> <第二字段（剔除 : 前缀）>
     menuItems := []
     for m in matches {
@@ -3046,9 +3047,32 @@ ShowMultiSelection(matches, partialCommand) {
     rows := Min(matches.Length, 10)
     lb := selGui.Add("ListBox", "x10 y+4 w480 r" rows " cFFFFFF Background2D2D2D vSelectedItem", menuItems)
     lb.Choose(1)
-    
+    lbHwnd := lb.Hwnd       ; 钩子内只认这个整数 HWND：控件销毁后访问对象的 .Hwnd 会抛异常
+
+    ; 鼠标 / 笔点击候选行即直接选择（含当前已高亮的第一项：Change 事件对"选择未变化"不触发，
+    ; 故不能用 Change，改在列表弹出期间注册全局鼠标钩子判定点击落点）。
+    ; 钩子只在点击确实落在本列表框的某一行上时才提交，其余情况一律传空值放行；
+    ; 上下键移动 + Enter 选择 + Esc 取消等原有能力完全不受影响。
+    ; 取 WM_LBUTTONUP（抬起）而非 WM_LBUTTONDOWN（按下）提交：按下时左键还按着，
+    ; 此刻隐藏列表窗口会让前台激活推迟到松开左键之后——紧接着要输入的补全按键就会发错窗口而丢失
+    ; （实测现象：日志显示"点击即选"已确认，但编辑器里没有任何反应）。抬起时按键已松开，与回车等价。
+    lbClickHook(wParam, lParam, msg, hwnd) {
+        idx := ListClickItemIndex(lbHwnd, hwnd, lParam)
+        if (idx < 0)
+            return
+        chosen := idx
+        DebugLog("ShowMultiSelection：点击即选，第 " . (idx + 1) . " 项，直接确认")
+        try {
+            selGui.Submit()
+        } catch {
+            ; 极窄竞态：点击与 Esc 关闭同时发生、列表窗口已销毁 → 忽略
+        }
+    }
+    OnMessage(0x0202, lbClickHook, 0)   ; 先注销同名旧钩子，防重复累积
+    OnMessage(0x0202, lbClickHook)      ; WM_LBUTTONUP：仅列表弹出期间注册
+
     ; 提示行
-    selGui.Add("Text", "c888888 x10 y+4", Chr(8593) . Chr(8595) . " 移动  Enter 选择  Esc 取消")
+    selGui.Add("Text", "c888888 x10 y+4", Chr(8593) . Chr(8595) . " 移动  Enter 选择  点击即选  Esc 取消")
     
     ; 隐藏的默认按钮用于捕获回车
     okBtn := selGui.Add("Button", "Hidden Default", "OK")
@@ -3082,7 +3106,31 @@ ShowMultiSelection(matches, partialCommand) {
     ; 等待 GUI 关闭；chosen 由上面的闭包捕获
     chosen := -1
     WinWaitClose("ahk_id " . selGui.Hwnd)
-    
+
+    ; 列表已关闭 → 立即注销点击钩子（只有弹出无框列表期间才有该处理）
+    OnMessage(0x0202, lbClickHook, 0)
+
+    ; GUI 关闭后的窗口切换竞态：等前台窗口回到弹出前的窗口再返回（与 ShowList 一致）。
+    ; 否则紧接着的上下文删除 / 补全输入（Send）会发到错误的窗口而丢失，表现为"点了/选了却没反应"。
+    DebugLog("ShowMultiSelection：列表关闭，前台窗口=" . WinExist("A") . "，弹出前=" . prevWin)
+    if (prevWin) {
+        loop 100 {                    ; 最多约 1 秒
+            if (WinExist("A") = prevWin)
+                break
+            Sleep(10)
+        }
+        ; 超时仍未恢复且原窗口仍存在 → 主动拉回焦点
+        if (WinExist("A") != prevWin && WinExist("ahk_id " . prevWin)) {
+            WinActivate("ahk_id " . prevWin)
+            loop 50 {
+                if (WinExist("A") = prevWin)
+                    break
+                Sleep(10)
+            }
+        }
+        DebugLog("ShowMultiSelection：焦点归位后前台窗口=" . WinExist("A"))
+    }
+
     ; LB_GETCURSEL 返回 0 基索引；取消返回 0
     if (chosen < 0)
         return 0
@@ -3449,9 +3497,13 @@ StreamProcessFile(showThinking, &contentAcc, &reasoningAcc) {
 ;     preselect（可选，默认 1）：初始高亮项（1 起）。触发模式列表传入“当前模式 + 1”，
 ;       使高亮落在当前模式上：点击任意其它项必产生选择变化 → Change 事件 → 立即确认；
 ;       点击当前模式项本身即是“无操作”（切换到当前模式无意义），不发生选择变化、不提交，语义正确。
+;     clickSubmitAny（可选，默认 false）：为 true 时，**点击任意列表项（含当前已高亮项）**即直接确认；
+;       供 latex/unicode/AI 的候选列表使用（点哪项就选哪项，第一项也能一点即选）。
+;       与 clickSubmit 的区别：clickSubmit 依赖 Change 事件，对“点击已高亮项”不触发；本开关改用
+;       仅列表弹出期间注册的鼠标抬起（WM_LBUTTONUP）钩子判定落点，故无此限制。二者可各自独立使用。
 ;     返回：选中项索引（1 起），取消返回 0
 ; ============================================================================
-ShowList(items, title, clickSubmit := false, preselect := 1) {
+ShowList(items, title, clickSubmit := false, preselect := 1, clickSubmitAny := false) {
     global ui_font_size
     prevWin := WinExist("A")          ; 记录当前前台窗口，GUI 关闭后等待焦点归还
     cp := GetCaretScreenPos()
@@ -3463,6 +3515,7 @@ ShowList(items, title, clickSubmit := false, preselect := 1) {
     rows := Min(items.Length, 10)
     lb := selGui.Add("ListBox", "x10 y+4 w480 r" rows " cFFFFFF Background2D2D2D vSelectedItem", items)
     lb.Choose(preselect)
+    lbHwnd := lb.Hwnd       ; 钩子内只认这个整数 HWND：控件销毁后访问对象的 .Hwnd 会抛异常
     ; clickSubmit（鼠标点击项即确认）：借用 ListBox 的 Change 事件——“当前选择发生变化”时必然触发
     ; （鼠标点击某项、上下键移动某项都会引起选择变化）。Change 响起时用 ModeListChangeIsClick 判定
     ; 是否鼠标点击：↑/↓/Home/End/PgUp/PgDn 任一正物理按下 → 键盘移动引起 → 不提交（等 Enter 确认）；
@@ -3480,7 +3533,26 @@ ShowList(items, title, clickSubmit := false, preselect := 1) {
                 DebugLog("ShowList：Change 判定为键盘移动（方向键物理按下或光标不在列表上），等待 Enter 确认")
             )
         ))
-    selGui.Add("Text", "c888888 x10 y+4", Chr(8593) . Chr(8595) . " 移动  Enter 选择" . (clickSubmit ? "  点击即选" : "") . "  Esc 取消")
+    ; clickSubmitAny（鼠标 / 笔点击任意项即确认，含已高亮项）：只在列表弹出期间注册全局鼠标钩子
+    ; （WM_LBUTTONUP，抬起时按键已松开）——判定点击确实落在本列表框的某一行上时才提交，其余一律
+    ; 传空值放行；上下键移动 + Enter 选择 + Esc 取消等原有能力完全不受影响；列表关闭后立即注销。
+    lbClickHook(wParam, lParam, msg, hwnd) {
+        idx := ListClickItemIndex(lbHwnd, hwnd, lParam)
+        if (idx < 0)
+            return
+        chosen := idx
+        DebugLog("ShowList：点击即选，第 " . (idx + 1) . " 项，直接确认")
+        try {
+            selGui.Submit()
+        } catch {
+            ; 极窄竞态：点击与 Esc 关闭同时发生、列表窗口已销毁 → 忽略
+        }
+    }
+    if (clickSubmitAny) {
+        OnMessage(0x0202, lbClickHook, 0)   ; 先注销同名旧钩子，防重复累积
+        OnMessage(0x0202, lbClickHook)      ; WM_LBUTTONUP：仅列表弹出期间注册
+    }
+    selGui.Add("Text", "c888888 x10 y+4", Chr(8593) . Chr(8595) . " 移动  Enter 选择" . ((clickSubmit || clickSubmitAny) ? "  点击即选" : "") . "  Esc 取消")
     okBtn := selGui.Add("Button", "Hidden Default", "OK")
     okBtn.OnEvent("Click", (*) => (
         chosen := SendMessage(0x0188, 0, 0, lb),
@@ -3506,6 +3578,9 @@ ShowList(items, title, clickSubmit := false, preselect := 1) {
     selGui.Show()
     chosen := -1
     WinWaitClose("ahk_id " . selGui.Hwnd)
+    ; 列表已关闭 → 立即注销点击钩子（只有弹出无框列表期间才有该处理）
+    if (clickSubmitAny)
+        OnMessage(0x0202, lbClickHook, 0)
     ; GUI 关闭后的窗口切换竞态：等待焦点归还原窗口（原窗口可能为 0=桌面/无前台）
     ; 否则紧接着的触发（如 Ctrl+J）在竞态窗口内按键注入会被系统吞掉
     if (prevWin) {
@@ -3544,6 +3619,28 @@ ModeListChangeIsClick(lbCtrl) {
     MouseGetPos(, , , &mCtrl, 2)     ; Flag=2：OutputVarControl 返回控件 HWND
     DebugLog("ModeListChangeIsClick：光标下控件 HWND=" . mCtrl . " 列表控件 HWND=" . lbCtrl.Hwnd)
     return (mCtrl = lbCtrl.Hwnd)
+}
+
+; 判定全局鼠标抬起消息（WM_LBUTTONUP）是否落在指定列表框的某一行上（鼠标 / 笔点击即选用）：
+;   是 → 返回该行的 0 基索引；否则返回 -1（调用方必须传空值放行消息，不要吞掉）。
+; lbHwnd：列表框控件 HWND。传整数而不是控件对象——本钩子在极窄的"点击与列表关闭同时发生"
+;   竞态下可能晚于销毁触发，此时访问控件对象的 .Hwnd 会抛异常，而整数 HWND 不会。
+; hwnd/lParam 即 OnMessage 回调里的第 4/2 个参数：hwnd 为消息目标窗口，
+; lParam 为鼠标消息的客户区坐标（低字 X、高字 Y），正是 LB_ITEMFROMPOINT 所需的格式。
+; LB_ITEMFROMPOINT 返回值：低字 = 最近行的索引，高字 = 1 表示落点不在客户区内的任何行上。
+ListClickItemIndex(lbHwnd, hwnd, lParam) {
+    if (hwnd != lbHwnd)
+        return -1
+    if (!DllCall("IsWindow", "Ptr", hwnd))   ; 控件已销毁 → 不处理
+        return -1
+    x := lParam & 0xFFFF
+    y := (lParam >> 16) & 0xFFFF
+    r := DllCall("SendMessageW", "Ptr", lbHwnd, "UInt", 0x01A9, "Ptr", 0, "Ptr", (y << 16) | x, "Ptr")   ; LB_ITEMFROMPOINT
+    if (r < 0)
+        return -1
+    if ((r >> 16) & 0xFFFF)     ; 高字非 0：落点不在任何列表行上（如控件空白处）
+        return -1
+    return r & 0xFFFF
 }
 
 ; ============================================================================
@@ -3974,9 +4071,10 @@ CompleteAI_Generate() {
     if (filtered.Length = 1) {
         chosen := filtered[1]
     } else {
-        ; 多种可能 → 无框列表供选择
+        ; 多种可能 → 无框列表供选择（clickSubmitAny=true：鼠标 / 笔点击任意候选即直接选用，
+        ; 含已高亮的第一项；上下键 + Enter / Esc 等原有能力不变）
         DebugLog("AI：候选数=" . filtered.Length)
-        idx := ShowList(filtered, "AI 候选（'" . prompt . "'）")
+        idx := ShowList(filtered, "AI 候选（'" . prompt . "'）", false, 1, true)
         if (idx = 0) {
             ToolTip()
             DebugLog("AI：用户取消，无操作")
