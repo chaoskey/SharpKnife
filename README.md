@@ -32,6 +32,7 @@
 | 文件 | 作用 |
 |------|------|
 | `SharpKnife.ahk` | 主脚本（启动它） |
+| `apps/TouchKeyboardToggle.ahk` | 独立小工具：模拟点击任务栏右下角的触摸键盘图标；执行一次切换一次，再执行一次则关闭 |
 | `latexs.cvs` | 触发表（数据源，Tab 分隔，最多 3 字段） |
 | `config.ini.example` | 仓库提交的配置样例（快捷键、打字延迟、UI、AI 等） |
 | `config.ini` | 本地运行时配置文件（由用户自行维护，脚本实际读取此文件） |
