@@ -156,6 +156,10 @@ git config --global --unset https.proxy
 | 12 | 自己解析 INI 时**必须剥离行内注释**，否则 `key = 15  ; 注释` 的值校验失败被静默忽略 | 用 `RegExMatch(line, "\s;", &m)` 截断（用"空白+分号"，避免误伤 `{;}` 这类紧贴分号） |
 | 13 | **全局变量声明必须早于配置加载调用**，否则 `global x := …` 会把已加载的数据覆盖掉 | 本项目的 `RadialLoadConfig()` 调用就在 radial 全局变量声明**之后**（曾因此排查很久） |
 | 14 | 脚本中部的 `FileDelete(debug.log)` 会**清掉此前写入的日志** | 不要依赖该时间点之前的日志；必要时把诊断写在清空之后 |
+| 15 | **v2 里没有 `FileExists`**（正确的是 `FileExist`）。名字写错时 AHK 会把 `FileExists(...)` 当成“调用同名**变量**”，并弹出**加载期 `#Warn` 警告框**阻塞脚本；`/ErrorStdOut` **抓不到**它 → 表现为“脚本毫无输出地卡死” | 用 `FileExist()`；遇到“无输出卡死”优先怀疑这类加载期弹框（读取办法见 §5） |
+| 16 | AHK v2 **变量名大小写不敏感**：`CLSID := "{…}"` 与 `clsid := Buffer(16,0)` 是**同一个变量**，后者会静默覆盖前者 | 给 GUID 的字符串与 Buffer 起**不同名字**（如 `guidClsidStr` / `bufClsid`） |
+| 17 | `DllCall` 的类型参数直接传 `Buffer` **对象**会报类型错误（如 `Expected a String but got a Buffer`） | 一律写 `buf.Ptr` |
+| 18 | `ComObject(CLSID, IID)` 要求该类已注册，否则报 `(0x80040154) 没有注册类`；但**这个错误码不代表类真的没注册**，也可能只是当前会话拉不起服务器 | 直接调 vtable 可用 `DllCall("ole32\CoCreateInstance", …)` + `ComCall(索引, p, …)`：**裸接口指针可以直接用**，索引 0/1/2 是 IUnknown，3 起才是自定义方法 |
 
 ### 4.2 消息钩子 / 输入 / 坐标
 
@@ -188,6 +192,15 @@ git config --global --unset https.proxy
 - **数位板笔的核心限制在驱动层**：笔尖靠近板面时，驱动会持续接管/吸附光标，导致 helper 的 `SetCursorPos` 后续点击可能落不到目标位置。已验证的可用工作流是：**点击圆盘菜单中的“触摸键盘”后，立刻将笔远离数位板**。
 - 这类问题的最终判定标准应以**用户桌面手测**为准；WSL/自动化侧无法真实复现“笔悬停接管光标”的驱动行为。若用户已确认“笔点后迅速抬离”可稳定使用，就应停止继续把复杂度堆回主脚本。
 - 配置样例已加入入口：`[radial.Input]` 下 `6 = 触摸键盘 | run: apps\TouchKeyboardToggle.exe`。若未来路径调整，优先改 helper 与样例配置，不改主逻辑。
+
+**COM 方式（2026-09-13 新增，独立文件 `apps/TouchKeyboardToggleCom.ahk`）**：
+
+- **该方法确实存在**：资源管理器点“触摸键盘”图标时，内部就是创建未公开组件并调用 `ITipInvocation::Toggle(HWND)`（`Toggle` 传 `GetDesktopWindow()`，`CLSCTX = 0x6` = INPROC_HANDLER|LOCAL_SERVER；`IID_ITipInvocation` = `{37c994e7-432b-4834-a2f7-dce1f13b834b}`）。
+- **用户明确要求 `apps\TouchKeyboardToggle.ahk`（模拟点击版）保持原样**，所以 COM 版是**新增独立文件**，两者互不影响、可同时保留。
+- CLSID 有讲究：**本机（Win10 19045）真正能用的是 `{054AAE20-4BEA-4347-8A35-64A533254A9D}`（“UIHost Class”，注册了 `LocalServer32` → `TabTip.exe`）**；网上最常见的 `{4ce576fa-83dc-4F88-951c-9d0782b4e376}`（“UIHostNoLaunch Class”）本机**没有** `LocalServer32`，只有 `TabTip.exe` 已在运行时才可用，否则报 `0x80040154`。helper 因此**两个都试**。
+- `TabTip.exe` 未运行时必然失败（`0x80040154`）；helper 策略：先启动 `TabTip.exe`（起进程本身就是“显示”），1.5s 内可见就不再 Toggle（避免“已弹出又被关掉”），仍不可见才补一次 Toggle。
+- WSL（Session 0）下 `{054AAE20}` 返回 `0x800702E4`（ERROR_ELEVATION_REQUIRED）——说明**类已注册、SCM 确实去拉起了 TabTip**，只是非交互会话起不来；**不能**据此判定方案不可用。
+- 成败最终仍以**用户桌面手测**为准。
 
 ---
 
@@ -223,6 +236,21 @@ rm -f _t.ahk _t.log
 - 脚本末尾务必 `ExitApp`，否则会驻留挂住（外层再套 `timeout`）。
 - 结果写文件再读回，**不要依赖 GUI 弹窗**（会阻塞）。
 - 测试文件用完即删，别留在仓库里。
+
+### 5.1 脚本“毫无输出地卡死”时，怎么拿到 AHK 的报错（2026-09-13 实战）
+
+AHK v2 的**加载期弹框**（`#Warn` 警告、调用了不存在的函数等）会**阻塞**脚本，而 `/ErrorStdOut` **只对语法错误生效**、抓不到这类对话框
+→ 从 WSL 看就是“脚本没有任何输出、一直挂着”（正是 §4.1 #15 那个坑）。**不要**误判成“环境坏了”或“文件解析不了”。
+
+读法：让脚本在后台跑起来，再用 **UI Automation** 读对话框里的 `RichEdit` 正文（`class=#32770` → `ControlType.Document` → `TextPattern.DocumentRange.GetText(-1)`）。
+用 `GetWindowText` 读不到跨进程控件文字，必须走 `SendMessage(WM_GETTEXT)` 或 UIA。
+
+**WSL interop 的进程运行在 Session 0（Services），不是用户的交互桌面**：`tasklist` 里自己起的进程显示 `Services 0`，用户的是 `Console 1`。
+因此 `WinExist("A")` 返回 0、COM 本地服务器（如 `TabTip.exe`）拉不起来、GUI 无法附着桌面。
+**结论**：从这里只能得出“WSL 里测不了”，**不能**得出“该 GUI/COM 方案不可行”。
+
+**收尾务必清进程**：卡在弹框里的僵尸 AHK 会让后续带 `#SingleInstance Force` 的**同名**脚本一直等待；
+`taskkill` 要**32 位与 64 位都杀**——Ahk2Exe 编译时会拉起 `AutoHotkey32.exe` 做校验，它卡住会让编译“无输出挂住”。
 
 ---
 

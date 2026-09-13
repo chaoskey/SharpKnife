@@ -32,13 +32,21 @@
 | 文件 | 作用 |
 |------|------|
 | `SharpKnife.ahk` | 主脚本（启动它） |
-| `apps/TouchKeyboardToggle.ahk` | 独立小工具：模拟点击任务栏右下角的触摸键盘图标；执行一次切换一次，再执行一次则关闭 |
+| `apps/TouchKeyboardToggle.ahk` | 独立小工具（模拟点击版）：模拟点击任务栏右下角的触摸键盘图标；执行一次切换一次，再执行一次则关闭 |
+| `apps/TouchKeyboardToggleCom.ahk` | 独立小工具（COM 版）：调用未公开的 COM 接口 `ITipInvocation::Toggle(HWND)` 切换触摸键盘；不动鼠标、不模拟点击 |
 | `latexs.cvs` | 触发表（数据源，Tab 分隔，最多 3 字段） |
 | `config.ini.example` | 仓库提交的配置样例（快捷键、打字延迟、UI、AI 等） |
 | `config.ini` | 本地运行时配置文件（由用户自行维护，脚本实际读取此文件） |
 | `menu_stats.ini` | 径向菜单**执行次数统计**（独立文件，不存在时自动创建；按配置项 `radial.<组标识>.<编号>` 计数） |
 | `README.md` | 本文档 |
 | `debug.log` | 调试日志（由本地 `config.ini` 的 `[debug] enabled` 控制；代码缺省关闭，`config.ini.example` 当前示例值为开启） |
+
+> **触摸键盘的两个小工具**（`apps/` 下各有一份 `.ahk` 源码，编译后生成同名 `.exe`；两者互不影响，可同时保留）：
+>
+> - `TouchKeyboardToggle.exe`（**模拟点击版**）：定位任务栏右下角「触摸键盘」图标并模拟鼠标点击。逻辑可靠，但**会移动光标**；数位板笔尖悬停时驱动可能持续接管光标，导致点击落空（可用做法是点完立刻把笔抬离）。
+> - `TouchKeyboardToggleCom.exe`（**COM 版**）：直接调用资源管理器内部使用的未公开接口 `ITipInvocation::Toggle(HWND)`（CLSID `{054AAE20-4BEA-4347-8A35-64A533254A9D}`、IID `{37c994e7-432b-4834-a2f7-dce1f13b834b}`，其 COM 服务器就是 `TabTip.exe`）。**不移动光标**，任务栏图标是否可见都不影响；若 `TabTip.exe` 未运行，会先启动它（这一步本身就是「显示」）。
+>
+> 把 `config.ini` 径向菜单里对应项改成 `run: apps\TouchKeyboardToggleCom.exe` 即可切到 COM 版。
 
 ---
 
