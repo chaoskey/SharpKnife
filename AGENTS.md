@@ -35,6 +35,7 @@
 | `SharpKnife.ahk` | 主脚本（也是编译源） |
 | `SharpKnifeCore.ahk` | 纯逻辑核心，被主脚本 `#Include` |
 | `apps/TouchKeyboardToggle.ahk` | 独立触摸键盘切换 helper；编译后供径向菜单 `run:` 调用 |
+| `apps/DisableHotKey.ahk` | 独立**范例**脚本：演示禁用指定热键（默认 `Esc::Return` + `RAlt & Space` 空动作）。注意 `Esc::Return` 会全局吞掉 Esc，与径向菜单/小键盘的 Esc 关闭冲突，只在需要时单独运行 |
 | `latexs.cvs` | LaTeX/Unicode 触发表（Tab 分隔） |
 | `config.ini` | **本地配置（已 gitignore，不入库）** |
 | `config.ini.example` | 配置样例（**入库，改配置项必须同步它**） |

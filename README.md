@@ -35,6 +35,7 @@
 | `SharpKnife.ahk` | 主脚本（启动它） |
 | `apps/TouchKeyboardToggle.ahk` | 独立小工具（模拟点击版）：模拟点击任务栏右下角的触摸键盘图标；执行一次切换一次，再执行一次则关闭 |
 | `apps/TouchKeyboardToggleCom.ahk` | 独立小工具（COM 版）：调用未公开的 COM 接口 `ITipInvocation::Toggle(HWND)` 切换触摸键盘；不动鼠标、不模拟点击 |
+| `apps/DisableHotKey.ahk` | 独立小工具（**范例**）：演示如何"禁用某些热键"——默认把 `Esc` 吞掉、并留了一个 `RAlt + Space` 的空动作占位；按需改成自己的热键后单独运行即可（注意：它会在全局吞掉 `Esc`，与径向菜单 / 屏幕小键盘的 `Esc` 关闭相冲突，用不到时别常驻） |
 | `latexs.cvs` | 触发表（数据源，Tab 分隔，最多 3 字段） |
 | `config.ini.example` | 仓库提交的配置样例（快捷键、打字延迟、UI、AI 等） |
 | `config.ini` | 本地运行时配置文件（由用户自行维护，脚本实际读取此文件） |
@@ -496,7 +497,8 @@ snipaste_path =         ; Snipaste 路径（留空自动探测 PATH / 常见安�
 - **文本插入**：使用 `SendText` 逐字符（受 `type_delay_ms` 控制），避免 `^` `{` `+` 等被解释为修饰键。
 - **循环提醒**：`HealthToggle()` 同一键启动/停止，支持阶段循环、声音提示、屏幕通知；托盘菜单实时显示当前状态。
 - **径向菜单**：`RadialLoadConfig()` 逐行解析 `[radial]` 各子节保证组/功能顺序（UTF-16 用 `FileRead` 读取）；`RadialBuildRgns()` 用 `CreatePolygonRgn` 为每扇区构建环形多边形区域，绘制用 `FillRgn`、命中用 `PtInRegion`（同一区域句柄，位置绝对一致）；`SetWindowRgn` 裁剪出真正圆形窗口；窗口带 `WS_EX_NOACTIVATE`（`+E0x08000000`）**不抢焦点**，`OnMessage` 钩子处理悬停高亮、点击与拖拽（未处理的鼠标消息返回空值放行，避免吞掉其它窗口点击）；同一触发键做开/关切换，点击功能项只执行不关闭；圆心区域用「按下记录起点 + `SetCapture` + 抬起按位移判定」区分点击与拖拽（拖拽时 `Gui.Move` 移动圆盘，位移 1:1 跟手，不附加任何其它动作；位置夹取在**全部显示器合并区域**内，避免多显示器下被拉回主屏）；菜单打开期间用 `Hotkey("Escape", ...)` 临时接管 Esc 关闭（关闭时 `Hotkey("Escape","Off")`）；执行快捷键前会确认**当前前台窗口**可用，且物理修饰键已释放，否则取消发送，避免系统级快捷键误发；文字用 GDI `CreateFontW` escapement 旋转做放射性排布。
-- **屏幕小键盘**：`KeypadLoadConfig()` 用 `IniRead` 读取 `[keypad]`（防空 + 防呆）；`KeypadKeysFor()` 给出两套按键定义（方向 3×3 十字 / 数字 3×4），`KeypadComputeLayout()` 按字号实测文字宽度算圆角窗口与按键矩形（GDI 双缓冲绘制，悬停高亮）；命中用矩形判定，按下后位移超过阈值即改为拖拽（`SetCapture` + `Gui.Move`，只移动面板），抬起时要求按下与抬起落在同一按键才发送；发送前复用径向菜单的「前台窗口校验 + 物理修饰键释放等待」；面板同样带 `WS_EX_NOACTIVATE`，与径向菜单互斥（避免两者同时接管 Esc 热键）。
+- **屏幕小键盘**：`KeypadLoadConfig()` 用 `IniRead` 读取 `[keypad]`（防空 + 防呆）；`KeypadKeysFor()` 给出两套按键定义（方向 3×3 十字 / 数字 3×4），`KeypadComputeLayout()` 按字号实测文字宽度算圆角窗口与按键矩形（GDI 双缓冲绘制，悬停高亮）；命中用矩形判定，按下后位移超过阈值即改为拖拽（`SetCapture` + `Gui.Move`，只移动面板），抬起时要求按下与抬起落在同一按键才发送；发送前复用径向菜单的「前台窗口校验 + 物理修饰键释放等待」；面板同样带 `WS_EX_NOACTIVATE` 不抢焦点。面板状态放在 `Map()` 注册表 `keypadPanels` 里（两个面板可同时打开、互不干扰），鼠标钩子按引用计数注册/注销、按窗口句柄分发。
+- **浮层公共层**：径向菜单与两个小键盘三者**互相独立**（任何关闭都只关自己，可同时显示），共用一个 `Esc`：`OverlayPush/Remove/Touch/Index` 维护"最近操作过的排在末尾"的栈，`OverlayOnEscape()` 关闭栈末尾那个；打开、鼠标移入、点击（含点空位/无效点击）都会把对应浮层置顶，全部关完后 `Esc` 立即归还系统。
 - **play 引擎**：维护步进游标栈与执行中标记，支持 9 类动作的解析与执行。
 - **TikZ 编译**：`CompleteTikz()` 自动包装文档、编译 PDF、转换 PNG、复制剪贴板并贴图展示。
 - **调试日志**：`debug.log` 由 `config.ini` 的 `[debug] enabled` 控制开关。
@@ -514,6 +516,10 @@ SharpKnife/
     config.ini            ← 本地运行时配置
     README.md             ← 本文档
     Requirements.md       ← 需求文档
+    apps/
+        TouchKeyboardToggle.ahk    ← 触摸键盘切换小工具（模拟点击版）
+        TouchKeyboardToggleCom.ahk ← 触摸键盘切换小工具（COM 版，不动光标）
+        DisableHotKey.ahk          ← 禁用指定热键的范例脚本
     play-script-manual.md ← play 模式 JSON 脚本手册
     scale.ps1             ← 缩放脚本
     debug.log             ← 调试日志
