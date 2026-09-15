@@ -2662,13 +2662,13 @@ OverlayUnregisterEscape() {
 ; ============================================================================
 ; 10d. 屏幕小键盘（方向 / 数字）—— GDI 自绘的屏幕按键面板
 ;      两个独立触发键（[keypad] arrow_hotkey / numpad_hotkey，默认 ^+k / ^+n）：
-;        · 方向小键盘：3×3 十字（上/左/关/右/下），中心【关】= 关闭面板
-;        · 数字小键盘：3 列 × 4 行标准排布（7 8 9 / 4 5 6 / 1 2 3 / 0 . 回车）
+;        · 方向小键盘：3×3 十字（中心【回车】；四角 = 退格 / 删除 / 上页 / 下页）
+;        · 数字小键盘：4 列 × 4 行（7 8 9 + / 4 5 6 - / 1 2 3 × / 0 . ÷ 回车）
 ;      两个面板与径向菜单**互相独立、可同时打开**：各自的触发键只管自己的开 / 关。
 ;      面向数位板 / 触屏场景：用笔点按键，就把该按键发送到**当前前台窗口**。
 ;      面板带 WS_EX_NOACTIVATE（点击 / 拖动都不抢焦点、不改变前台窗口）；
 ;      点按键后面板**保持打开**（可连续输入），按住拖动可移动面板位置。
-;      关闭方式：自己的触发键、Esc（关最近打开的那个）、鼠标右键、方向键盘中心【关】。
+;      关闭方式：自己的触发键、Esc（关最近打开的那个）、鼠标右键（两套面板都没有【关】键）。
 ; ============================================================================
 
 ; ---- 加载 config.ini 的 [keypad] 段 ----
@@ -2704,28 +2704,31 @@ KeypadLoadConfig() {
 
 ; ---- 按键定义 ----
 ; role：key = 点按后发送 send 里的按键；close = 关闭面板；blank = 空位（不绘制、不命中）
-; 数字键统一发送**普通数字字符**（0-9 与 .），不受 NumLock 影响，在编辑器 / 输入框里最稳。
+; （后两种角色仍受支持，但当前两套按键都只用 key：两套面板都没有【关】键、也没有空位）
+; 数字键与运算符统一发送**普通字符**（0-9 . + - * /），不受 NumLock 影响，在编辑器 / 输入框里最稳。
+; 注意：加号在 Send 里是 Shift 修饰符，必须写成 {+}；减号 / 星号 / 斜杠不是特殊字符，按原样写即可。
 KeypadKeysFor(kind) {
     if (kind = "arrow") {
-        ; 3×3 十字：四角留空，中心【关】= 关闭面板
+        ; 3×3 十字：四角 = 退格 / 删除 / 上页 / 下页，中心【回车】
+        ; （两套面板都不设【关】键：关闭走触发键 / Esc / 鼠标右键）
         return [
-            {label: "",   send: "",       role: "blank"},
-            {label: "↑",  send: "{Up}",   role: "key"},
-            {label: "",   send: "",       role: "blank"},
-            {label: "←",  send: "{Left}", role: "key"},
-            {label: "关", send: "",       role: "close"},
-            {label: "→",  send: "{Right}", role: "key"},
-            {label: "",   send: "",       role: "blank"},
-            {label: "↓",  send: "{Down}", role: "key"},
-            {label: "",   send: "",       role: "blank"}
+            {label: "退格", send: "{BS}",    role: "key"},
+            {label: "↑",   send: "{Up}",    role: "key"},
+            {label: "删除", send: "{Del}",   role: "key"},
+            {label: "←",   send: "{Left}",  role: "key"},
+            {label: "回车", send: "{Enter}", role: "key"},
+            {label: "→",   send: "{Right}", role: "key"},
+            {label: "上页", send: "{PgUp}",  role: "key"},
+            {label: "↓",   send: "{Down}",  role: "key"},
+            {label: "下页", send: "{PgDn}",  role: "key"}
         ]
     }
-    ; 数字小键盘：3 列 × 4 行（与真实小键盘一致的排布）
+    ; 数字小键盘：4 列 × 4 行（右列放四则运算 + - × ÷，末行 0 . ÷ 回车）
     return [
-        {label: "7", send: "7", role: "key"}, {label: "8", send: "8", role: "key"}, {label: "9", send: "9", role: "key"},
-        {label: "4", send: "4", role: "key"}, {label: "5", send: "5", role: "key"}, {label: "6", send: "6", role: "key"},
-        {label: "1", send: "1", role: "key"}, {label: "2", send: "2", role: "key"}, {label: "3", send: "3", role: "key"},
-        {label: "0", send: "0", role: "key"}, {label: ".", send: ".", role: "key"}, {label: "回车", send: "{Enter}", role: "key"}
+        {label: "7", send: "7", role: "key"}, {label: "8", send: "8", role: "key"}, {label: "9", send: "9", role: "key"}, {label: "+", send: "{+}", role: "key"},
+        {label: "4", send: "4", role: "key"}, {label: "5", send: "5", role: "key"}, {label: "6", send: "6", role: "key"}, {label: "-", send: "-", role: "key"},
+        {label: "1", send: "1", role: "key"}, {label: "2", send: "2", role: "key"}, {label: "3", send: "3", role: "key"}, {label: "×", send: "*", role: "key"},
+        {label: "0", send: "0", role: "key"}, {label: ".", send: ".", role: "key"}, {label: "÷", send: "/", role: "key"}, {label: "回车", send: "{Enter}", role: "key"}
     ]
 }
 
@@ -2736,7 +2739,7 @@ KeypadComputeLayout(kind, keys, sizePt) {
     pad := Max(Round(fontPx * 0.45), 6)     ; 面板内边距
     gap := Max(Round(fontPx * 0.28), 4)     ; 按键间距
     padIn := Max(Round(fontPx * 0.55), 8)   ; 按键内文字留白
-    cols := 3
+    cols := (kind = "arrow") ? 3 : 4
     rows := (kind = "arrow") ? 3 : 4
 
     ; 单元尺寸：宽 = 最宽按键文字 + 左右留白；高 = 字高 + 上下留白
@@ -2926,7 +2929,8 @@ KeypadDraw(kind) {
     DllCall("FillRect", "Ptr", memDC, "Ptr", RectStruct(0, 0, L.winW, L.winH), "Ptr", bgBrush)
     DllCall("DeleteObject", "Ptr", bgBrush)
 
-    ; 按键：常态 / 悬停高亮；关闭键用暗红、回车键用偏蓝以作区分
+    ; 按键：常态 / 悬停高亮；回车键（两套面板的中心 / 右下角）用偏蓝以作区分
+    ; （role = "close" 的暗红配色保留在代码里，当前两套按键都没有【关】键）
     Loop P.keys.Length {
         i := A_Index
         k := P.keys[i]

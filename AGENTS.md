@@ -151,7 +151,7 @@ git config --global --unset https.proxy
 | 6 | `OnMessage` 注销写法：`OnMessage(Msg, 函数对象, 0)`。传 `""` 或 `0` 当回调会报 `Parameter #2 … requires an Object` | 用**函数对象 + MaxThreads=0** 注销 |
 | 7 | `CoordMode` 是**线程本地**的；每个热键线程都恢复默认（**客户区坐标**） | 在**脚本启动处**设置一次（如 `CoordMode("Mouse","Screen")`），或在函数内再设一次 |
 | 8 | `Loop read` **读不了 UTF-16** 文件 | 用 `FileRead(path, "UTF-16")`（能自动识别 BOM） |
-| 9 | `FileDelete` 对**不存在的文件会抛异常** | 包 `try { FileDelete(f) } catch { }` |
+| 9 | `FileDelete` 对**不存在的文件会抛异常** | 包 try/catch，且**必须写成多行块**：`try { FileDelete(f) } catch { }` 这种"同一行内 try+catch"实测同样报 `Missing "}"`（2026-09-15 踩过），要拆成三行 |
 | 10 | `IniWrite` 新建文件是 **UTF-16 LE + BOM**，且**会保留已有注释**；中文节名/键名可用 | 直接用它读写统计类文件即可 |
 | 11 | INI **键名不能含 `=`**（会被当键值分隔符） | 转义为 `%3D` 后再读写 |
 | 12 | 自己解析 INI 时**必须剥离行内注释**，否则 `key = 15  ; 注释` 的值校验失败被静默忽略 | 用 `RegExMatch(line, "\s;", &m)` 截断（用"空白+分号"，避免误伤 `{;}` 这类紧贴分号） |
@@ -220,7 +220,10 @@ cd /mnt/e/Working/SharpKnife
 printf '\xEF\xBB\xBF' > _t.ahk
 cat >> _t.ahk << 'EOF'
 logf := "E:\Working\SharpKnife\_t.log"
-try { FileDelete(logf) } catch { }
+try {
+    FileDelete(logf)
+} catch {
+}
 ; …被测逻辑…
 FileAppend("结果…`n", logf)
 ExitApp
@@ -337,12 +340,12 @@ radial.base.1=12     ; 键 = radial.<组标识>.<编号>，与 config.ini 的 [r
 
 ### 6.3 屏幕小键盘（Keypad）—— 与径向菜单同源的 GDI 浮层
 
-两个独立浮层：**方向小键盘**（3×3 十字：上/左/关/右/下，四角空位）与**数字小键盘**（3 列 × 4 行：`7 8 9` / `4 5 6` / `1 2 3` / `0 . 回车`）。触发键默认 `^+k` / `^+n`，均为**开/关切换**，且**各自的触发键只管自己的面板**。
+两个独立浮层：**方向小键盘**（3×3：四角 = 退格/删除/上页/下页，中心【回车】；无【关】键）与**数字小键盘**（4 列 × 4 行：`7 8 9 +` / `4 5 6 -` / `1 2 3 ×` / `0 . ÷ 回车`，右列为四则运算）。触发键默认 `^+k` / `^+n`，均为**开/关切换**，且**各自的触发键只管自己的面板**。
 
 **关键约束（与径向菜单一致，改动时别破坏）**：
 
 - 窗口带 `+E0x08000000`（`WS_EX_NOACTIVATE`）+ `Show("... NoActivate")`：点击 / 拖动都**不抢焦点**，这样点的按键才会发到用户原本的编辑窗口。
-- **点按键不关闭**面板（可连续点），关闭靠：自己的触发键、`Esc`、鼠标右键、方向键盘中心【关】。
+- **点按键不关闭**面板（可连续点），关闭靠：自己的触发键、`Esc`、鼠标右键（两套面板都没有【关】键——方向小键盘中心已改为【回车】）。
 - 任意位置按下都先记录（`SetCapture`），位移 > 3px 判定为拖拽 → 只 `Gui.Move` 移动面板、不触发按键；抬起时要求**按下与抬起落在同一按键**才发送。
 - 位置夹取用 `RadialVirtualBounds()`（虚拟屏幕），不要改用 `A_ScreenWidth`。
 - 发送按键复用 `RadialActivateFocusWin()` + `RadialWaitModifiersReleased()`（前缀是 Radial，但逻辑通用），再 `SendEvent`。
@@ -368,7 +371,7 @@ radial.base.1=12     ; 键 = radial.<组标识>.<编号>，与 config.ini 的 [r
 | `KeypadComputeLayout(kind, keys, sizePt)` | 按字号实测文字宽度算面板尺寸与各按键矩形（方向键为正方形） |
 | `KeypadToggle(kind)` / `KeypadShow(kind)` / `KeypadClose(kind)` | 各自开 / 关（只影响自己）/ 弹出（鼠标位置、虚拟屏幕夹取） |
 | `KeypadKindByHwnd(hwnd)` | 按窗口句柄找面板类型，供共用的鼠标回调分发 |
-| `KeypadDraw(kind)` / `KeypadDrawText()` | GDI 双缓冲绘制圆角按键（悬停高亮；关闭键暗红、回车键偏蓝） |
+| `KeypadDraw(kind)` / `KeypadDrawText()` | GDI 双缓冲绘制圆角按键（悬停高亮；【回车】键偏蓝；`role=close` 的暗红配色保留在代码里但当前无面板使用） |
 | `KeypadHitTest(kind, mx, my)` | 按键矩形命中（空位与空白处返回 0） |
 | `KeypadOnMouseMove/…LButtonDown/…LButtonUp/…RButtonDown/…MouseLeave()` | 悬停高亮 + 点击/拖拽判定（阈值 3px）；按 hwnd 分发到对应面板 |
 | `KeypadOnKeyPress(kind, idx)` / `KeypadSendKey(kind, raw)` | 分发（close = 关闭本面板、key = 发送）/ 校验目标窗口与修饰键后 `SendEvent` |
