@@ -260,11 +260,31 @@ global radialDragWinX := 0        ; 按下时的圆盘窗口左上角 X
 global radialDragWinY := 0        ; 按下时的圆盘窗口左上角 Y
 global radialStatsFile := A_ScriptDir "\menu_stats.ini"  ; 快捷键执行次数统计（独立文件，不存在时自动创建）
 
+; 屏幕小键盘（方向 / 数字）全局状态
+; 两个面板各自独立、可同时显示：状态全部放在注册表里，键 = "arrow" / "numpad"
+global keypadPanels := Map()     ; 已打开的面板：kind -> {gui, keys, layout, hover, focusWin, registered, drag*}；动态键必须用 Map（普通 Object 不支持 obj[键] := 值）
+global keypadArrowHotkey := "^+k"  ; 方向小键盘触发键（[keypad] arrow_hotkey）
+global keypadNumpadHotkey := "^+n" ; 数字小键盘触发键（[keypad] numpad_hotkey）
+global keypadFontSize := 0       ; 小键盘字体大小（磅；[keypad] font_size，缺省=全局 ui_font_size）
+global keypadOpacity := 1.0      ; 小键盘透明度（[keypad] opacity，默认 1 = 不透明）
+global keypadMsgCount := 0       ; 已打开面板数：鼠标消息钩子按引用计数注册 / 注销
+global keypadMsgMove := 0        ; OnMessage 注册句柄（WM_MOUSEMOVE）
+global keypadMsgDown := 0        ; OnMessage 注册句柄（WM_LBUTTONDOWN）
+global keypadMsgUp := 0          ; OnMessage 注册句柄（WM_LBUTTONUP）
+global keypadMsgRDown := 0       ; OnMessage 注册句柄（WM_RBUTTONDOWN）
+global keypadMsgLeave := 0       ; OnMessage 注册句柄（WM_MOUSELEAVE）
+
+; 浮层公共状态（径向菜单 + 两个屏幕小键盘）：三者互相独立，共用一套 Esc 接管
+global overlayStack := []        ; 已打开浮层的打开顺序（元素 = "radial" / "arrow" / "numpad"）
+
 ; 径向菜单配置加载（必须在全局变量声明后调用，否则 global 赋值会重置数据）
 RadialLoadConfig()
 
 ; 统计文件初始化（不存在则自动创建并写入说明头）
 RadialStatsInit()
+
+; 屏幕小键盘配置加载（同样必须在全局变量声明之后）
+KeypadLoadConfig()
 
 RefreshTrayMenu() {
     global mode, healthTrayStateText
@@ -1658,6 +1678,9 @@ RadialBuildMenu() {
 
     ; 首次绘制
     RadialDraw()
+
+    ; 登记为已打开浮层（Esc 接管由 Overlay* 统一管理，三种浮层互相独立）
+    OverlayPush("radial")
 }
 
 ; ---- 布局常量 ----
@@ -1690,16 +1713,6 @@ RadialRegisterMsg() {
     radialMsgUp     := OnMessage(0x0202, RadialOnLButtonUp)   ; WM_LBUTTONUP
     radialMsgRDown  := OnMessage(0x0204, RadialOnRButtonDown) ; WM_RBUTTONDOWN
     radialMsgLeave  := OnMessage(0x02A3, RadialOnMouseLeave)  ; WM_MOUSELEAVE
-    ; 菜单窗口带 WS_EX_NOACTIVATE（永不获得键盘焦点），故 Esc 关闭由全局热键接管：
-    ; 菜单打开期间 Esc 关闭菜单，关闭菜单时立即注销该热键，不影响其它程序。
-    ; 注意（实测坑）：Hotkey(Key,"Off") 之后，即使再次用函数对象注册（不报错）
-    ; 也不会重新启用，必须显式再调一次 Hotkey(Key,"On")。
-    try {
-        Hotkey("Escape", RadialOnEscape)   ; 设定动作（首次注册；重复设置等价）
-        Hotkey("Escape", "On")             ; 若此前被 Off 过，这里重新启用
-    } catch Error as e {
-        DebugLog("[radial] Esc 全局热键注册失败：" . e.Message . " | What=" . e.What)
-    }
     ; 请求鼠标离开通知
     DllCall("TrackMouseEvent", "Ptr", TrackMouseEventStruct(), "Int")
 }
@@ -1713,13 +1726,6 @@ RadialUnregisterMsg() {
     OnMessage(0x0202, RadialOnLButtonUp, 0)
     OnMessage(0x0204, RadialOnRButtonDown, 0)
     OnMessage(0x02A3, RadialOnMouseLeave, 0)
-    try Hotkey("Escape", "Off")
-}
-
-; ---- Esc 关闭菜单（菜单打开期间的全局热键）----
-RadialOnEscape(*) {
-    DebugLog("[radial] Esc 按下 → 关闭菜单")
-    RadialClose()
 }
 
 ; ---- TrackMouseEvent 结构（WM_MOUSELEAVE 需要）----
@@ -2129,6 +2135,7 @@ RadialOnMouseMove(wParam, lParam, msg, hwnd) {
     global radialDragStartX, radialDragStartY, radialDragWinX, radialDragWinY
     if (!radialGui || hwnd != radialGui.Hwnd)
         return
+    OverlayTouch("radial")       ; 鼠标在圆盘上移动（含拖拽）也算"操作过"，Esc 优先关它
 
     ; --- 圆心按下期间：只判定拖拽并移动圆盘，绝不附加任何其它动作 ---
     if (radialDragPending || radialDragging) {
@@ -2203,6 +2210,7 @@ RadialOnLButtonDown(wParam, lParam, msg, hwnd) {
     global radialDragStartX, radialDragStartY, radialDragWinX, radialDragWinY
     if (!radialGui || hwnd != radialGui.Hwnd)
         return
+    OverlayTouch("radial")       ; 在圆盘上按下（含点空位扇区的无效点击）也算"操作过"
     x := lParam & 0xFFFF
     y := (lParam >> 16) & 0xFFFF
     if (x > 32767)
@@ -2238,6 +2246,7 @@ RadialOnLButtonUp(wParam, lParam, msg, hwnd) {
     global radialGui, radialDragPending, radialDragging, radialDragMoved, radialLevel
     if (!radialGui || hwnd != radialGui.Hwnd)
         return
+    OverlayTouch("radial")       ; 抬起同样算"操作过"（拖动过、点空位的抬起都算）
     if (!radialDragPending && !radialDragging)
         return
     radialDragPending := false
@@ -2320,6 +2329,8 @@ RadialClose() {
     ; 圆盘窗口本身不抢焦点，关闭时不应无条件把前台强拉回旧窗口，
     ; 否则用户若已主动切到其它窗口，会感知为"焦点乱跳 / 系统自己在操作"。
     radialFocusWin := 0
+    ; 注销浮层登记（只影响自己，屏幕小键盘不受影响）
+    OverlayRemove("radial")
 }
 
 ; ---- 恢复焦点到触发菜单前的窗口（圆盘自身不应持有焦点）----
@@ -2572,6 +2583,657 @@ RadialTopFrequent(maxN := 6) {
 }
 
 ; ============================================================================
+; 10c. 浮层公共状态（Esc 接管）—— 径向菜单与两个屏幕小键盘共用
+;      三个浮层（径向菜单 / 方向小键盘 / 数字小键盘）**互相独立**：各自的触发键只管自己，
+;      打开或关闭其中一个都不会联动关闭另外两个，三者可以同时显示。
+;      它们都不获得键盘焦点（WS_EX_NOACTIVATE），因此 Esc 关闭由同一套全局热键接管：
+;      只要有浮层打开就注册 Esc，按下 Esc 关闭「最近操作过的那个」——打开面板、
+;      在面板上移动鼠标、点击面板（含点空位等无效点击）都算一次"操作"；全部关闭后立即注销。
+; ============================================================================
+
+; ---- 查浮层在栈中的位置（1 基）；不在栈中返回 0 ----
+OverlayIndex(name) {
+    global overlayStack
+    for i, v in overlayStack {
+        if (v = name)
+            return i
+    }
+    return 0
+}
+
+; ---- 登记一个已打开的浮层（name = "radial" / "arrow" / "numpad"）----
+OverlayPush(name) {
+    global overlayStack
+    OverlayRemove(name)          ; 已登记则先移除，避免重复（同时保证"最近操作"排在末尾）
+    overlayStack.Push(name)
+    OverlayRegisterEscape()
+}
+
+; ---- 注销一个已关闭的浮层 ----
+OverlayRemove(name) {
+    global overlayStack
+    idx := OverlayIndex(name)
+    if (idx)
+        overlayStack.RemoveAt(idx)
+    if (overlayStack.Length = 0)
+        OverlayUnregisterEscape()
+}
+
+; ---- 标记某个浮层为「最近操作过的」：把它移到栈末尾，从而决定 Esc 先关谁 ----
+; 调用时机：在面板上移动鼠标（含拖拽中）、在面板上按下/抬起左键（含点空位、点空白的无效点击）。
+; 已经在末尾时直接返回，避免鼠标移动频繁触发时的无谓搬动。
+OverlayTouch(name) {
+    global overlayStack
+    idx := OverlayIndex(name)
+    if (!idx || idx = overlayStack.Length)
+        return
+    overlayStack.RemoveAt(idx)
+    overlayStack.Push(name)
+}
+
+; ---- Esc：关闭「最近操作过的那个」浮层（一次一个，互不牵连）----
+OverlayOnEscape(*) {
+    global overlayStack
+    if (overlayStack.Length = 0)
+        return
+    name := overlayStack[overlayStack.Length]
+    DebugLog("[overlay] Esc 按下 → 关闭浮层：" . name)
+    if (name = "radial")
+        RadialClose()
+    else
+        KeypadClose(name)
+}
+
+; ---- Esc 全局热键的注册 / 注销 ----
+; 注意（实测坑）：Hotkey(Key,"Off") 之后，必须显式再调一次 Hotkey(Key,"On") 才会重新启用。
+OverlayRegisterEscape() {
+    try {
+        Hotkey("Escape", OverlayOnEscape)
+        Hotkey("Escape", "On")
+    } catch Error as e {
+        DebugLog("[overlay] Esc 全局热键注册失败：" . e.Message . " | What=" . e.What)
+    }
+}
+
+OverlayUnregisterEscape() {
+    try Hotkey("Escape", "Off")
+}
+
+; ============================================================================
+; 10d. 屏幕小键盘（方向 / 数字）—— GDI 自绘的屏幕按键面板
+;      两个独立触发键（[keypad] arrow_hotkey / numpad_hotkey，默认 ^+k / ^+n）：
+;        · 方向小键盘：3×3 十字（上/左/关/右/下），中心【关】= 关闭面板
+;        · 数字小键盘：3 列 × 4 行标准排布（7 8 9 / 4 5 6 / 1 2 3 / 0 . 回车）
+;      两个面板与径向菜单**互相独立、可同时打开**：各自的触发键只管自己的开 / 关。
+;      面向数位板 / 触屏场景：用笔点按键，就把该按键发送到**当前前台窗口**。
+;      面板带 WS_EX_NOACTIVATE（点击 / 拖动都不抢焦点、不改变前台窗口）；
+;      点按键后面板**保持打开**（可连续输入），按住拖动可移动面板位置。
+;      关闭方式：自己的触发键、Esc（关最近打开的那个）、鼠标右键、方向键盘中心【关】。
+; ============================================================================
+
+; ---- 加载 config.ini 的 [keypad] 段 ----
+; 用 IniRead 读取（Windows 原生 INI 解析：支持 UTF-16 配置文件与行内注释）；
+; 配置缺失 / 非法值一律沿用默认（防空 + 防呆）。
+KeypadLoadConfig() {
+    global configFile, keypadArrowHotkey, keypadNumpadHotkey, keypadFontSize, keypadOpacity, ui_font_size
+
+    keypadArrowHotkey  := "^+k"                 ; 方向小键盘触发键（默认 Ctrl+Shift+K）
+    keypadNumpadHotkey := "^+n"                 ; 数字小键盘触发键（默认 Ctrl+Shift+N）
+    keypadFontSize     := Max(ui_font_size, 6)  ; 字体大小默认 = 全局 [ui] font_size
+    keypadOpacity      := 1.0                   ; 面板透明度（0.0~1.0），默认 1 = 不透明
+
+    if !FileExist(configFile)
+        return
+
+    v := Trim(IniRead(configFile, "keypad", "arrow_hotkey", ""))
+    if (v != "")
+        keypadArrowHotkey := v
+    v := Trim(IniRead(configFile, "keypad", "numpad_hotkey", ""))
+    if (v != "")
+        keypadNumpadHotkey := v
+    v := Trim(IniRead(configFile, "keypad", "font_size", ""))
+    if RegExMatch(v, "^\d+(\.\d+)?$")
+        keypadFontSize := Max(v + 0, 6)
+    v := Trim(IniRead(configFile, "keypad", "opacity", ""))
+    if RegExMatch(v, "^\d*\.?\d+$")
+        keypadOpacity := Max(0.0, Min(v + 0, 1.0))
+
+    DebugLog("[keypad] 配置加载完成：arrow_hotkey=" . keypadArrowHotkey . " numpad_hotkey=" . keypadNumpadHotkey
+        . " font_size=" . keypadFontSize . " opacity=" . keypadOpacity)
+}
+
+; ---- 按键定义 ----
+; role：key = 点按后发送 send 里的按键；close = 关闭面板；blank = 空位（不绘制、不命中）
+; 数字键统一发送**普通数字字符**（0-9 与 .），不受 NumLock 影响，在编辑器 / 输入框里最稳。
+KeypadKeysFor(kind) {
+    if (kind = "arrow") {
+        ; 3×3 十字：四角留空，中心【关】= 关闭面板
+        return [
+            {label: "",   send: "",       role: "blank"},
+            {label: "↑",  send: "{Up}",   role: "key"},
+            {label: "",   send: "",       role: "blank"},
+            {label: "←",  send: "{Left}", role: "key"},
+            {label: "关", send: "",       role: "close"},
+            {label: "→",  send: "{Right}", role: "key"},
+            {label: "",   send: "",       role: "blank"},
+            {label: "↓",  send: "{Down}", role: "key"},
+            {label: "",   send: "",       role: "blank"}
+        ]
+    }
+    ; 数字小键盘：3 列 × 4 行（与真实小键盘一致的排布）
+    return [
+        {label: "7", send: "7", role: "key"}, {label: "8", send: "8", role: "key"}, {label: "9", send: "9", role: "key"},
+        {label: "4", send: "4", role: "key"}, {label: "5", send: "5", role: "key"}, {label: "6", send: "6", role: "key"},
+        {label: "1", send: "1", role: "key"}, {label: "2", send: "2", role: "key"}, {label: "3", send: "3", role: "key"},
+        {label: "0", send: "0", role: "key"}, {label: ".", send: ".", role: "key"}, {label: "回车", send: "{Enter}", role: "key"}
+    ]
+}
+
+; ---- 计算布局：按字号实测文字宽度，紧凑自适应 ----
+; 返回 {cols, rows, pad, gap, winW, winH, rects:[{x, y, w, h}]}（rects 为面板客户区坐标）
+KeypadComputeLayout(kind, keys, sizePt) {
+    fontPx := Max(Round(sizePt * 96 / 72), 8)
+    pad := Max(Round(fontPx * 0.45), 6)     ; 面板内边距
+    gap := Max(Round(fontPx * 0.28), 4)     ; 按键间距
+    padIn := Max(Round(fontPx * 0.55), 8)   ; 按键内文字留白
+    cols := 3
+    rows := (kind = "arrow") ? 3 : 4
+
+    ; 单元尺寸：宽 = 最宽按键文字 + 左右留白；高 = 字高 + 上下留白
+    maxW := fontPx
+    for k in keys {
+        if (k.label = "")
+            continue
+        w := RadialMeasureText(k.label, sizePt).w
+        if (w > maxW)
+            maxW := w
+    }
+    cellW := maxW + 2 * padIn
+    cellH := fontPx + 2 * padIn
+    if (kind = "arrow") {
+        ; 方向键做成正方形（笔点更舒服）：取"文字宽度"与"2.4 倍字高"的较大者
+        side := Max(cellW, Round(fontPx * 2.4))
+        cellW := side
+        cellH := side
+    }
+    winW := 2 * pad + cols * cellW + (cols - 1) * gap
+    winH := 2 * pad + rows * cellH + (rows - 1) * gap
+
+    rects := []
+    for i, k in keys {
+        r := (i - 1) // cols
+        c := Mod(i - 1, cols)
+        rects.Push({x: pad + c * (cellW + gap), y: pad + r * (cellH + gap), w: cellW, h: cellH})
+    }
+    return {cols: cols, rows: rows, pad: pad, gap: gap, cellW: cellW, cellH: cellH
+        , winW: winW, winH: winH, rects: rects}
+}
+
+; ---- 触发键入口：只管自己这一个面板（未打开则弹出，已打开则关闭）----
+; 注意：这里**不**联动关闭径向菜单或另一个小键盘——三个浮层互相独立。
+KeypadToggle(kind) {
+    global keypadPanels
+    if (keypadPanels.Has(kind)) {
+        KeypadClose(kind)
+        return
+    }
+    KeypadShow(kind)
+}
+
+; ---- 弹出面板（在鼠标位置；限制在全部显示器合并区域内）----
+KeypadShow(kind) {
+    global keypadPanels, keypadFontSize, keypadOpacity
+
+    if (keypadPanels.Has(kind))
+        KeypadClose(kind)          ; 防御：同类型已在显示时先收起再重建
+
+    keys := KeypadKeysFor(kind)
+    layout := KeypadComputeLayout(kind, keys, keypadFontSize)
+    P := {gui: 0, keys: keys, layout: layout, hover: 0, focusWin: 0, registered: false
+        , dragPending: false, dragging: false, dragMoved: false, dragIndex: 0
+        , dragStartX: 0, dragStartY: 0, dragWinX: 0, dragWinY: 0}
+    keypadPanels[kind] := P
+
+    ; 记录弹出前的前台窗口（面板不抢焦点，正常不会改变前台窗口；发送按键时作兜底）
+    P.focusWin := WinExist("A")
+
+    ; 鼠标坐标：热键线程默认是"客户区坐标"，先显式设为屏幕坐标（否则非全屏窗口下会偏移）
+    CoordMode("Mouse", "Screen")
+    MouseGetPos(&mx, &my)
+
+    L := P.layout
+    vb := RadialVirtualBounds()
+    guiX := Max(vb.x, Min(mx - L.winW // 2, vb.x + vb.w - L.winW))
+    guiY := Max(vb.y, Min(my - L.winH // 2, vb.y + vb.h - L.winH))
+
+    ; +E0x08000000 = WS_EX_NOACTIVATE：点击 / 拖动面板都不激活面板、不改变前台窗口，
+    ; 因此点击按键时 Send 才能发到用户原本正在编辑的窗口。
+    g := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x08000000")
+    g.BackColor := "2D2D3D"
+    g.MarginX := 0
+    g.MarginY := 0
+    g.OnEvent("Escape", (*) => KeypadClose(kind))
+    g.Show("x" . guiX . " y" . guiY . " w" . L.winW . " h" . L.winH . " NoActivate")
+    P.gui := g
+
+    ; 应用配置的透明度（keypadOpacity 取值 0.0~1.0）
+    if ((keypadOpacity + 0) < 1.0) {
+        GWL_EXSTYLE := -20
+        WS_EX_LAYERED := 0x00080000
+        getWindowLongFn := (A_PtrSize = 8) ? "GetWindowLongPtrW" : "GetWindowLongW"
+        setWindowLongFn := (A_PtrSize = 8) ? "SetWindowLongPtrW" : "SetWindowLongW"
+        ex := DllCall(getWindowLongFn, "Ptr", g.Hwnd, "Int", GWL_EXSTYLE, "Ptr")
+        DllCall(setWindowLongFn, "Ptr", g.Hwnd, "Int", GWL_EXSTYLE, "Ptr", ex | WS_EX_LAYERED, "Ptr")
+        alpha := Round(keypadOpacity * 255)
+        if (alpha < 0)
+            alpha := 0
+        if (alpha > 255)
+            alpha := 255
+        DllCall("SetLayeredWindowAttributes", "Ptr", g.Hwnd, "UInt", 0, "UChar", alpha, "UInt", 0x2)
+    }
+
+    ; 圆角矩形窗口（SetWindowRgn 后系统接管该区域，勿 DeleteObject）
+    hRgn := DllCall("CreateRoundRectRgn", "Int", 0, "Int", 0, "Int", L.winW + 1, "Int", L.winH + 1
+        , "Int", 14, "Int", 14, "Ptr")
+    DllCall("SetWindowRgn", "Ptr", g.Hwnd, "Ptr", hRgn, "Int", 1)
+
+    ; 注册鼠标消息（多个面板共用同一批回调，按引用计数）并登记 Esc 接管
+    KeypadRegisterMsg(g.Hwnd)
+    P.registered := true
+    OverlayPush(kind)
+
+    ; 首次绘制
+    KeypadDraw(kind)
+}
+
+; ---- 关闭指定面板（只关这一个，不影响径向菜单与另一个小键盘）----
+KeypadClose(kind) {
+    global keypadPanels
+    if (!keypadPanels.Has(kind))
+        return
+    P := keypadPanels[kind]
+    keypadPanels.Delete(kind)
+
+    ; 清理拖拽状态并释放鼠标捕获（拖动中途关闭时不留后遗症）
+    P.dragPending := false
+    P.dragging := false
+    P.dragMoved := false
+    P.dragIndex := 0
+    DllCall("ReleaseCapture")
+
+    if (P.registered) {
+        KeypadUnregisterMsg()
+        P.registered := false
+    }
+    if (P.gui) {
+        P.gui.Destroy()
+        P.gui := 0
+    }
+    OverlayRemove(kind)
+}
+
+; ---- 按窗口句柄找面板类型（消息回调分发用）；未找到返回空串 ----
+KeypadKindByHwnd(hwnd) {
+    global keypadPanels
+    for kind, P in keypadPanels {
+        if (P.gui && P.gui.Hwnd = hwnd)
+            return kind
+    }
+    return ""
+}
+
+; ---- 命中检测：返回按键索引（1 基），0 = 未命中（空白处 / 空位）----
+KeypadHitTest(kind, mx, my) {
+    global keypadPanels
+    if (!keypadPanels.Has(kind))
+        return 0
+    P := keypadPanels[kind]
+    if (!P.gui || !P.layout)
+        return 0
+    WinGetPos(&wx, &wy, , , "ahk_id " . P.gui.Hwnd)
+    lx := mx - wx
+    ly := my - wy
+    L := P.layout
+    for i, R in L.rects {
+        if (i > P.keys.Length || P.keys[i].role = "blank")
+            continue
+        if (lx >= R.x && lx < R.x + R.w && ly >= R.y && ly < R.y + R.h)
+            return i
+    }
+    return 0
+}
+
+; ---- 绘制面板（经典 Win32 GDI 双缓冲，不用 GDI+）----
+KeypadDraw(kind) {
+    global keypadPanels, keypadFontSize
+    if (!keypadPanels.Has(kind))
+        return
+    P := keypadPanels[kind]
+    if (!P.gui || !P.layout)
+        return
+    hwnd := P.gui.Hwnd
+    L := P.layout
+
+    hdc := DllCall("GetDC", "Ptr", hwnd, "Ptr")
+    if (!hdc)
+        return
+    memDC := DllCall("CreateCompatibleDC", "Ptr", hdc, "Ptr")
+    hbm := DllCall("CreateCompatibleBitmap", "Ptr", hdc, "Int", L.winW, "Int", L.winH, "Ptr")
+    oldBmp := DllCall("SelectObject", "Ptr", memDC, "Ptr", hbm, "Ptr")
+
+    ; 背景（与径向菜单同色系）
+    bgBrush := BrushSolid("2D2D3D")
+    DllCall("FillRect", "Ptr", memDC, "Ptr", RectStruct(0, 0, L.winW, L.winH), "Ptr", bgBrush)
+    DllCall("DeleteObject", "Ptr", bgBrush)
+
+    ; 按键：常态 / 悬停高亮；关闭键用暗红、回车键用偏蓝以作区分
+    Loop P.keys.Length {
+        i := A_Index
+        k := P.keys[i]
+        if (k.role = "blank")
+            continue
+        if (i > L.rects.Length)
+            break
+        R := L.rects[i]
+        if (P.hover = i)
+            bg := (k.role = "close") ? "C0392B" : "4A90D9"
+        else if (k.role = "close")
+            bg := "5A3A3A"
+        else if (k.label = "回车")
+            bg := "3E5A7A"
+        else
+            bg := "3A4455"
+
+        rgn := DllCall("CreateRoundRectRgn", "Int", R.x, "Int", R.y, "Int", R.x + R.w + 1, "Int", R.y + R.h + 1
+            , "Int", 12, "Int", 12, "Ptr")
+        brush := BrushSolid(bg)
+        DllCall("FillRgn", "Ptr", memDC, "Ptr", rgn, "Ptr", brush)
+        DllCall("DeleteObject", "Ptr", brush)
+        DllCall("DeleteObject", "Ptr", rgn)
+
+        KeypadDrawText(memDC, k.label, R.x + R.w // 2, R.y + R.h // 2, keypadFontSize)
+    }
+
+    ; 一次 BitBlt 到位
+    DllCall("BitBlt", "Ptr", hdc, "Int", 0, "Int", 0, "Int", L.winW, "Int", L.winH
+        , "Ptr", memDC, "Int", 0, "Int", 0, "UInt", 0x00CC0020)
+
+    ; 清理
+    DllCall("SelectObject", "Ptr", memDC, "Ptr", oldBmp, "Ptr")
+    DllCall("DeleteObject", "Ptr", hbm)
+    DllCall("DeleteDC", "Ptr", memDC)
+    DllCall("ReleaseDC", "Ptr", hwnd, "Ptr", hdc)
+}
+
+; ---- 绘制按键文字（水平垂直双居中）----
+KeypadDrawText(memDC, text, cx, cy, sizePt) {
+    if (text = "")
+        return
+    font := RadialCreateFont(sizePt, "Microsoft YaHei")
+    oldFont := DllCall("SelectObject", "Ptr", memDC, "Ptr", font, "Ptr")
+    DllCall("SetBkMode", "Ptr", memDC, "Int", 1)   ; TRANSPARENT
+    DllCall("SetTextColor", "Ptr", memDC, "UInt", 0xFFFFFF)
+    sz := Buffer(8)
+    DllCall("GetTextExtentPoint32W", "Ptr", memDC, "Str", text, "Int", StrLen(text), "Ptr", sz)
+    tw := NumGet(sz, 0, "Int")
+    th := NumGet(sz, 4, "Int")
+    rc := Buffer(16)
+    NumPut("Int", cx - tw // 2, rc, 0)
+    NumPut("Int", cy - th // 2, rc, 4)
+    NumPut("Int", cx + tw // 2, rc, 8)
+    NumPut("Int", cy + th // 2, rc, 12)
+    DllCall("DrawTextW", "Ptr", memDC, "Str", text, "Int", -1, "Ptr", rc
+        , "UInt", 0x0001 | 0x0004 | 0x0020 | 0x0800)   ; DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
+    DllCall("SelectObject", "Ptr", memDC, "Ptr", oldFont, "Ptr")
+    DllCall("DeleteObject", "Ptr", font)
+}
+
+; ---- TrackMouseEvent 结构（WM_MOUSELEAVE 需要；hwndTrack 由调用方传入）----
+KeypadTrackMouseEventStruct(hwnd) {
+    static tme := 0
+    if (!tme) {
+        tme := Buffer(16)
+        NumPut("UInt", 16, tme, 0)           ; cbSize
+        NumPut("UInt", 0x00000002, tme, 4)   ; TME_LEAVE
+    }
+    NumPut("Ptr", hwnd, tme, 8)              ; hwndTrack
+    return tme
+}
+
+; ---- 注册鼠标消息（多个面板共用同一批回调：按引用计数注册 / 注销）----
+KeypadRegisterMsg(hwnd) {
+    global keypadMsgCount, keypadMsgMove, keypadMsgDown, keypadMsgUp, keypadMsgRDown, keypadMsgLeave
+    keypadMsgCount++
+    if (keypadMsgCount = 1) {
+        ; 先注销可能残留的旧回调（OnMessage MaxThreads=0 注销指定回调），避免重复注册累积
+        OnMessage(0x0200, KeypadOnMouseMove, 0)
+        OnMessage(0x0201, KeypadOnLButtonDown, 0)
+        OnMessage(0x0202, KeypadOnLButtonUp, 0)
+        OnMessage(0x0204, KeypadOnRButtonDown, 0)
+        OnMessage(0x02A3, KeypadOnMouseLeave, 0)
+        ; 注册
+        keypadMsgMove  := OnMessage(0x0200, KeypadOnMouseMove)    ; WM_MOUSEMOVE
+        keypadMsgDown  := OnMessage(0x0201, KeypadOnLButtonDown)  ; WM_LBUTTONDOWN
+        keypadMsgUp    := OnMessage(0x0202, KeypadOnLButtonUp)    ; WM_LBUTTONUP
+        keypadMsgRDown := OnMessage(0x0204, KeypadOnRButtonDown)  ; WM_RBUTTONDOWN
+        keypadMsgLeave := OnMessage(0x02A3, KeypadOnMouseLeave)   ; WM_MOUSELEAVE
+    }
+    if (hwnd)
+        DllCall("TrackMouseEvent", "Ptr", KeypadTrackMouseEventStruct(hwnd), "Int")
+}
+
+; ---- 注销鼠标消息（Esc 由 Overlay* 统一管理，这里不碰）----
+KeypadUnregisterMsg() {
+    global keypadMsgCount
+    if (keypadMsgCount > 0)
+        keypadMsgCount--
+    if (keypadMsgCount > 0)
+        return                     ; 还有别的面板打开，钩子保留
+    OnMessage(0x0200, KeypadOnMouseMove, 0)
+    OnMessage(0x0201, KeypadOnLButtonDown, 0)
+    OnMessage(0x0202, KeypadOnLButtonUp, 0)
+    OnMessage(0x0204, KeypadOnRButtonDown, 0)
+    OnMessage(0x02A3, KeypadOnMouseLeave, 0)
+}
+
+; ---- 鼠标移动：更新悬停并重绘；按下期间改为「拖拽判定 / 移动面板」----
+; 返回空值放行消息（悬停检测不吞 WM_MOUSEMOVE，避免影响其它窗口/控件）
+KeypadOnMouseMove(wParam, lParam, msg, hwnd) {
+    global keypadPanels
+    kind := KeypadKindByHwnd(hwnd)
+    if (kind = "")
+        return
+    OverlayTouch(kind)           ; 鼠标在面板上移动（含拖拽）也算"操作过"，Esc 优先关它
+    P := keypadPanels[kind]
+
+    ; --- 按下期间：只判定拖拽并移动面板，绝不触发按键 ---
+    if (P.dragPending || P.dragging) {
+        pt := Buffer(8)
+        DllCall("GetCursorPos", "Ptr", pt)
+        dx := NumGet(pt, 0, "Int") - P.dragStartX
+        dy := NumGet(pt, 4, "Int") - P.dragStartY
+        ; 位移超过阈值才认定为拖拽（否则抬起时按点击处理）
+        if (!P.dragging && (Abs(dx) > 3 || Abs(dy) > 3))
+            P.dragging := true
+        if (P.dragging) {
+            WinGetPos(, , &ww, &wh, "ahk_id " . hwnd)
+            ; 与鼠标位移 1:1 跟随；只在**虚拟屏幕**（全部显示器合并区域）内夹取
+            vb := RadialVirtualBounds()
+            nx := Max(vb.x, Min(P.dragWinX + dx, vb.x + vb.w - ww))
+            ny := Max(vb.y, Min(P.dragWinY + dy, vb.y + vb.h - wh))
+            P.gui.Move(nx, ny)
+            if (P.hover != 0) {
+                P.hover := 0
+                KeypadDraw(kind)
+            }
+        }
+        DllCall("TrackMouseEvent", "Ptr", KeypadTrackMouseEventStruct(hwnd), "Int")
+        return
+    }
+
+    x := lParam & 0xFFFF
+    y := (lParam >> 16) & 0xFFFF
+    ; lParam 客户区坐标可能为负（鼠标被捕获时移出窗口），补 16 位有符号还原
+    if (x > 32767)
+        x -= 65536
+    if (y > 32767)
+        y -= 65536
+    WinGetPos(&wx, &wy, , , "ahk_id " . hwnd)
+    hit := KeypadHitTest(kind, wx + x, wy + y)
+    if (hit != P.hover) {
+        P.hover := hit
+        KeypadDraw(kind)
+    }
+    DllCall("TrackMouseEvent", "Ptr", KeypadTrackMouseEventStruct(hwnd), "Int")
+    return
+}
+
+; ---- 鼠标离开：清除悬停 ----
+KeypadOnMouseLeave(wParam, lParam, msg, hwnd) {
+    global keypadPanels
+    kind := KeypadKindByHwnd(hwnd)
+    if (kind = "")
+        return
+    P := keypadPanels[kind]
+    ; 拖拽中不做悬停处理（鼠标被捕获，离开通知不代表真的移出）
+    if (P.dragPending || P.dragging)
+        return
+    if (P.hover != 0) {
+        P.hover := 0
+        KeypadDraw(kind)
+    }
+    return
+}
+
+; ---- 左键按下：只记录"可能的点击"与起点并捕获鼠标；是点击还是拖拽等抬起时按位移判定 ----
+; 注意：OnMessage 回调返回「空值」才放行消息；返回整数（含 0）会被当作已回复而吞掉消息。
+KeypadOnLButtonDown(wParam, lParam, msg, hwnd) {
+    global keypadPanels
+    kind := KeypadKindByHwnd(hwnd)
+    if (kind = "")
+        return
+    OverlayTouch(kind)           ; 在面板上按下（含点空位 / 空白处的无效点击）也算"操作过"
+    P := keypadPanels[kind]
+    x := lParam & 0xFFFF
+    y := (lParam >> 16) & 0xFFFF
+    if (x > 32767)
+        x -= 65536
+    if (y > 32767)
+        y -= 65536
+    WinGetPos(&wx, &wy, , , "ahk_id " . hwnd)
+
+    pt := Buffer(8)
+    DllCall("GetCursorPos", "Ptr", pt)
+    P.dragStartX := NumGet(pt, 0, "Int")
+    P.dragStartY := NumGet(pt, 4, "Int")
+    P.dragWinX := wx
+    P.dragWinY := wy
+    P.dragIndex := KeypadHitTest(kind, wx + x, wy + y)
+    P.dragPending := true
+    P.dragging := false
+    P.dragMoved := false
+    ; SetCapture：拖动时指针移出面板也能持续收到 WM_MOUSEMOVE，抬起时释放
+    DllCall("SetCapture", "Ptr", hwnd, "Ptr")
+    return
+}
+
+; ---- 左键抬起：未拖动 → 触发按下的按键（且抬起点仍在同一按键上）；拖动过 → 只移动面板 ----
+KeypadOnLButtonUp(wParam, lParam, msg, hwnd) {
+    global keypadPanels
+    kind := KeypadKindByHwnd(hwnd)
+    if (kind = "")
+        return
+    OverlayTouch(kind)           ; 抬起同样算"操作过"（拖动过、点空位、点空白的抬起都算）
+    P := keypadPanels[kind]
+    if (!P.dragPending && !P.dragging)
+        return
+    P.dragPending := false
+    P.dragging := false
+    DllCall("ReleaseCapture")
+
+    if (P.dragMoved) {
+        ; 拖动过 → 只移动了面板，不触发按键（也不做任何其它动作）
+        P.dragMoved := false
+        P.dragIndex := 0
+        DllCall("TrackMouseEvent", "Ptr", KeypadTrackMouseEventStruct(hwnd), "Int")
+        return
+    }
+    P.dragMoved := false
+
+    idx := P.dragIndex
+    P.dragIndex := 0
+    if (idx < 1)
+        return
+    ; 抬起位置仍落在同一个按键上才响应（按下后拖出按键 = 取消）
+    x := lParam & 0xFFFF
+    y := (lParam >> 16) & 0xFFFF
+    if (x > 32767)
+        x -= 65536
+    if (y > 32767)
+        y -= 65536
+    WinGetPos(&wx, &wy, , , "ahk_id " . hwnd)
+    if (KeypadHitTest(kind, wx + x, wy + y) = idx)
+        KeypadOnKeyPress(kind, idx)
+    return
+}
+
+; ---- 右键点击：关闭被点的那个面板（并吞掉消息，避免穿透到下层窗口弹出右键菜单）----
+KeypadOnRButtonDown(wParam, lParam, msg, hwnd) {
+    kind := KeypadKindByHwnd(hwnd)
+    if (kind != "") {
+        KeypadClose(kind)
+        return 0
+    }
+    return
+}
+
+; ---- 按键响应：close 关闭本面板，key 发送按键 ----
+KeypadOnKeyPress(kind, idx) {
+    global keypadPanels
+    if (!keypadPanels.Has(kind))
+        return
+    P := keypadPanels[kind]
+    if (idx < 1 || idx > P.keys.Length)
+        return
+    k := P.keys[idx]
+    if (k.role = "close") {
+        DebugLog("[keypad] 点击中心关闭键 → 关闭面板：" . kind)
+        KeypadClose(kind)
+        return
+    }
+    if (k.role = "key" && k.send != "")
+        KeypadSendKey(kind, k.send)
+    return
+}
+
+; ---- 把按键发送到当前前台窗口 ----
+; 面板带 WS_EX_NOACTIVATE，点击不会改变前台窗口，正常情况下这里就是直接发送；
+; 仍复用径向菜单的「目标窗口校验 + 物理修饰键释放等待」，避免焦点异常时误发组合键。
+KeypadSendKey(kind, raw) {
+    global keypadPanels
+
+    P := keypadPanels.Has(kind) ? keypadPanels[kind] : 0
+    target := WinExist("A")
+    ; 防御：万一前台窗口变成了面板自身，则退回弹出面板前的前台窗口
+    if (P && P.gui && target = P.gui.Hwnd)
+        target := P.focusWin
+    if (!target) {
+        DebugLog("[keypad] 已取消发送：当前前台窗口不可用，按键=" . raw)
+        return
+    }
+    if (!RadialActivateFocusWin(target)) {
+        DebugLog("[keypad] 已取消发送：目标窗口未能获得前台，按键=" . raw)
+        return
+    }
+    if (!RadialWaitModifiersReleased()) {
+        DebugLog("[keypad] 已取消发送：检测到物理修饰键仍按下，按键=" . raw)
+        return
+    }
+    SendEvent(raw)
+    return
+}
+
+; ============================================================================
 ; 11. 模式切换命令 —— 均可通过配置修改
 ;     循环切换：默认 Ctrl+Shift+J（latex → unicode → AI → tikz → latex）
 ;     直接切换：默认 Ctrl+Shift+0/1/2/3（0=latex，1=unicode，2=AI，3=tikz），前缀可配置
@@ -2588,6 +3250,13 @@ Hotkey(step_hotkey, StepPlay)
 ; 径向菜单触发快捷键（[radial] trigger 配置，默认 Ctrl+Shift+M）
 if (radialTrigger != "")
     Hotkey(radialTrigger, RadialShow)
+
+; 屏幕小键盘触发快捷键（[keypad] arrow_hotkey / numpad_hotkey，默认 Ctrl+Shift+K / Ctrl+Shift+N）
+; 同一键为开/关切换；两个键也可互相切换面板类型
+if (keypadArrowHotkey != "")
+    Hotkey(keypadArrowHotkey, (*) => KeypadToggle("arrow"))
+if (keypadNumpadHotkey != "")
+    Hotkey(keypadNumpadHotkey, (*) => KeypadToggle("numpad"))
 
 ; ============================================================================
 ; 12. 主入口 —— 触发命令（默认 Ctrl+J）
@@ -4963,7 +5632,7 @@ if (A_IsCompiled)
     TraySetIcon(A_ScriptFullPath, 1)
 else
     TraySetIcon(A_ScriptDir "\images\SharpKnife.ico")
-A_IconTip := "SharpKnife — " . trigger_hk . " 补全，" . toggle_hk . " 循环切换，" . direct_prefix . "0/1/2/3 直接切换，" . mode_list_hk . " 模式列表，" . step_hotkey . " play 步进，" . health_hotkey . " 循环提醒"
+A_IconTip := "SharpKnife — " . trigger_hk . " 补全，" . toggle_hk . " 循环切换，" . direct_prefix . "0/1/2/3 直接切换，" . mode_list_hk . " 模式列表，" . step_hotkey . " play 步进，" . health_hotkey . " 循环提醒，" . keypadArrowHotkey . " 方向键盘，" . keypadNumpadHotkey . " 数字键盘"
 
 ; ============================================================================
 ; 14. 启动提示
@@ -4973,7 +5642,8 @@ TrayTip(
     . trigger_hk . " 补全，" . toggle_hk . " 循环切换 latex / unicode / AI / tikz`n"
     . direct_prefix . "0/1/2/3 直接切换（0=latex，1=unicode，2=AI，3=tikz）`n"
     . mode_list_hk . " 模式列表选择，" . step_hotkey . " play 步进执行`n"
-    . health_hotkey . " 循环提醒（站立/坐下/走动循环，按同一键停止）",
+    . health_hotkey . " 循环提醒（站立/坐下/走动循环，按同一键停止）`n"
+    . keypadArrowHotkey . " 方向小键盘，" . keypadNumpadHotkey . " 数字小键盘（再按同一键关闭）",
     "SharpKnife"
 )
 

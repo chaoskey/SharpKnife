@@ -3,7 +3,7 @@
 > **本文件的作用**：把本项目开发中形成的**约定、习惯、风格与踩过的坑**固化下来。
 > 即使历史会话被删除、或换到全新会话/新模型，只要读本文件，就应当能**按同样的方式接续开发**，不必重新摸索、也不该重复犯同样的错误。
 >
-> 最后更新：2026-09-13
+> 最后更新：2026-09-15
 
 ---
 
@@ -160,6 +160,7 @@ git config --global --unset https.proxy
 | 16 | AHK v2 **变量名大小写不敏感**：`CLSID := "{…}"` 与 `clsid := Buffer(16,0)` 是**同一个变量**，后者会静默覆盖前者 | 给 GUID 的字符串与 Buffer 起**不同名字**（如 `guidClsidStr` / `bufClsid`） |
 | 17 | `DllCall` 的类型参数直接传 `Buffer` **对象**会报类型错误（如 `Expected a String but got a Buffer`） | 一律写 `buf.Ptr` |
 | 18 | `ComObject(CLSID, IID)` 要求该类已注册，否则报 `(0x80040154) 没有注册类`；但**这个错误码不代表类真的没注册**，也可能只是当前会话拉不起服务器 | 直接调 vtable 可用 `DllCall("ole32\CoCreateInstance", …)` + `ComCall(索引, p, …)`：**裸接口指针可以直接用**，索引 0/1/2 是 IUnknown，3 起才是自定义方法 |
+| 19 | 拿**对象字面量 `{}`（Object）当"动态键"字典**用时，`obj[键] := 值` 会报 `This value of type "Object" has no property named "__Item"`（`obj[键]` 走的是 `__Item`，普通 Object 没有这个属性） | 键是**运行时变量**时一律用 `Map()`（`m[k] := v` / `.Has(k)` / `.Delete(k)` / `Count`）；只有**固定属性名**才用 Object + `.HasOwnProp()`。2026-09-15 小键盘注册表 `keypadPanels` 就是这样在按 `^+k` 时直接报错的（提取函数的单测没覆盖到写入路径，所以没提前发现） |
 
 ### 4.2 消息钩子 / 输入 / 坐标
 
@@ -265,6 +266,7 @@ AHK v2 的**加载期弹框**（`#Warn` 警告、调用了不存在的函数等�
 | play 脚本步进 | `StepPlay()` ← `Ctrl+R` | 游标栈 + 9 类动作（见 `play-script-manual.md`） |
 | 循环提醒 | `HealthToggle()` ← `Ctrl+Alt+H` | 阶段循环 + 声音 + 右上角提示 + 托盘状态 |
 | 径向菜单 | `RadialShow()` ← `Ctrl+Shift+M` | 三层圆盘菜单（见 6.2） |
+| 屏幕小键盘 | `KeypadToggle("arrow"/"numpad")` ← `Ctrl+Shift+K` / `Ctrl+Shift+N` | 方向 / 数字屏幕按键面板（见 6.3） |
 
 ### 6.2 径向菜单（Radial Menu）—— 最近改动最多的模块
 
@@ -285,8 +287,8 @@ AHK v2 的**加载期弹框**（`#Warn` 警告、调用了不存在的函数等�
   拖拽判定用 `GetCursorPos` 绝对坐标差分（不依赖会随窗口移动而变化的客户区 `lParam`，避免抖动）。
   **拖拽分支只移动窗口，绝不做任何其它动作**（不切层/不关闭/不激活/不改焦点）。
 - 圆盘窗口带 **`+E0x08000000`（`WS_EX_NOACTIVATE`）**：点击/拖拽菜单都**不改变前台窗口**（不抢焦点，编辑器光标与焦点不受影响）。
-- 因窗口不获取键盘焦点，**Esc 由打开期间的全局热键接管**：`RadialRegisterMsg` 里 `Hotkey("Escape", RadialOnEscape)` + `Hotkey("Escape","On")`，`RadialUnregisterMsg` 里 `Hotkey("Escape","Off")`。
-  **坑**：`Hotkey(Key,"Off")` 之后，即使再用函数对象注册（不报错）也不会重新启用，必须显式调 `Hotkey(Key,"On")`。
+- 因窗口不获取键盘焦点，**Esc 由打开期间的全局热键接管**，但**不再由 radial 自己注册**：统一走 `Overlay*`（见 6.3），`RadialBuildMenu` 末尾 `OverlayPush("radial")`、`RadialClose` 里 `OverlayRemove("radial")`。
+  **坑**：`Hotkey(Key,"Off")` 之后，即使再用函数对象注册（不报错）也不会重新启用，必须显式调 `Hotkey(Key,"On")`（`OverlayRegisterEscape` 已按此处理）。
 - **位置夹取必须用虚拟屏幕**（`SysGet(76/77/78/79)`），不能用 `A_ScreenWidth/A_ScreenHeight`（仅主屏）——否则多显示器下圆盘会被"拉回主屏"，表现为一拖动就"消失"。
 - `WM_LBUTTONUP` 需在 `RadialRegisterMsg`/`RadialUnregisterMsg` 成对注册/注销（`radialMsgUp`）。
 
@@ -305,7 +307,7 @@ AHK v2 的**加载期弹框**（`#Warn` 警告、调用了不存在的函数等�
 | `RadialOnItemClick()` | 按 `kind` 分发：`shortcut`/`group`/`exec`/`disabled`（`exec` 只执行不关闭） |
 | `RadialOnLButtonDown()` / `RadialOnMouseMove()` / `RadialOnLButtonUp()` | 扇区点击 + 圆心「点击/拖拽」判定（阈值 3px，`SetCapture`→`Gui.Move`→`ReleaseCapture`） |
 | `RadialOnCenterClick()` | 三层中心语义（关闭 / 返回上一层） |
-| `RadialOnEscape()` | 菜单打开期间接管的 Esc 全局热键 → 关闭菜单 |
+| ~~`RadialOnEscape()`~~ | **已删除**：Esc 改由浮层公共层 `Overlay*` 接管（见 6.3），radial 自己不再注册 / 注销 Esc |
 | `RadialVirtualBounds()` | 全部显示器合并区域（`SysGet(76..79)`），圆盘位置夹取用 |
 | `RadialRestoreFocus()` | 点击后把焦点还给触发菜单前的窗口（圆盘不持焦点；`WS_EX_NOACTIVATE` 下通常已是空操作） |
 | `RadialExecHotkey()` | 恢复焦点窗口后 `Send` 快捷键 |
@@ -332,7 +334,60 @@ name = 基础通用      ; 组显示名（中文）
 radial.base.1=12     ; 键 = radial.<组标识>.<编号>，与 config.ini 的 [radial.*] 一一对应
 ```
 
-### 6.3 已知的历史遗留（可清理，非必须）
+### 6.3 屏幕小键盘（Keypad）—— 与径向菜单同源的 GDI 浮层
+
+两个独立浮层：**方向小键盘**（3×3 十字：上/左/关/右/下，四角空位）与**数字小键盘**（3 列 × 4 行：`7 8 9` / `4 5 6` / `1 2 3` / `0 . 回车`）。触发键默认 `^+k` / `^+n`，均为**开/关切换**，且**各自的触发键只管自己的面板**。
+
+**关键约束（与径向菜单一致，改动时别破坏）**：
+
+- 窗口带 `+E0x08000000`（`WS_EX_NOACTIVATE`）+ `Show("... NoActivate")`：点击 / 拖动都**不抢焦点**，这样点的按键才会发到用户原本的编辑窗口。
+- **点按键不关闭**面板（可连续点），关闭靠：自己的触发键、`Esc`、鼠标右键、方向键盘中心【关】。
+- 任意位置按下都先记录（`SetCapture`），位移 > 3px 判定为拖拽 → 只 `Gui.Move` 移动面板、不触发按键；抬起时要求**按下与抬起落在同一按键**才发送。
+- 位置夹取用 `RadialVirtualBounds()`（虚拟屏幕），不要改用 `A_ScreenWidth`。
+- 发送按键复用 `RadialActivateFocusWin()` + `RadialWaitModifiersReleased()`（前缀是 Radial，但逻辑通用），再 `SendEvent`。
+- 数字键发送**普通数字字符**（`"7"`），不用 `{Numpad7}`：不受 NumLock 影响。
+
+**`Overlay*`（浮层公共层，2026-09-15 新增，三者的独立性靠它）**：
+
+- **径向菜单 / 方向小键盘 / 数字小键盘三者必须互相独立**：打开或关闭任一个都**不得**联动关闭另外两个（曾因 `KeypadToggle`→`RadialClose()`、`RadialShow`→`KeypadClose()` 的互斥调用被用户退回）。
+  规则：**任何 Close 只关自己**；想一次性收起全部只能靠 `Esc`。
+- 三个浮层都不持有键盘焦点，只能共用同一个 `Escape` 热键，因此由 `OverlayPush(name)` / `OverlayRemove(name)` 维护一个栈 `overlayStack`：有浮层打开时注册 `Escape`（`OverlayRegisterEscape`），全部关闭时注销（`OverlayUnregisterEscape`）。
+- 栈的**语义是「最近操作过的排在末尾」**（不是"最近打开的"——用户明确要求过）：`OverlayTouch(name)` 把某个浮层移到末尾，调用时机为**打开面板**（即 `OverlayPush`）以及**在面板上移动鼠标（含拖拽）、在其上按下 / 抬起左键（含点空位、点空白的无效点击）**。为此 `RadialOnMouseMove/…LButtonDown/…LButtonUp` 与 `KeypadOnMouseMove/…LButtonDown/…LButtonUp` 都要调一次 `OverlayTouch(自己的 name)`；`OverlayTouch` 在"已在末尾 / 不在栈里"时直接返回，鼠标移动高频调用也不会白搬。
+- `OverlayOnEscape()` 关闭**栈末尾那个**（radial → `RadialClose()`，其余 → `KeypadClose(kind)`）。
+  **对等契约**：`RadialClose()` 与 `KeypadClose(kind)` 必须各自调用 `OverlayRemove(对应的 name)`，否则栈会残留、`Esc` 不会归还给系统。
+- 两个小键盘的状态存在注册表 `keypadPanels`（**`Map()`**：kind → 面板状态对象；动态键必须用 Map，见 §4.1 #19），**不要**再退回"单个全局 gui/hover/drag 变量"的写法——否则两个面板同时打开时会互相踩状态。鼠标消息钩子按 `keypadMsgCount` 引用计数注册 / 注销，回调统一用 `KeypadKindByHwnd(hwnd)` 分发（不属于自己的 hwnd 空 `return` 放行，见 §4.2）。
+
+关键函数：
+
+| 函数 | 职责 |
+|------|------|
+| `OverlayPush()` / `OverlayRemove()` / `OverlayTouch()` / `OverlayIndex()` / `OverlayOnEscape()` | 浮层栈（最近操作过的在末尾）/ Esc 接管（关闭栈末尾那个）——径向菜单与两个小键盘共用 |
+| `KeypadLoadConfig()` | 读 `[keypad]`：`arrow_hotkey` / `numpad_hotkey` / `font_size` / `opacity`（防空 + 防呆） |
+| `KeypadKeysFor(kind)` | 按键定义数组 `[{label, send, role}]`；`role` = `key` / `close` / `blank` |
+| `KeypadComputeLayout(kind, keys, sizePt)` | 按字号实测文字宽度算面板尺寸与各按键矩形（方向键为正方形） |
+| `KeypadToggle(kind)` / `KeypadShow(kind)` / `KeypadClose(kind)` | 各自开 / 关（只影响自己）/ 弹出（鼠标位置、虚拟屏幕夹取） |
+| `KeypadKindByHwnd(hwnd)` | 按窗口句柄找面板类型，供共用的鼠标回调分发 |
+| `KeypadDraw(kind)` / `KeypadDrawText()` | GDI 双缓冲绘制圆角按键（悬停高亮；关闭键暗红、回车键偏蓝） |
+| `KeypadHitTest(kind, mx, my)` | 按键矩形命中（空位与空白处返回 0） |
+| `KeypadOnMouseMove/…LButtonDown/…LButtonUp/…RButtonDown/…MouseLeave()` | 悬停高亮 + 点击/拖拽判定（阈值 3px）；按 hwnd 分发到对应面板 |
+| `KeypadOnKeyPress(kind, idx)` / `KeypadSendKey(kind, raw)` | 分发（close = 关闭本面板、key = 发送）/ 校验目标窗口与修饰键后 `SendEvent` |
+| `KeypadTrackMouseEventStruct(hwnd)` | `TrackMouseEvent` 结构（`hwndTrack` 由调用方传入；**不要**复用径向菜单那份） |
+
+配置（`[keypad]`）：
+
+```ini
+[keypad]
+arrow_hotkey = ^+k   ; 方向小键盘触发键
+numpad_hotkey = ^+n  ; 数字小键盘触发键
+font_size = 15       ; 面板字体（磅，最小 6）；缺省 = [ui] font_size
+opacity = 1          ; 面板透明度 0.0~1.0
+```
+
+> 调试：WSL 下**无法**验证 GUI/点击行为（Session 0 里连原版脚本的 auto-execute 都会卡住，见 §5）。
+> 纯逻辑（配置解析 / 按键定义 / 布局计算）可把函数体逐字提取出来单测——注意 `SharpKnifeCore.ahk` 里有
+> 单字母函数 `J()` / `K()`，**顶层**变量不能叫 `j` / `k`（函数内的局部变量没问题）。
+
+### 6.4 已知的历史遗留（可清理，非必须）
 
 - `RadialMakeClickHandler()`、`RadialGetLayout()`、`ATan2()` —— 只剩定义、**无任何调用**（早期"矩形控件版"径向菜单的残留；`ATan2` 是早期按角度命中检测的残留，现已被 `PtInRegion` 取代）。
   清理前请先 `grep` 确认确实无引用。
