@@ -260,12 +260,14 @@ global radialDragWinX := 0        ; 按下时的圆盘窗口左上角 X
 global radialDragWinY := 0        ; 按下时的圆盘窗口左上角 Y
 global radialStatsFile := A_ScriptDir "\menu_stats.ini"  ; 快捷键执行次数统计（独立文件，不存在时自动创建）
 
-; 屏幕小键盘（方向 / 数字 / 符号）全局状态
-; 三个面板各自独立、可同时显示：状态全部放在注册表里，键 = "arrow" / "numpad" / "symbol"
+; 屏幕小键盘（方向 / 数字 / 符号 / 字母）全局状态
+; 四块面板各自独立、可同时显示：状态全部放在注册表里，键 = "arrow" / "numpad" / "symbol" / "letter"
 global keypadPanels := Map()     ; 已打开的面板：kind -> {gui, keys, layout, hover, focusWin, registered, drag*}；动态键必须用 Map（普通 Object 不支持 obj[键] := 值）
 global keypadArrowHotkey := "^+k"  ; 方向小键盘触发键（[keypad] arrow_hotkey）
 global keypadNumpadHotkey := "^+n" ; 数字小键盘触发键（[keypad] numpad_hotkey）
 global keypadSymbolHotkey := "^+y" ; 符号小键盘触发键（[keypad] symbol_hotkey）
+global keypadLetterHotkey := "^+e" ; 字母小键盘触发键（[keypad] letter_hotkey）
+global keypadLetterUpper := false  ; 字母小键盘当前是否大写（由面板上的【Aa】键切换；运行期内一直记住）
 global keypadFontSize := 0       ; 小键盘字体大小（磅；[keypad] font_size，缺省=全局 ui_font_size）
 global keypadOpacity := 1.0      ; 小键盘透明度（[keypad] opacity，默认 1 = 不透明）
 global keypadMsgCount := 0       ; 已打开面板数：鼠标消息钩子按引用计数注册 / 注销
@@ -275,8 +277,8 @@ global keypadMsgUp := 0          ; OnMessage 注册句柄（WM_LBUTTONUP）
 global keypadMsgRDown := 0       ; OnMessage 注册句柄（WM_RBUTTONDOWN）
 global keypadMsgLeave := 0       ; OnMessage 注册句柄（WM_MOUSELEAVE）
 
-; 浮层公共状态（径向菜单 + 三个屏幕小键盘）：四者互相独立，共用一套 Esc 接管
-global overlayStack := []        ; 已打开浮层的打开顺序（元素 = "radial" / "arrow" / "numpad" / "symbol"）
+; 浮层公共状态（径向菜单 + 四块屏幕小键盘）：五者互相独立，共用一套 Esc 接管
+global overlayStack := []        ; 已打开浮层的打开顺序（元素 = "radial" / "arrow" / "numpad" / "symbol" / "letter"）
 
 ; 径向菜单配置加载（必须在全局变量声明后调用，否则 global 赋值会重置数据）
 RadialLoadConfig()
@@ -2589,9 +2591,9 @@ RadialTopFrequent(maxN := 6) {
 }
 
 ; ============================================================================
-; 10c. 浮层公共状态（Esc 接管）—— 径向菜单与三个屏幕小键盘共用
-;      四个浮层（径向菜单 / 方向 / 数字 / 符号小键盘）**互相独立**：各自的触发键只管自己，
-;      打开或关闭其中一个都不会联动关闭另外几个，四者可以同时显示。
+; 10c. 浮层公共状态（Esc 接管）—— 径向菜单与四块屏幕小键盘共用
+;      五个浮层（径向菜单 / 方向 / 数字 / 符号 / 字母小键盘）**互相独立**：各自的触发键只管自己，
+;      打开或关闭其中一个都不会联动关闭另外几个，五者可以同时显示。
 ;      它们都不获得键盘焦点（WS_EX_NOACTIVATE），因此 Esc 关闭由同一套全局热键接管：
 ;      只要有浮层打开就注册 Esc，按下 Esc 关闭「最近操作过的那个」——打开面板、
 ;      在面板上移动鼠标、点击面板（含点空位等无效点击）都算一次"操作"；全部关闭后立即注销。
@@ -2666,7 +2668,7 @@ OverlayUnregisterEscape() {
 }
 
 ; ============================================================================
-; 10c-2. 浮层避让 —— 四块浮层（径向菜单 / 方向 / 数字 / 符号小键盘）同屏时不允许重叠
+; 10c-2. 浮层避让 —— 五块浮层（径向菜单 / 方向 / 数字 / 符号 / 字母小键盘）同屏时不允许重叠
 ;      规则：以「正在拖动 / 刚打开」的那块为 active，其余被它压住的块沿**最小位移方向**推开，
 ;            并留 GAP 像素间隙；被推的块若又压到第三块，会在同一轮/后续轮里继续被推（连锁）。
 ;      落点一律夹取在**虚拟屏幕**内；某个方向推不出屏幕时改试另一个方向，两个方向都不行则
@@ -2684,11 +2686,11 @@ OverlayAvoidMaxPass() {
     return 4
 }
 
-; ---- 取四块浮层当前的窗口矩形（固定顺序 radial / arrow / numpad / symbol，保证结果可预期）----
+; ---- 取各浮层当前的窗口矩形（固定顺序 radial / arrow / numpad / symbol / letter，保证结果可预期）----
 OverlayRects() {
     global keypadPanels, radialGui
     rects := []
-    for name in ["radial", "arrow", "numpad", "symbol"] {
+    for name in ["radial", "arrow", "numpad", "symbol", "letter"] {
         hwnd := 0
         if (name = "radial") {
             if (radialGui)
@@ -2800,26 +2802,28 @@ OverlayAvoid(active) {
 
 ; ============================================================================
 ; 10d. 屏幕小键盘（方向 / 数字 / 符号）—— GDI 自绘的屏幕按键面板
-;      三个独立触发键（[keypad] arrow_hotkey / numpad_hotkey / symbol_hotkey，默认 ^+k / ^+n / ^+y）：
+;      四个独立触发键（[keypad] arrow_hotkey / numpad_hotkey / symbol_hotkey / letter_hotkey，默认 ^+k / ^+n / ^+y / ^+e）：
 ;        · 方向小键盘：3×3 十字（中心【回车】；四角 = 退格 / 删除 / 上页 / 下页）
 ;        · 数字小键盘：4 列 × 4 行（7 8 9 + / 4 5 6 - / 1 2 3 × / 0 . ÷ 回车）
-;        · 符号小键盘：6 列 × 5 行（标准键盘里其余常用符号，不含方向 / 数字面板已有的键）
-;      三块面板与径向菜单**互相独立、可同时打开**：各自的触发键只管自己的开 / 关。
+;        · 符号小键盘：6 列 × 5 行共 30 键（标准键盘符号 + 空格 / Tab，含一个额外的正斜杠）
+;        · 字母小键盘：6 列 × 5 行（a-z 顺序 + 【Aa】大小写切换键，大写时整块面板变大写）
+;      四块面板与径向菜单**互相独立、可同时打开**：各自的触发键只管自己的开 / 关。
 ;      面向数位板 / 触屏场景：用笔点按键，就把该按键发送到**当前前台窗口**。
 ;      面板带 WS_EX_NOACTIVATE（点击 / 拖动都不抢焦点、不改变前台窗口）；
 ;      点按键后面板**保持打开**（可连续输入），按住拖动可移动面板位置。
-;      关闭方式：自己的触发键、Esc（关最近操作过的那个）、鼠标右键（三套面板都没有【关】键）。
+;      关闭方式：自己的触发键、Esc（关最近操作过的那个）、鼠标右键（四套面板都没有【关】键）。
 ; ============================================================================
 
 ; ---- 加载 config.ini 的 [keypad] 段 ----
 ; 用 IniRead 读取（Windows 原生 INI 解析：支持 UTF-16 配置文件与行内注释）；
 ; 配置缺失 / 非法值一律沿用默认（防空 + 防呆）。
 KeypadLoadConfig() {
-    global configFile, keypadArrowHotkey, keypadNumpadHotkey, keypadSymbolHotkey, keypadFontSize, keypadOpacity, ui_font_size
+    global configFile, keypadArrowHotkey, keypadNumpadHotkey, keypadSymbolHotkey, keypadLetterHotkey, keypadFontSize, keypadOpacity, ui_font_size
 
     keypadArrowHotkey  := "^+k"                 ; 方向小键盘触发键（默认 Ctrl+Shift+K）
     keypadNumpadHotkey := "^+n"                 ; 数字小键盘触发键（默认 Ctrl+Shift+N）
     keypadSymbolHotkey := "^+y"                 ; 符号小键盘触发键（默认 Ctrl+Shift+Y）
+    keypadLetterHotkey := "^+e"                 ; 字母小键盘触发键（默认 Ctrl+Shift+E）
     keypadFontSize     := Max(ui_font_size, 6)  ; 字体大小默认 = 全局 [ui] font_size
     keypadOpacity      := 1.0                   ; 面板透明度（0.0~1.0），默认 1 = 不透明
 
@@ -2835,6 +2839,9 @@ KeypadLoadConfig() {
     v := Trim(IniRead(configFile, "keypad", "symbol_hotkey", ""))
     if (v != "")
         keypadSymbolHotkey := v
+    v := Trim(IniRead(configFile, "keypad", "letter_hotkey", ""))
+    if (v != "")
+        keypadLetterHotkey := v
     v := Trim(IniRead(configFile, "keypad", "font_size", ""))
     if RegExMatch(v, "^\d+(\.\d+)?$")
         keypadFontSize := Max(v + 0, 6)
@@ -2843,20 +2850,20 @@ KeypadLoadConfig() {
         keypadOpacity := Max(0.0, Min(v + 0, 1.0))
 
     DebugLog("[keypad] 配置加载完成：arrow_hotkey=" . keypadArrowHotkey . " numpad_hotkey=" . keypadNumpadHotkey
-        . " symbol_hotkey=" . keypadSymbolHotkey
+        . " symbol_hotkey=" . keypadSymbolHotkey . " letter_hotkey=" . keypadLetterHotkey
         . " font_size=" . keypadFontSize . " opacity=" . keypadOpacity)
 }
 
 ; ---- 按键定义 ----
-; role：key = 点按后发送 send 里的按键；close = 关闭面板；blank = 空位（不绘制、不命中）
-; （后两种角色仍受支持，但当前三套按键都只用 key：三块面板都没有【关】键、也没有空位）
+; role：key = 点按后发送 send 里的按键；toggle = 切换本面板的开关状态（字母键盘的大小写）；action = 直接调用 SharpKnife 自身命令；close = 关闭面板；blank = 空位（不绘制、不命中）
+; （close / blank 仍受支持，但当前四套按键都没有用到：四块面板都没有【关】键、也没有空位）
 ; 字符键统一发送**普通字符**（不受 NumLock 影响），在编辑器 / 输入框里最稳。
 ; Send 的特殊字符只有 ^ + ! # { }：加号写 {+}、乘方写 {^}、叹号写 {!}、井号写 {#}、花括号写 {{} {}}。
 ; 另外 " 与 ` 是 AHK 源码里的转义字符，要写成 `" 与 ``。
 KeypadKeysFor(kind) {
     if (kind = "arrow") {
         ; 3×3 十字：四角 = 退格 / 删除 / 上页 / 下页，中心【回车】
-        ; （三块面板都不设【关】键：关闭走触发键 / Esc / 鼠标右键）
+        ; （四块面板都不设【关】键：关闭走触发键 / Esc / 鼠标右键）
         return [
             {label: "退格", send: "{BS}",    role: "key"},
             {label: "↑",   send: "{Up}",    role: "key"},
@@ -2870,17 +2877,22 @@ KeypadKeysFor(kind) {
         ]
     }
     if (kind = "symbol") {
-        ; 符号小键盘：6 列 × 5 行 —— 标准键盘里其余的常用符号
-        ; （不含方向面板的方向键 / 退格 / 删除 / 翻页 / 回车，也不含数字面板的数字与 . + - * /）
-        ; 五行依次为：( ) [ ] { } / < > \ | ; : / ' " , ? ! @ / # $ % ^ & _ / = ~ `
+        ; 符号小键盘：6 列 × 5 行共 30 键 —— 标准键盘上除方向 / 数字面板已有键之外的符号
+        ; （不含方向面板的方向键 / 退格 / 删除 / 翻页 / 回车，也不含数字面板的数字与 . + - *）
+        ; 正斜杠是应要求额外加的，与数字面板的 ÷ 重复（÷ 也发 /），这是有意的；
+        ; 末尾的【空格】【Tab】不是符号，是为把 6 × 5 = 30 格补满而加的两个常用键。
+        ; 五行依次为：( ) [ ] { } / < > \ | ; : / ' " , ? ! @ / # $ % ^ & _ / = ~ ` / 空格 Tab
         return [
             {label: "(", send: "(", role: "key"}, {label: ")", send: ")", role: "key"}, {label: "[", send: "[", role: "key"}, {label: "]", send: "]", role: "key"}, {label: "{", send: "{{}", role: "key"}, {label: "}", send: "{}}", role: "key"},
             {label: "<", send: "<", role: "key"}, {label: ">", send: ">", role: "key"}, {label: "\", send: "\", role: "key"}, {label: "|", send: "|", role: "key"}, {label: ";", send: ";", role: "key"}, {label: ":", send: ":", role: "key"},
             {label: "'", send: "'", role: "key"}, {label: "`"", send: "`"", role: "key"}, {label: ",", send: ",", role: "key"}, {label: "?", send: "?", role: "key"}, {label: "!", send: "{!}", role: "key"}, {label: "@", send: "@", role: "key"},
             {label: "#", send: "{#}", role: "key"}, {label: "$", send: "$", role: "key"}, {label: "%", send: "%", role: "key"}, {label: "^", send: "{^}", role: "key"}, {label: "&", send: "&", role: "key"}, {label: "_", send: "_", role: "key"},
-            {label: "=", send: "=", role: "key"}, {label: "~", send: "~", role: "key"}, {label: "``", send: "``", role: "key"}
+            {label: "=", send: "=", role: "key"}, {label: "~", send: "~", role: "key"}, {label: "``", send: "``", role: "key"}, {label: "/", send: "/", role: "key"}, {label: "空格", send: "{Space}", role: "key"}, {label: "Tab", send: "{Tab}", role: "key"}
         ]
     }
+    if (kind = "letter")
+        return KeypadLetterKeys()
+
     ; 数字小键盘：4 列 × 4 行（右列放四则运算 + - × ÷，末行 0 . ÷ 回车）
     return [
         {label: "7", send: "7", role: "key"}, {label: "8", send: "8", role: "key"}, {label: "9", send: "9", role: "key"}, {label: "+", send: "{+}", role: "key"},
@@ -2890,11 +2902,49 @@ KeypadKeysFor(kind) {
     ]
 }
 
+; ---- 字母小键盘的按键定义（随大小写状态变化，每次弹出 / 切换时重建）----
+; a-z 顺序排列；末尾的【Aa】是大小写切换键（role = toggle）。
+; 大写时标签与发送字符都变成大写（Send 发大写字母会自动带上 Shift）。
+; 最后三个键用于把 6 × 5 = 30 格补满：【回车】与反斜杠是普通按键，
+; 【触发】是 SharpKnife 自己的触发命令（等同按 Ctrl+J，走 role = action 直接调用处理函数）。
+KeypadLetterKeys() {
+    global keypadLetterUpper
+    keys := []
+    Loop 26 {
+        ch := Chr(96 + A_Index)              ; 97 = "a"、122 = "z"
+        if (keypadLetterUpper)
+            ch := StrUpper(ch)
+        keys.Push({label: ch, send: ch, role: "key"})
+    }
+    keys.Push({label: "Aa", send: "", role: "toggle"})
+    keys.Push({label: "回车", send: "{Enter}", role: "key"})
+    keys.Push({label: "\", send: "\", role: "key"})
+    keys.Push({label: "触发", send: "", role: "action", action: "trigger"})
+    return keys
+}
+
+; ---- 面板上"直接调用 SharpKnife 自身命令"的键（role = action）----
+; 为什么不用 SendEvent 发 Ctrl+J：AHK 的 SendLevel 默认为 0，而
+; "hook hotkeys ignore keyboard and mouse events generated by any AutoHotkey script" ——
+; 脚本自己发出的组合键**不会**触发脚本自己的钩子热键（发送本身是能发出去的，
+; 但只会落到前台程序手里，不会执行本脚本的补全）。
+; 因此这里直接调用与该热键绑定的**同一个处理函数**，效果与按 Ctrl+J 完全一致。
+KeypadRunAction(action) {
+    global trigger_hk
+    if (action = "trigger") {
+        DebugLog("[keypad] 点击【触发】→ 执行 SharpKnife 触发命令（等同按 " . trigger_hk . "）")
+        CompleteAI()
+        return
+    }
+}
+
 ; ---- 各面板的列数（行数由按键数自动推导：末行不足即留空）----
 KeypadColsFor(kind) {
     if (kind = "arrow")
         return 3
     if (kind = "symbol")
+        return 6
+    if (kind = "letter")
         return 6
     return 4                     ; 数字小键盘
 }
@@ -3078,7 +3128,7 @@ KeypadHitTest(kind, mx, my) {
 
 ; ---- 绘制面板（经典 Win32 GDI 双缓冲，不用 GDI+）----
 KeypadDraw(kind) {
-    global keypadPanels, keypadFontSize
+    global keypadPanels, keypadFontSize, keypadLetterUpper
     if (!keypadPanels.Has(kind))
         return
     P := keypadPanels[kind]
@@ -3100,7 +3150,8 @@ KeypadDraw(kind) {
     DllCall("DeleteObject", "Ptr", bgBrush)
 
     ; 按键：常态 / 悬停高亮；回车键（方向面板中心 / 数字面板右下角）用偏蓝以作区分
-    ; （role = "close" 的暗红配色保留在代码里，当前三套按键都没有【关】键）
+    ; 字母面板的【Aa】切换键另用一种配色：大写状态偏暖色，相当于 CapsLock 指示灯
+    ; （role = "close" 的暗红配色保留在代码里，当前四套按键都没有【关】键）
     Loop P.keys.Length {
         i := A_Index
         k := P.keys[i]
@@ -3113,6 +3164,8 @@ KeypadDraw(kind) {
             bg := (k.role = "close") ? "C0392B" : "4A90D9"
         else if (k.role = "close")
             bg := "5A3A3A"
+        else if (k.role = "toggle")
+            bg := keypadLetterUpper ? "A0682A" : "3E4A6A"
         else if (k.label = "回车")
             bg := "3E5A7A"
         else
@@ -3363,9 +3416,9 @@ KeypadOnRButtonDown(wParam, lParam, msg, hwnd) {
     return
 }
 
-; ---- 按键响应：close 关闭本面板，key 发送按键 ----
+; ---- 按键响应：close 关闭本面板，toggle 切换面板状态，key 发送按键 ----
 KeypadOnKeyPress(kind, idx) {
-    global keypadPanels
+    global keypadPanels, keypadLetterUpper
     if (!keypadPanels.Has(kind))
         return
     P := keypadPanels[kind]
@@ -3375,6 +3428,20 @@ KeypadOnKeyPress(kind, idx) {
     if (k.role = "close") {
         DebugLog("[keypad] 点击中心关闭键 → 关闭面板：" . kind)
         KeypadClose(kind)
+        return
+    }
+    if (k.role = "toggle") {
+        ; 当前只有字母小键盘的【Aa】用这个角色：翻转大小写并就地重建按键 + 重绘。
+        ; 布局不用重算：最宽的标签始终是【回车】/【触发】这两个汉字标签，不随大小写变化。
+        keypadLetterUpper := !keypadLetterUpper
+        DebugLog("[keypad] 字母键盘大小写切换 → " . (keypadLetterUpper ? "大写" : "小写"))
+        P.keys := KeypadKeysFor(kind)
+        KeypadDraw(kind)
+        return
+    }
+    if (k.role = "action") {
+        ; 直接调用 SharpKnife 自身命令（如【触发】= Ctrl+J），不走按键注入
+        KeypadRunAction(k.action)
         return
     }
     if (k.role = "key" && k.send != "")
@@ -3427,14 +3494,16 @@ Hotkey(step_hotkey, StepPlay)
 if (radialTrigger != "")
     Hotkey(radialTrigger, RadialShow)
 
-; 屏幕小键盘触发快捷键（[keypad] arrow_hotkey / numpad_hotkey / symbol_hotkey，默认 ^+k / ^+n / ^+y）
-; 同一键为开/关切换；三块面板互相独立，可同时显示
+; 屏幕小键盘触发快捷键（[keypad] arrow / numpad / symbol / letter _hotkey，默认 ^+k / ^+n / ^+y / ^+e）
+; 同一键为开/关切换；四块面板互相独立，可同时显示
 if (keypadArrowHotkey != "")
     Hotkey(keypadArrowHotkey, (*) => KeypadToggle("arrow"))
 if (keypadNumpadHotkey != "")
     Hotkey(keypadNumpadHotkey, (*) => KeypadToggle("numpad"))
 if (keypadSymbolHotkey != "")
     Hotkey(keypadSymbolHotkey, (*) => KeypadToggle("symbol"))
+if (keypadLetterHotkey != "")
+    Hotkey(keypadLetterHotkey, (*) => KeypadToggle("letter"))
 
 ; ============================================================================
 ; 12. 主入口 —— 触发命令（默认 Ctrl+J）
@@ -5810,7 +5879,7 @@ if (A_IsCompiled)
     TraySetIcon(A_ScriptFullPath, 1)
 else
     TraySetIcon(A_ScriptDir "\images\SharpKnife.ico")
-A_IconTip := "SharpKnife — " . trigger_hk . " 补全，" . toggle_hk . " 循环切换，" . direct_prefix . "0/1/2/3 直接切换，" . mode_list_hk . " 模式列表，" . step_hotkey . " play 步进，" . health_hotkey . " 循环提醒，" . keypadArrowHotkey . " 方向键盘，" . keypadNumpadHotkey . " 数字键盘，" . keypadSymbolHotkey . " 符号键盘"
+A_IconTip := "SharpKnife — " . trigger_hk . " 补全，" . toggle_hk . " 循环切换，" . direct_prefix . "0/1/2/3 直接切换，" . mode_list_hk . " 模式列表，" . step_hotkey . " play 步进，" . health_hotkey . " 循环提醒，" . keypadArrowHotkey . " 方向键盘，" . keypadNumpadHotkey . " 数字键盘，" . keypadSymbolHotkey . " 符号键盘，" . keypadLetterHotkey . " 字母键盘"
 
 ; ============================================================================
 ; 14. 启动提示
@@ -5821,7 +5890,8 @@ TrayTip(
     . direct_prefix . "0/1/2/3 直接切换（0=latex，1=unicode，2=AI，3=tikz）`n"
     . mode_list_hk . " 模式列表选择，" . step_hotkey . " play 步进执行`n"
     . health_hotkey . " 循环提醒（站立/坐下/走动循环，按同一键停止）`n"
-    . keypadArrowHotkey . " 方向小键盘，" . keypadNumpadHotkey . " 数字小键盘，" . keypadSymbolHotkey . " 符号小键盘（再按同一键关闭）",
+    . keypadArrowHotkey . " 方向小键盘，" . keypadNumpadHotkey . " 数字小键盘，" . keypadSymbolHotkey . " 符号小键盘，"
+    . keypadLetterHotkey . " 字母小键盘（再按同一键关闭）",
     "SharpKnife"
 )
 
