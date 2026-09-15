@@ -270,7 +270,7 @@ AHK v2 的**加载期弹框**（`#Warn` 警告、调用了不存在的函数等�
 | play 脚本步进 | `StepPlay()` ← `Ctrl+R` | 游标栈 + 9 类动作（见 `play-script-manual.md`） |
 | 循环提醒 | `HealthToggle()` ← `Ctrl+Alt+H` | 阶段循环 + 声音 + 右上角提示 + 托盘状态 |
 | 径向菜单 | `RadialShow()` ← `Ctrl+Shift+M` | 三层圆盘菜单（见 6.2） |
-| 屏幕小键盘 | `KeypadToggle("arrow"/"numpad")` ← `Ctrl+Shift+K` / `Ctrl+Shift+N` | 方向 / 数字屏幕按键面板（见 6.3） |
+| 屏幕小键盘 | `KeypadToggle("arrow"/"numpad"/"symbol")` ← `Ctrl+Shift+K` / `Ctrl+Shift+N` / `Ctrl+Shift+Y` | 方向 / 数字 / 符号屏幕按键面板（见 6.3） |
 
 ### 6.2 径向菜单（Radial Menu）—— 最近改动最多的模块
 
@@ -340,34 +340,39 @@ radial.base.1=12     ; 键 = radial.<组标识>.<编号>，与 config.ini 的 [r
 
 ### 6.3 屏幕小键盘（Keypad）—— 与径向菜单同源的 GDI 浮层
 
-两个独立浮层：**方向小键盘**（3×3：四角 = 退格/删除/上页/下页，中心【回车】；无【关】键）与**数字小键盘**（4 列 × 4 行：`7 8 9 +` / `4 5 6 -` / `1 2 3 ×` / `0 . ÷ 回车`，右列为四则运算）。触发键默认 `^+k` / `^+n`，均为**开/关切换**，且**各自的触发键只管自己的面板**。
+三个独立浮层（都在 `KeypadKeysFor` 里定义）：**方向小键盘**（3×3：四角 = 退格/删除/上页/下页，中心【回车】；无【关】键）、**数字小键盘**（4 列 × 4 行：`7 8 9 +` / `4 5 6 -` / `1 2 3 ×` / `0 . ÷ 回车`，右列为四则运算）与**符号小键盘**（6 列 × 5 行：标准键盘里除上述两面板已有键之外的 27 个常用符号）。触发键默认 `^+k` / `^+n` / `^+y`，均为**开/关切换**，且**各自的触发键只管自己的面板**。
 
 **关键约束（与径向菜单一致，改动时别破坏）**：
 
 - 窗口带 `+E0x08000000`（`WS_EX_NOACTIVATE`）+ `Show("... NoActivate")`：点击 / 拖动都**不抢焦点**，这样点的按键才会发到用户原本的编辑窗口。
-- **点按键不关闭**面板（可连续点），关闭靠：自己的触发键、`Esc`、鼠标右键（两套面板都没有【关】键——方向小键盘中心已改为【回车】）。
+- **点按键不关闭**面板（可连续点），关闭靠：自己的触发键、`Esc`、鼠标右键（三套面板都没有【关】键——方向小键盘中心已改为【回车】）。
 - 任意位置按下都先记录（`SetCapture`），位移 > 3px 判定为拖拽 → 只 `Gui.Move` 移动面板、不触发按键；抬起时要求**按下与抬起落在同一按键**才发送。
 - 位置夹取用 `RadialVirtualBounds()`（虚拟屏幕），不要改用 `A_ScreenWidth`。
+- **四块浮层同屏不得重叠**：`OverlayAvoid(active)` 以"正在拖动 / 刚打开"的那块为 active（active 永不移动），把被它压住的浮层沿**最小位移方向**推开，两两留 8px 间隙、连锁处理、落点夹取虚拟屏幕；推不动就原地不动（避免屏幕边缘抖动）。**四个调用点**：`RadialBuildMenu` 末尾、径向拖拽 `Gui.Move` 之后、`KeypadShow` 末尾、小键盘拖拽 `Gui.Move` 之后——新增第五种浮层时务必补调用点。
+- 拖动中每次 `WM_MOUSEMOVE` 都会调 `OverlayAvoid`，所以里面只做坐标计算（`WinGetPos` + 比较），**不要在这里加重绘或重日志**。
 - 发送按键复用 `RadialActivateFocusWin()` + `RadialWaitModifiersReleased()`（前缀是 Radial，但逻辑通用），再 `SendEvent`。
-- 数字键发送**普通数字字符**（`"7"`），不用 `{Numpad7}`：不受 NumLock 影响。
+- 按键一律发送**普通字符 / 键名**，不用小键盘专用键（数字写 `"7"` 而非 `{Numpad7}`）：不受 NumLock 影响。
+- **Send 特殊字符只有 `^ + ! # { }`**：写成 `{+}` `{^}` `{!}` `{#}` `{{}` `{}}`；另外 `"` 与 `` ` `` 是 AHK **源码**转义，要写成 `` `" `` 与 ` `` `。符号小键盘的 27 键已按此转义，改动时别漏。
 
-**`Overlay*`（浮层公共层，2026-09-15 新增，三者的独立性靠它）**：
+**`Overlay*`（浮层公共层，2026-09-15 新增，各浮层的独立性靠它）**：
 
-- **径向菜单 / 方向小键盘 / 数字小键盘三者必须互相独立**：打开或关闭任一个都**不得**联动关闭另外两个（曾因 `KeypadToggle`→`RadialClose()`、`RadialShow`→`KeypadClose()` 的互斥调用被用户退回）。
+- **径向菜单 / 方向 / 数字 / 符号小键盘必须互相独立**：打开或关闭任一个都**不得**联动关闭另外几个（曾因 `KeypadToggle`→`RadialClose()`、`RadialShow`→`KeypadClose()` 的互斥调用被用户退回）。
   规则：**任何 Close 只关自己**；想一次性收起全部只能靠 `Esc`。
-- 三个浮层都不持有键盘焦点，只能共用同一个 `Escape` 热键，因此由 `OverlayPush(name)` / `OverlayRemove(name)` 维护一个栈 `overlayStack`：有浮层打开时注册 `Escape`（`OverlayRegisterEscape`），全部关闭时注销（`OverlayUnregisterEscape`）。
+- 四个浮层都不持有键盘焦点，只能共用同一个 `Escape` 热键，因此由 `OverlayPush(name)` / `OverlayRemove(name)` 维护一个栈 `overlayStack`：有浮层打开时注册 `Escape`（`OverlayRegisterEscape`），全部关闭时注销（`OverlayUnregisterEscape`）。
 - 栈的**语义是「最近操作过的排在末尾」**（不是"最近打开的"——用户明确要求过）：`OverlayTouch(name)` 把某个浮层移到末尾，调用时机为**打开面板**（即 `OverlayPush`）以及**在面板上移动鼠标（含拖拽）、在其上按下 / 抬起左键（含点空位、点空白的无效点击）**。为此 `RadialOnMouseMove/…LButtonDown/…LButtonUp` 与 `KeypadOnMouseMove/…LButtonDown/…LButtonUp` 都要调一次 `OverlayTouch(自己的 name)`；`OverlayTouch` 在"已在末尾 / 不在栈里"时直接返回，鼠标移动高频调用也不会白搬。
 - `OverlayOnEscape()` 关闭**栈末尾那个**（radial → `RadialClose()`，其余 → `KeypadClose(kind)`）。
   **对等契约**：`RadialClose()` 与 `KeypadClose(kind)` 必须各自调用 `OverlayRemove(对应的 name)`，否则栈会残留、`Esc` 不会归还给系统。
-- 两个小键盘的状态存在注册表 `keypadPanels`（**`Map()`**：kind → 面板状态对象；动态键必须用 Map，见 §4.1 #19），**不要**再退回"单个全局 gui/hover/drag 变量"的写法——否则两个面板同时打开时会互相踩状态。鼠标消息钩子按 `keypadMsgCount` 引用计数注册 / 注销，回调统一用 `KeypadKindByHwnd(hwnd)` 分发（不属于自己的 hwnd 空 `return` 放行，见 §4.2）。
+- 各小键盘的状态存在注册表 `keypadPanels`（**`Map()`**：kind → 面板状态对象；键 = `"arrow"` / `"numpad"` / `"symbol"`；动态键必须用 Map，见 §4.1 #19），**不要**再退回"单个全局 gui/hover/drag 变量"的写法——否则多块面板同时打开时会互相踩状态。鼠标消息钩子按 `keypadMsgCount` 引用计数注册 / 注销，回调统一用 `KeypadKindByHwnd(hwnd)` 分发（不属于自己的 hwnd 空 `return` 放行，见 §4.2）。
 
 关键函数：
 
 | 函数 | 职责 |
 |------|------|
-| `OverlayPush()` / `OverlayRemove()` / `OverlayTouch()` / `OverlayIndex()` / `OverlayOnEscape()` | 浮层栈（最近操作过的在末尾）/ Esc 接管（关闭栈末尾那个）——径向菜单与两个小键盘共用 |
-| `KeypadLoadConfig()` | 读 `[keypad]`：`arrow_hotkey` / `numpad_hotkey` / `font_size` / `opacity`（防空 + 防呆） |
-| `KeypadKeysFor(kind)` | 按键定义数组 `[{label, send, role}]`；`role` = `key` / `close` / `blank` |
+| `OverlayPush()` / `OverlayRemove()` / `OverlayTouch()` / `OverlayIndex()` / `OverlayOnEscape()` | 浮层栈（最近操作过的在末尾）/ Esc 接管（关闭栈末尾那个）——径向菜单与各小键盘共用 |
+| `OverlayRects()` / `OverlayMoveTo()` / `OverlayRectsOverlap()` / `OverlayTryMove()` / `OverlayPushAway()` / `OverlayAvoidPass()` / `OverlayAvoid()` | 浮层避让（10c-2）：取四块浮层的窗口矩形 → 把被动方沿最小位移方向推开（8px 间隙、连锁、夹取虚拟屏幕，推不动就不动）；对外只用 `OverlayAvoid(active)` |
+| `KeypadLoadConfig()` | 读 `[keypad]`：`arrow_hotkey` / `numpad_hotkey` / `symbol_hotkey` / `font_size` / `opacity`（防空 + 防呆） |
+| `KeypadKeysFor(kind)` | 按键定义数组 `[{label, send, role}]`；`role` = `key` / `close` / `blank`（当前三套全用 `key`） |
+| `KeypadColsFor(kind)` | 各面板列数（arrow 3 / numpad 4 / symbol 6）；行数由按键数推导，新增面板只需在这里加一行 |
 | `KeypadComputeLayout(kind, keys, sizePt)` | 按字号实测文字宽度算面板尺寸与各按键矩形（方向键为正方形） |
 | `KeypadToggle(kind)` / `KeypadShow(kind)` / `KeypadClose(kind)` | 各自开 / 关（只影响自己）/ 弹出（鼠标位置、虚拟屏幕夹取） |
 | `KeypadKindByHwnd(hwnd)` | 按窗口句柄找面板类型，供共用的鼠标回调分发 |
@@ -383,6 +388,7 @@ radial.base.1=12     ; 键 = radial.<组标识>.<编号>，与 config.ini 的 [r
 [keypad]
 arrow_hotkey = ^+k   ; 方向小键盘触发键
 numpad_hotkey = ^+n  ; 数字小键盘触发键
+symbol_hotkey = ^+y  ; 符号小键盘触发键
 font_size = 15       ; 面板字体（磅，最小 6）；缺省 = [ui] font_size
 opacity = 1          ; 面板透明度 0.0~1.0
 ```
