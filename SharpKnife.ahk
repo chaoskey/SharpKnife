@@ -3413,13 +3413,49 @@ OverlayRunCommand(cmdLine) {
         DebugLog("[overlay] 已取消启动程序：检测到物理修饰键仍按下，cmd=" . cmdLine)
         return false
     }
-    try {
-        Run(cmdLine)
-        return true
-    } catch Error as e {
-        DebugLog("[overlay] 启动程序失败：" . e.Message . " | cmd=" . cmdLine)
-        return false
+    ; 依次尝试几种写法，第一个能启动成功的就用（先试原样，保证既有配置行为完全不变）
+    for i, c in OverlayRunCandidates(cmdLine) {
+        try {
+            Run(c)
+            if (i > 1)
+                DebugLog("[overlay] 启动程序成功（第 " . i . " 种写法）：" . c . " ← 原配置写法：" . cmdLine)
+            return true
+        } catch Error as e {
+            DebugLog("[overlay] 启动程序第 " . i . " 种写法失败：" . e.Message . " | cmd=" . c)
+        }
     }
+    return false
+}
+
+; ---- run: 命令的候选写法 ----
+; AHK 的 Run() 与 cmd 不同：**整条命令用引号包起来时，它会把这整串当成一个文件路径**，
+; 于是 run: "C:\x\app.exe snip --full" 会找不到文件（在 cmd 里却能跑），表现为"点了没反应"。
+; 这里生成几种等价写法交给 OverlayRunCommand 逐个尝试：
+;   ① 原样                              （正确写法：可执行文件带引号 + 参数，直接成功）
+;   ② 整条被一对引号包住 → 拆成 "可执行文件" + 参数
+;   ③ 没加引号但路径含空格 → 截到 .exe/.cmd/.bat/.com 为止加引号，其余当参数
+OverlayRunCandidates(cmdLine) {
+    raw := Trim(cmdLine)
+    out := [raw]
+    q := Chr(34)
+    if (StrLen(raw) > 1 && SubStr(raw, 1, 1) = q && SubStr(raw, -1) = q) {
+        inner := SubStr(raw, 2, StrLen(raw) - 2)
+        sp := InStr(inner, " ")
+        if (sp > 0) {
+            exe := SubStr(inner, 1, sp - 1)
+            rest := Trim(SubStr(inner, sp + 1))
+            out.Push(q . exe . q . (rest = "" ? "" : " " . rest))
+        }
+    }
+    if (SubStr(raw, 1, 1) != q && InStr(raw, " ") > 0) {
+        if RegExMatch(raw, "i)^(.+?\.(?:exe|cmd|bat|com))(?=\s|$)", &m) {
+            exe := m[1]
+            rest := Trim(SubStr(raw, StrLen(exe) + 1))
+            if (exe != raw)
+                out.Push(q . exe . q . (rest = "" ? "" : " " . rest))
+        }
+    }
+    return out
 }
 
 ; ---- self: 命令表（两个组件共用）----
