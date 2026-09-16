@@ -278,6 +278,34 @@ global keypadDefs := Map()       ; 四个面板的按键定义（[keypad.<kind>]
 global overlayCaseState := Map()  ; 各浮层的大小写状态（按浮层名存，如 "letter" / "radial"）：owner -> true（大写）/ false
 global keypadFontSize := 0       ; 小键盘字体大小（磅；[keypad] font_size，缺省=全局 ui_font_size）
 global keypadOpacity := 1.0      ; 小键盘透明度（[keypad] opacity，默认 1 = 不透明）
+; 自然语言运行框（[runbox] 段）：中文需求 → 模型解析成动作序列 → 确认后执行
+global runboxHotkey := "^+i"     ; 触发键（[runbox] hotkey，默认 Ctrl+Shift+I）
+global runboxConfirm := true     ; true = 先列出动作清单、确认后执行
+global runboxModel := ""         ; 覆盖 [ai] model（空 = 沿用）
+global runboxTimeout := 0        ; 覆盖 [ai] timeout_ms（0 = 沿用）
+global runboxStepDelay := 120    ; 动作之间的间隔（ms）
+global runboxRunWait := 800      ; run: 之后自动等待（ms）
+global runboxMaxActions := 40    ; 单次最多执行多少条动作（防呆）
+global runboxPromptExtra := ""   ; 追加到内置系统提示语之后（可选）
+global runboxGui := ""           ; 运行框窗口 / 控件（"" = 未打开）
+global runboxEdit := ""
+global runboxStatus := ""
+global runboxHandle := ""        ; 底部"执行过程"小把手（点击展开 / 收起）
+global runboxDetail := ""        ; 展开后的执行过程面板（只读多行 Edit）
+global runboxExpanded := false   ; 执行过程面板是否已展开
+global runboxLog := []           ; 本次需求的执行全过程日志（逐行）
+global runboxStartTick := 0      ; 本次执行的起始时刻（算总耗时）
+global runboxToggleTick := 0     ; 上一次展开/收起的时间（两条点击路径去抖）
+global runboxHSmall := 0         ; 收起态窗口高度（弹出时量好，之后只做 Move 改高度）
+global runboxExtraDetail := 0    ; 展开过程面板额外需要的高度（= 面板自身高度 + 间距）
+global runboxPrevWin := 0        ; 弹出运行框前的前台窗口（动作最终打到它上面）
+global runboxPrevTitle := ""     ; 该窗口标题（喂给模型当上下文）
+global runboxActions := []       ; 本次待执行动作
+global runboxDropped := []       ; 被丢弃的行（展示给用户）
+global runboxRunIdx := 0         ; 执行进度
+global runboxBusy := false       ; 正在解析 / 执行
+global runboxState := ""         ; "" / "input" / "loading" / "confirm" / "running" / "done"
+
 global keypadMsgCount := 0       ; 已打开面板数：鼠标消息钩子按引用计数注册 / 注销
 global keypadMsgMove := 0        ; OnMessage 注册句柄（WM_MOUSEMOVE）
 global keypadMsgDown := 0        ; OnMessage 注册句柄（WM_LBUTTONDOWN）
@@ -296,6 +324,9 @@ RadialStatsInit()
 
 ; 屏幕小键盘配置加载（同样必须在全局变量声明之后）
 KeypadLoadConfig()
+
+; 自然语言运行框配置加载（同样必须在全局变量声明之后）
+RunBoxLoadConfig()
 
 RefreshTrayMenu() {
     global mode, healthTrayStateText
@@ -3051,12 +3082,79 @@ OverlayActionParse(text) {
         cmd := StrLower(Trim(m[1]))
         return (cmd = "") ? {type: "none", value: ""} : {type: "self", value: cmd}
     }
+    ; send: 与 hotkey: 等价：显式声明"这是一段 Send 语法"（文本 / 按键 / 组合键）
+    if RegExMatch(t, "i)^(?:send|hotkey)\s*:(.*)$", &m) {
+        v := Trim(m[1])
+        return (v = "") ? {type: "none", value: ""} : {type: "send", value: v}
+    }
+    ; paste: 剪贴板粘贴（长文本比逐字发送快且稳）
+    if RegExMatch(t, "i)^paste\s*:(.*)$", &m) {
+        v := Trim(m[1])
+        return (v = "") ? {type: "none", value: ""} : {type: "paste", value: v}
+    }
+    ; wait: 毫秒（夹取 0~10000；仅面板 / 菜单配置里用得到，运行框的等待由运行器自动插入）
+    if RegExMatch(t, "i)^wait\s*:(.*)$", &m) {
+        v := Trim(m[1])
+        if (!RegExMatch(v, "^\d+$"))
+            return {type: "none", value: ""}
+        return {type: "wait", value: Max(0, Min(Integer(v), 10000))}
+    }
+    ; item: 名称 —— 按名字执行"配置里已配好的那一项"的动作
+    if RegExMatch(t, "i)^item\s*:(.*)$", &m) {
+        v := Trim(m[1])
+        return (v = "") ? {type: "none", value: ""} : {type: "item", value: v}
+    }
     low := StrLower(t)
     if (low = "close")
         return {type: "close", value: ""}
     if (low = "case")
         return {type: "case", value: ""}
     return {type: "send", value: t}
+}
+
+; ---- 执行"已配置命令表"里的条目：名称 → 动作 ----
+; 供 item: 动作与自然语言运行框共用。重名时返回第一个并写日志。
+OverlayLookupItem(name) {
+    want := Trim(name)
+    if (want = "")
+        return 0
+    for it in OverlayConfiguredItems() {
+        if (it.name = want)
+            return it
+    }
+    return 0
+}
+
+; ---- 已配置命令表：四块小键盘的每个按键 + 圆盘菜单的每个菜单项 ----
+; 返回 [{name, action, source}]；action 为动作文本（可再交给 OverlayActionParse）
+OverlayConfiguredItems() {
+    global keypadDefs, radialGroups
+    list := []
+    for kind in ["arrow", "numpad", "symbol", "letter"] {
+        if (!keypadDefs.Has(kind))
+            continue
+        def := keypadDefs[kind]
+        for k in def.keys {
+            if (k.role = "blank" || k.label = "" || k.action = "")
+                continue
+            list.Push({name: k.label, action: k.action, source: def.name})
+        }
+    }
+    for g in radialGroups
+        for it in g.items
+            list.Push({name: it.name, action: OverlayActionText(it), source: g.name})
+    return list
+}
+
+; ---- 圆盘菜单项 → 动作文本（与配置里的写法一致）----
+OverlayActionText(it) {
+    if (it.actionType = "run")
+        return "run: " . it.actionValue
+    if (it.actionType = "self")
+        return "self: " . it.actionValue
+    if (it.actionType = "send")
+        return it.actionValue
+    return it.actionType        ; close / case
 }
 
 ; ---- 执行动作 ----
@@ -3076,7 +3174,58 @@ OverlayActionExecute(act, owner, fallbackWin) {
         t := OverlayCaseTransform(owner, "", act.value)
         return OverlaySendKey(t.action, owner, fallbackWin)
     }
+    if (act.type = "paste")
+        return OverlayPasteText(act.value, owner, fallbackWin)
+    if (act.type = "wait") {
+        ms := Max(0, Min(act.value + 0, 10000))
+        DebugLog("[overlay] wait " . ms . "ms（" . owner . "）")
+        Sleep(ms)
+        return true
+    }
+    if (act.type = "item") {
+        ref := OverlayLookupItem(act.value)
+        if (!ref) {
+            DebugLog("[overlay] item:" . act.value . " —— 配置里没有这一项，已忽略")
+            return false
+        }
+        DebugLog("[overlay] item:" . act.value . " → 执行其动作「" . ref.action . "」（" . ref.source . "）")
+        return OverlayActionExecute(OverlayActionParse(ref.action), owner, fallbackWin)
+    }
     return false
+}
+
+; ---- paste：用剪贴板把文本粘到目标窗口（长文本比逐字 Send 快且稳）----
+; 尽量原样备份 / 恢复剪贴板（非文本内容同样保留）。
+OverlayPasteText(text, owner, fallbackWin) {
+    if (text = "")
+        return false
+    if (!OverlayPrepareInject(owner, fallbackWin, "粘贴文本"))
+        return false
+    saved := ""
+    try {
+        saved := ClipboardAll()
+    } catch {
+        saved := ""
+    }
+    ok := true
+    try {
+        A_Clipboard := text
+        if (!ClipWait(1)) {
+            DebugLog("[overlay] 粘贴失败：剪贴板未就绪")
+            ok := false
+        } else {
+            SendEvent("^v")
+        }
+    } catch Error as e {
+        DebugLog("[overlay] 粘贴异常：" . e.Message)
+        ok := false
+    }
+    ; 给目标程序一点时间取走剪贴板内容，再恢复原剪贴板
+    Sleep(150)
+    if (saved != "") {
+        try A_Clipboard := saved
+    }
+    return ok
 }
 
 ; ---- close：关闭发起动作的浮层 ----
@@ -3139,9 +3288,11 @@ OverlaySendKey(raw, owner, fallbackWin) {
 
 ; ---- 浮层自己的窗口句柄（用于判断"前台窗口是不是被浮层自己占了"）----
 OverlayOwnerHwnd(owner) {
-    global radialGui, keypadPanels
+    global radialGui, keypadPanels, runboxGui
     if (owner = "radial")
         return (radialGui ? radialGui.Hwnd : 0)
+    if (owner = "runbox")
+        return (runboxGui ? runboxGui.Hwnd : 0)
     if (keypadPanels.Has(owner) && keypadPanels[owner].gui)
         return keypadPanels[owner].gui.Hwnd
     return 0
@@ -3229,6 +3380,733 @@ OverlayRunSelf(cmd, owner, fallbackWin) {
         return false
     }
     return true
+}
+
+; ============================================================================
+; 10c-5. 自然语言运行框（[runbox] 段）：中文需求 → 模型解析成动作序列 → 确认后执行
+; ============================================================================
+; 允许的动作只有两类：
+;   ① 自由内容：send: / hotkey:（按键、组合键、文本）、paste:（长文本用剪贴板粘贴）
+;   ② 必须命中"已配置命令表"（四块小键盘 + 圆盘菜单里配过的动作）：run: / self: / item: 名称
+; 其余任何一行都**不执行**，只列进"已丢弃"清单给用户过目 ——
+; 绝不按"裸行 = 普通发送"处理，否则模型多说一句解释就会被原样打进编辑器。
+; 等待由运行器自动插入（动作之间 step_delay_ms、run: 之后 run_wait_ms），不让模型输出 wait:。
+
+; ---- 读一个 [runbox] 配置值并剥离行内注释 ----
+; IniRead 不会剥注释（"值  ; 注释" 会把注释一起带回来），这里按"空白 + ;"截断
+RunBoxCfg(key, def) {
+    global configFile
+    v := Trim(IniRead(configFile, "runbox", key, def))
+    if RegExMatch(v, "\s;", &m)
+        v := Trim(SubStr(v, 1, m.Pos - 1))
+    return (v = "") ? def : v
+}
+
+RunBoxLoadConfig() {
+    global configFile, runboxHotkey, runboxConfirm, runboxModel, runboxTimeout
+    global runboxStepDelay, runboxRunWait, runboxMaxActions, runboxPromptExtra
+    if !FileExist(configFile)
+        return
+    v := RunBoxCfg("hotkey", "")
+    if (v != "")
+        runboxHotkey := v
+    runboxConfirm := (StrLower(RunBoxCfg("confirm", "true")) = "true")
+    runboxModel := RunBoxCfg("model", "")
+    v := RunBoxCfg("timeout_ms", "")
+    if RegExMatch(v, "^\d+$")
+        runboxTimeout := Max(Integer(v), 5000)
+    v := RunBoxCfg("step_delay_ms", "")
+    if RegExMatch(v, "^\d+$")
+        runboxStepDelay := Max(0, Min(Integer(v), 5000))
+    v := RunBoxCfg("run_wait_ms", "")
+    if RegExMatch(v, "^\d+$")
+        runboxRunWait := Max(0, Min(Integer(v), 10000))
+    v := RunBoxCfg("max_actions", "")
+    if RegExMatch(v, "^\d+$")
+        runboxMaxActions := Max(1, Min(Integer(v), 200))
+    ; prompt_extra 是自由文本，不做注释剥离（里面可能有分号）
+    runboxPromptExtra := Trim(IniRead(configFile, "runbox", "prompt_extra", ""))
+    DebugLog("[runbox] 配置：hotkey=" . runboxHotkey . " confirm=" . runboxConfirm . " model=" . runboxModel
+        . " timeout=" . runboxTimeout . " step=" . runboxStepDelay . " run_wait=" . runboxRunWait
+        . " max=" . runboxMaxActions)
+}
+
+; ---- 已配置命令表 → 紧凑文本（喂给模型；解析时另用它做白名单）----
+RunBoxCatalogText() {
+    txt := ""
+    last := ""
+    for it in OverlayConfiguredItems() {
+        if (it.source != last) {
+            txt .= (txt = "" ? "" : "`n") . "[" . it.source . "] "
+            last := it.source
+        } else
+            txt .= "、"
+        txt .= it.name . "=" . it.action
+    }
+    if (txt = "")
+        txt := "（没有任何已配置的按键或菜单项）"
+    return txt
+}
+
+; ---- 系统提示语：把中文需求翻译成动作序列 ----
+RunBoxBuildPrompt() {
+    global runboxPromptExtra
+    ; 注意：AHK v2 字符串里的双引号要用单引号字符串或 `" 转义，不能写 ""（那是 v1 的写法）
+    p := '你是把中文操作需求翻译成"动作序列"的翻译器。你的输出会被程序逐行执行，必须严格遵守格式。' . "`n`n"
+    p .= "【输出格式】一行一个动作；不要编号、不要解释、不要 markdown 代码块、不要空行。`n"
+    p .= "可用动作只有下面这些：`n"
+    p .= "  send: 内容     按 AutoHotkey Send 语法输入（普通文本与按键都算，如 send: 你好）`n"
+    p .= "  hotkey: 内容   与 send: 等价，用于明确的快捷键（如 hotkey: ^s、hotkey: {F5}）`n"
+    p .= "  paste: 内容    用剪贴板粘贴（超过 20 个字的文本优先用它）`n"
+    p .= "  item: 名称     执行下表里名称对应的功能（最稳，优先使用）`n"
+    p .= "  run: 命令行    启动程序，命令行必须与下表里某个 run: 完全一致`n"
+    p .= "  self: 命令     必须与下表里某个 self: 完全一致`n"
+    p .= "若需求无法用上表完成，只输出一行：ERROR: 简短原因`n`n"
+    p .= "【规则】`n"
+    p .= "1. 优先复用下表：能对上名称就用 item: 名称；能对上热键就用 hotkey: 热键。`n"
+    p .= "2. 不要自己发明快捷键、程序路径或功能名；表里没有的 run: 与 self: 一律不允许。`n"
+    p .= "3. 需要输入的文字用 send:（短）或 paste:（长）原样写出，不要改写、不要翻译。`n"
+    p .= "4. 启动程序后不用写等待，程序会自动等待。`n"
+    p .= "5. 最多输出 40 行，且只输出动作行。`n`n"
+    p .= "【已配置命令表】`n" . RunBoxCatalogText() . "`n"
+    if (runboxPromptExtra != "")
+        p .= "`n【补充要求】`n" . runboxPromptExtra . "`n"
+    return p
+}
+
+; ---- 动作 → 一行可读描述（确认清单 / 进度提示用）----
+RunBoxActionLine(act) {
+    if (act.type = "send")
+        return "按键/文本：" . act.value
+    if (act.type = "paste")
+        return "粘贴文本：" . (StrLen(act.value) > 40 ? SubStr(act.value, 1, 40) . "…" : act.value)
+    if (act.type = "run")
+        return "启动程序：" . act.value
+    if (act.type = "self")
+        return "自身功能：" . act.value
+    if (act.type = "item")
+        return "配置项：" . act.value
+    if (act.type = "wait")
+        return "等待：" . act.value . " 毫秒"
+    return act.type
+}
+
+; ---- 解析模型回复：严格白名单 ----
+; 返回 {actions: [...], dropped: [...], error: ""}；error 非空表示模型明确说做不到
+RunBoxParseReply(reply) {
+    global runboxMaxActions
+    actions := []
+    dropped := []
+    errText := ""
+
+    ; 白名单：配置里出现过的 run: / self:
+    allowedRun := Map()
+    allowedSelf := Map()
+    for it in OverlayConfiguredItems() {
+        a := OverlayActionParse(it.action)
+        if (a.type = "run")
+            allowedRun[StrLower(a.value)] := true
+        else if (a.type = "self")
+            allowedSelf[StrLower(a.value)] := true
+    }
+
+    fence := Chr(96) . Chr(96) . Chr(96)     ; markdown 代码块围栏（三个反引号）
+    txt := StrReplace(reply, fence, "")      ; 容忍模型套代码块
+    if RegExMatch(txt, "i)ERROR\s*[:：]\s*([^\r\n]*)", &em)
+        errText := Trim(em[1])
+
+    if (errText = "") {
+        Loop parse, txt, "`n", "`r" {
+            line := Trim(A_LoopField)
+            if (line = "")
+                continue
+            ; 容忍模型自作主张加的行首编号 / 项目符号
+            line := Trim(RegExReplace(line, "^\s*(?:\d+\s*[\.\)、]|[-*+])\s*", ""))
+            if (line = "")
+                continue
+
+            if RegExMatch(line, "i)^(?:send|hotkey|paste)\s*:", &m) {
+                act := OverlayActionParse(line)
+                if (act.type = "none") {
+                    dropped.Push(line . "   ← 内容为空")
+                    continue
+                }
+                if (StrLen(act.value) > 500) {
+                    act.value := SubStr(act.value, 1, 500)
+                    dropped.Push("（有一条文本超过 500 字，已截断）")
+                }
+                actions.Push(act)
+                continue
+            }
+            if RegExMatch(line, "i)^run\s*:(.*)$", &m) {
+                raw := Trim(m[1])
+                if (allowedRun.Has(StrLower(raw)))
+                    actions.Push({type: "run", value: raw})
+                else
+                    dropped.Push(line . "   ← 不在「已配置命令表」中")
+                continue
+            }
+            if RegExMatch(line, "i)^self\s*:(.*)$", &m) {
+                raw := StrLower(Trim(m[1]))
+                if (allowedSelf.Has(raw))
+                    actions.Push({type: "self", value: raw})
+                else
+                    dropped.Push(line . "   ← 不在「已配置命令表」中")
+                continue
+            }
+            if RegExMatch(line, "i)^item\s*:(.*)$", &m) {
+                name := Trim(m[1])
+                if (OverlayLookupItem(name))
+                    actions.Push({type: "item", value: name})
+                else
+                    dropped.Push(line . "   ← 配置里没有这个名称")
+                continue
+            }
+            low := StrLower(line)
+            if (low = "close" || low = "case") {
+                dropped.Push(line . "   ← 本场景不使用 close / case")
+                continue
+            }
+            dropped.Push(line . "   ← 无法识别，未执行")
+        }
+    }
+
+    if (actions.Length > runboxMaxActions) {
+        dropped.Push("（模型给出 " . actions.Length . " 条，超过上限 " . runboxMaxActions . "，只执行前 " . runboxMaxActions . " 条）")
+        trimmed := []
+        Loop runboxMaxActions
+            trimmed.Push(actions[A_Index])
+        actions := trimmed
+    }
+    return {actions: actions, dropped: dropped, error: errText}
+}
+
+; ---- 弹出 / 关闭运行框（再按一次触发键 = 关闭）----
+RunBoxShow() {
+    global runboxGui, runboxEdit, runboxStatus, runboxHandle, runboxDetail
+    global runboxPrevWin, runboxPrevTitle, runboxState, runboxBusy, runboxLog
+    global runboxExpanded, runboxHSmall, ui_font_size
+    if (runboxGui) {
+        RunBoxClose()
+        return
+    }
+    if (runboxBusy)
+        return
+    runboxPrevWin := WinExist("A")
+    runboxPrevTitle := ""
+    if (runboxPrevWin) {
+        t := ""
+        try WinGetTitle(&t, "ahk_id " . runboxPrevWin)
+        runboxPrevTitle := t
+    }
+    runboxState := "input"
+    runboxBusy := false
+
+    g := Gui()
+    g.Opt("-Caption +AlwaysOnTop +Border")
+    g.Title := "SharpKnife 运行框"
+    g.BackColor := "2D2D2D"
+    g.SetFont("s" . ui_font_size, "Microsoft YaHei")
+    g.Add("Text", "cFFCB66 w560", "用中文描述你要做的操作（回车交给模型解析，Esc 取消）：")
+    g.SetFont("s" . ui_font_size, "Consolas")
+    edit := g.Add("Edit", "cFFFFFF Background2D2D2D w560")
+    g.SetFont("s" . Max(ui_font_size - 4, 7), "Microsoft YaHei")
+    status := g.Add("Text", "c888888 w560", "可用动作：send: / hotkey: / paste: / item: / run: / self:")
+    ; 界面只有两块：上面输入框，下面可展开 / 收起的"动作执行过程"
+    ; （原先中间那块"计划清单"展示框已按要求去掉；清单与丢弃信息都记在过程面板里）
+    ; 底部小把手：点它展开 / 收起"执行全过程"面板（+0x100 = SS_NOTIFY，静态控件才会响应点击）
+    handle := g.Add("Text", "+0x100 c88AADD w560 Center", "▼ 执行过程（点击展开）")
+    detail := g.Add("Edit", "ReadOnly +Multi +VScroll cCCCCCC Background1F1F1F w560 r14 Hidden")
+    okBtn := g.Add("Button", "Hidden Default", "OK")   ; 隐藏的默认按钮：Edit 里按回车即触发它
+    okBtn.OnEvent("Click", (*) => RunBoxDefault())
+    handle.OnEvent("Click", (*) => RunBoxToggleDetail())
+    g.OnEvent("Escape", (*) => RunBoxEsc())
+    runboxGui := g
+    runboxEdit := edit
+    runboxStatus := status
+    runboxHandle := handle
+    runboxDetail := detail
+    runboxExpanded := false                     ; 每次打开都先收起
+    runboxLog := []                             ; 过程日志也从空白开始
+    try handle.Text := "▼ 执行过程（点击展开）"
+
+    g.Show("AutoSize Hide")
+    RunBoxMeasureHeights()                     ; 量好"收起高度"与"过程面板额外高度"
+    runboxExpanded := false                    ; 默认一定是收起态（只有点把手才展开）
+    try detail.Visible := false
+    g.GetPos(&gx, &gy, &gw, &gh)
+    vb := RadialVirtualBounds()
+    newX := vb.x + (vb.w - gw) // 2
+    newY := vb.y + vb.h // 5
+    g.Move(Max(vb.x, newX), Max(vb.y, newY), gw, runboxHSmall)
+    g.Show()
+    RunBoxApplyHeight()                        ; 再按收起高度套一次（双保险）
+    ; 输入框自动获得焦点（运行框本来就是要抢焦点来打字的，提交后会还给原窗口）
+    try edit.Focus()
+    ; 持续跟踪"最近一个活动窗口（排除运行框自己）"：每 400ms 看一眼，变了就记下来
+    RunBoxTrackTarget()
+    SetTimer(RunBoxTrackTarget, 400)
+    ; 无边框窗口的拖动：先注销可能残留的旧回调，再注册（WM_NCHITTEST + 吞双击最大化）
+    OnMessage(0x0084, RunBoxHitTest, 0)
+    OnMessage(0x0084, RunBoxHitTest)
+    OnMessage(0x00A3, RunBoxNoMaximize, 0)
+    OnMessage(0x00A3, RunBoxNoMaximize)
+    OnMessage(0x00A1, RunBoxNcLButtonDown, 0)     ; 小把手的第二道点击入口
+    OnMessage(0x00A1, RunBoxNcLButtonDown)
+    DebugLog("[runbox] 已弹出运行框，目标窗口=" . runboxPrevWin . "「" . runboxPrevTitle . "」")
+}
+
+; ---- 安全取运行框窗口句柄 ----
+; Gui 对象被 Destroy() 之后再读 .Hwnd 会抛 "Gui has no window"（定时器可能正好在这期间触发），
+; 所以凡是要用句柄的地方都走这里：已销毁就返回 0，绝不抛异常。
+RunBoxHwnd() {
+    global runboxGui
+    if (!runboxGui)
+        return 0
+    h := 0
+    try h := runboxGui.Hwnd
+    return h
+}
+
+; ---- 弹出时量好"收起态高度"和"过程面板额外高度" ----
+; 设计要点（血泪教训）：
+;   · 只依赖**一次** AutoSize（在窗口隐藏、过程面板与清单都隐藏时量收起高度）；
+;     展开高度不再靠"切成可见再量"，而是直接 += 过程面板自身高度 + 间距。
+;   · 不再来回切可见性，并且在 finally 里强制把两个可选项恢复成"隐藏" ——
+;     否则中途抛异常会把过程面板留在可见状态，表现就是"默认打开就是展开的"。
+;   · 保险：收起高度必须容得下小把手（用控件在客户区的位置推算，隐藏状态也能取到），
+;     否则收起后把手会被挤到窗口外面，看起来像"把手消失了"。
+RunBoxMeasureHeights() {
+    global runboxGui, runboxDetail, runboxHandle, runboxHSmall, runboxExtraDetail
+    runboxHSmall := 0
+    runboxExtraDetail := 0
+    if (!runboxGui)
+        return
+    ; 控件没挂上就什么都不做（防御：曾因 global 声明漏写导致这里拿到空串并抛错）
+    if (!runboxDetail || !runboxHandle)
+        return
+    try {
+        runboxDetail.Visible := false
+        runboxGui.Show("AutoSize Hide")
+        h := 0
+        runboxGui.GetPos(, , , &h)
+        runboxHSmall := h
+    } catch Error as e {
+        DebugLog("[runbox] 量收起高度失败：" . e.Message)
+    } finally {
+        try runboxDetail.Visible := false
+    }
+
+    ; 过程面板自身高度（隐藏状态下 ControlGetPos 依然能取到真实尺寸）
+    ; 注意：ControlGetPos 失败时输出参数会被置回"未赋值"，所以一律用 IsSet 判断
+    dh := 0
+    try ControlGetPos(, , , &dh, runboxDetail)
+    if (!IsSet(dh) || dh <= 0)
+        dh := 260                                  ; 兜底：r14 的经验值
+    runboxExtraDetail := dh + 12
+
+    if (!IsSet(runboxHSmall) || runboxHSmall <= 0)
+        runboxHSmall := 200                        ; 量不到就保守给个高度，不让它变 0
+
+    ; 保险：收起高度至少要能看见小把手
+    try {
+        hx := 0, hy := 0, hw := 0, hh := 0
+        ControlGetPos(&hx, &hy, &hw, &hh, runboxHandle)
+        if (IsSet(hy) && IsSet(hh) && hh > 0) {
+            wx := 0, wy := 0
+            runboxGui.GetPos(&wx, &wy)
+            offY := 0
+            try WinGetClientPos(&cx, &cy, , , "ahk_id " . RunBoxHwnd())
+            if (IsSet(cy) && IsSet(wy))
+                offY := cy - wy                    ; 客户区顶边相对窗口顶边的偏移
+            need := offY + hy + hh + 6
+            if (need > runboxHSmall)
+                runboxHSmall := need
+        }
+    } catch {
+    }
+    DebugLog("[runbox] 高度：收起=" . runboxHSmall . "，过程面板额外=" . runboxExtraDetail)
+}
+
+; ---- 按当前展开状态调整窗口高度（收起 = runboxHSmall；展开 = 再加 runboxExtraDetail）----
+RunBoxApplyHeight() {
+    global runboxGui, runboxExpanded, runboxHSmall, runboxExtraDetail
+    if (!runboxGui)
+        return
+    base := (IsSet(runboxHSmall) && runboxHSmall > 0) ? runboxHSmall : 200
+    extra := (IsSet(runboxExtraDetail) && runboxExtraDetail > 0) ? runboxExtraDetail : 0
+    newH := Max(base, 120) + (runboxExpanded ? extra : 0)
+    try {
+        runboxGui.GetPos(&gx, &gy, &gw)
+        vb := RadialVirtualBounds()
+        if (gy + newH > vb.y + vb.h)
+            gy := Max(vb.y, vb.y + vb.h - newH)     ; 撑开后别跑到屏幕外面去
+        runboxGui.Move(gx, gy, gw, newH)
+    } catch Error as e {
+        DebugLog("[runbox] 调整高度失败：" . e.Message . "（目标高度=" . newH . "）")
+    }
+}
+
+; ---- 底部小把手：展开 / 收起"执行全过程"面板 ----
+RunBoxToggleDetail() {
+    global runboxExpanded, runboxDetail, runboxHandle, runboxGui, runboxEdit, runboxToggleTick
+    global runboxExtraDetail
+    if (!runboxGui)
+        return
+    ; 两条点击路径（静态控件 Click / WM_NCLBUTTONDOWN 拦截）去抖：300ms 内只认一次，
+    ; 避免万一两条都触发时"展开又立刻收起"=看起来没反应
+    now := A_TickCount
+    if (now - runboxToggleTick < 300)
+        return
+    runboxToggleTick := now
+    runboxExpanded := !runboxExpanded
+    try runboxDetail.Visible := runboxExpanded
+    try runboxHandle.Text := runboxExpanded ? "▲ 执行过程（点击收起）" : "▼ 执行过程（点击展开）"
+    ; 窗口高度要显式改：已显示的窗口再调 Show("AutoSize") 不保证重新收紧 / 撑开，
+    ; 之前就是"面板出来了但被窗口挡住"，看着像把手点了没反应。
+    if (runboxExpanded)
+        RunBoxRenderLog()                          ; 只有展开了才渲染执行过程
+    RunBoxApplyHeight()
+    try runboxEdit.Focus()
+    ok := false
+    try ok := runboxDetail.Visible
+    DebugLog("[runbox] 执行过程面板：" . (runboxExpanded ? "展开" : "收起")
+        . "（面板可见=" . ok . "，额外高度=" . (IsSet(runboxExtraDetail) ? runboxExtraDetail : 0) . "）")
+}
+
+; ---- 执行全过程日志：追加一行；面板开着就刷新并自动滚到底部 ----
+RunBoxLogAdd(line) {
+    global runboxLog, runboxDetail, runboxExpanded
+    runboxLog.Push(line)
+    ; 收起状态下**不渲染**（用户要求：只有打开扩展区域才显示执行过程）
+    if (!runboxDetail || !runboxExpanded)
+        return
+    RunBoxRenderLog()
+}
+
+; ---- 把日志渲染进过程面板并滚到底（展开时调用；收起时不显示）----
+RunBoxRenderLog() {
+    global runboxLog, runboxDetail
+    if (!runboxDetail)
+        return
+    txt := ""
+    for l in runboxLog
+        txt .= l . "`n"
+    try runboxDetail.Value := RTrim(txt, "`n")
+    try {
+        SendMessage(0x00B1, -1, -1, , "ahk_id " . runboxDetail.Hwnd)   ; EM_SETSEL：光标移到末尾
+        SendMessage(0x00B7, 0, 0, , "ahk_id " . runboxDetail.Hwnd)     ; EM_SCROLLCARET：滚到可见
+    }
+}
+
+; ---- 小把手的第二道点击入口：系统把"按在标题栏上"的消息拦下来当点击 ----
+; 为什么需要：Text 是静态控件，默认对鼠标"透明"（命中测试返回 HTTRANSPARENT），
+; 鼠标消息会落到父窗口；而父窗口已被我们改成 HTCAPTION（用来拖动窗口），
+; 于是系统直接进入"拖标题栏"流程，静态控件根本收不到 WM_LBUTTONDOWN，Click 事件自然不触发。
+; 这里拦 WM_NCLBUTTONDOWN(0x00A1)：wParam = HTCAPTION(2) 且落点在小把手矩形内 → 当作点击并吞掉，
+; 其余位置原样放行（继续拖窗口）。选 0x00A1 而不是 0x0201，同样是为了不与其它组件抢消息。
+RunBoxNcLButtonDown(wParam, lParam, msg, hwnd) {
+    global runboxHandle
+    if (wParam != 2)                      ; 2 = HTCAPTION
+        return
+    ownHwnd := RunBoxHwnd()
+    if (!ownHwnd || hwnd != ownHwnd)
+        return
+    if (!runboxHandle)
+        return
+    pt := Buffer(8, 0)
+    DllCall("GetCursorPos", "Ptr", pt)
+    mx := NumGet(pt, 0, "Int")
+    my := NumGet(pt, 4, "Int")
+    ControlGetPos(&hx, &hy, &hw, &hh, runboxHandle)
+    WinGetClientPos(&cx, &cy, , , "ahk_id " . ownHwnd)
+    if (mx >= cx + hx && mx <= cx + hx + hw && my >= cy + hy && my <= cy + hy + hh) {
+        RunBoxToggleDetail()
+        return 0                          ; 吞掉：不要进入窗口拖动
+    }
+    return
+}
+
+; ---- 无边框运行框的拖动：靠 WM_NCHITTEST 让系统按"标题栏"处理 ----
+; 返回 HTCAPTION(2) 后，按住窗口任意位置（标题行 / 状态行 / 结果清单 / 边框）即可拖动；
+; 输入框是真正的 Edit 控件，单独放行，保持点选、光标与输入法正常。
+; 注意：这里用 WM_NCHITTEST(0x0084) 而不是径向菜单 / 小键盘 / 思考窗口用的
+; WM_LBUTTONDOWN(0x0201) —— 后者每个消息只能挂一个回调，谁后注册谁覆盖（会互相抢）。
+RunBoxHitTest(wParam, lParam, msg, hwnd) {
+    global runboxEdit, runboxHandle, runboxDetail
+    ownHwnd := RunBoxHwnd()
+    if (!ownHwnd)
+        return
+    ; 只认运行框自己（含其子控件）的消息；GA_ROOT = 2
+    if (DllCall("GetAncestor", "Ptr", hwnd, "UInt", 2, "Ptr") != ownHwnd)
+        return
+    if (runboxEdit && hwnd = runboxEdit.Hwnd)
+        return                                     ; 输入框：正常编辑行为
+    if (runboxHandle && hwnd = runboxHandle.Hwnd)
+        return                                     ; 小把手：要能点击
+    if (runboxDetail && hwnd = runboxDetail.Hwnd)
+        return                                     ; 过程面板：要能滚动 / 选文字
+    return 2                                       ; HTCAPTION：交给系统拖动
+}
+
+; 拖动时双击标题区会被系统当成"最大化"——这里吞掉它，运行框保持原尺寸
+RunBoxNoMaximize(wParam, lParam, msg, hwnd) {
+    ownHwnd := RunBoxHwnd()
+    if (!ownHwnd)
+        return
+    if (DllCall("GetAncestor", "Ptr", hwnd, "UInt", 2, "Ptr") != ownHwnd)
+        return
+    return 0
+}
+
+; ---- 记录"最近一个活动的窗口"（排除运行框自己），动作最终都打到它上面 ----
+; 运行框本身要抢焦点来打字，所以不能只看弹出那一刻的前台窗口：
+; 用户可能在运行框开着时切到别的程序，之后连续下需求时目标就该是那个程序。
+RunBoxTrackTarget() {
+    global runboxPrevWin, runboxPrevTitle
+    cur := WinExist("A")
+    if (!cur)
+        return
+    ownHwnd := RunBoxHwnd()
+    if (ownHwnd && cur = ownHwnd)              ; 运行框自己不算
+        return
+    if (!ownHwnd && !IsSet(runboxPrevWin))     ; 极端情况：窗口已关
+        return
+    if (cur = runboxPrevWin)                   ; 没变，省掉取标题的开销
+        return
+    runboxPrevWin := cur
+    t := ""
+    try WinGetTitle(&t, "ahk_id " . cur)
+    runboxPrevTitle := t
+    DebugLog("[runbox] 目标窗口更新为「" . t . "」（hwnd=" . cur . "）")
+}
+
+RunBoxClose() {
+    global runboxGui, runboxEdit, runboxStatus, runboxState, runboxBusy, runboxPrevWin
+    global runboxHandle, runboxDetail, runboxExpanded
+    ; 顺序很重要：**先停表、先清空全局引用，最后才销毁窗口**。
+    ; 否则定时器（每 400ms）可能在 Destroy() 与清空之间插进来读 runboxGui.Hwnd，
+    ; 抛 "Gui has no window"（2026-09-15 用户实测踩到）。
+    SetTimer(RunBoxTrackTarget, 0)
+    OnMessage(0x0084, RunBoxHitTest, 0)
+    OnMessage(0x00A3, RunBoxNoMaximize, 0)
+    OnMessage(0x00A1, RunBoxNcLButtonDown, 0)
+    runboxBusy := false
+    runboxState := ""
+    g := runboxGui
+    runboxGui := ""
+    runboxEdit := ""
+    runboxStatus := ""
+    runboxHandle := ""
+    runboxDetail := ""
+    runboxExpanded := false
+    if (g) {
+        try g.Destroy()
+    }
+    RunBoxEscOff()
+    if (runboxPrevWin)
+        RadialActivateFocusWin(runboxPrevWin)
+}
+
+; ---- 回车：输入态 = 提交需求；确认态 = 开始执行 ----
+RunBoxDefault() {
+    global runboxState
+    if (runboxState = "input")
+        RunBoxSubmit()
+    else if (runboxState = "confirm")
+        RunBoxExecute()
+}
+
+; ---- Esc：输入 / 确认 / 结果态 = 关闭窗口；执行态交给全局 Esc 处理 ----
+RunBoxEsc() {
+    global runboxBusy
+    if (runboxBusy)
+        return
+    RunBoxClose()
+}
+
+; ---- 提交需求 → 请求模型 → 解析 → 确认清单 ----
+RunBoxSubmit() {
+    global runboxGui, runboxEdit, runboxStatus, runboxState, runboxBusy
+    global runboxPrevWin, runboxPrevTitle, runboxActions, runboxDropped, runboxConfirm
+    global runboxModel, runboxTimeout, runboxLog, ai_model, ai_timeout
+    if (runboxState != "input" || runboxBusy || !runboxGui)
+        return
+    req := Trim(runboxEdit.Value)
+    if (req = "")
+        return
+    DebugLog("[runbox] 需求：" . req)
+    runboxLog := []                              ; 每次新需求都重开一份过程日志
+    RunBoxLogAdd("[需求] " . req)
+    runboxBusy := true
+    runboxState := "loading"
+    try runboxEdit.Visible := false
+    try runboxStatus.Text := "正在请模型把需求解析成动作…（最长 " . Round(runboxTimeout / 1000) . " 秒，这段不能中断）"
+    ; 请求期间把焦点还给原窗口，别占着用户的编辑器
+    if (runboxPrevWin)
+        RadialActivateFocusWin(runboxPrevWin)
+
+    sysPrompt := RunBoxBuildPrompt()
+    userPrompt := "当前前台窗口：" . (runboxPrevTitle != "" ? runboxPrevTitle : "（未知）") . "`n操作需求：" . req
+
+    savedModel := ai_model
+    savedTimeout := ai_timeout
+    if (runboxModel != "")
+        ai_model := runboxModel
+    if (runboxTimeout > 0)
+        ai_timeout := runboxTimeout
+    result := "", reasoning := "", errMsg := ""
+    ok := false
+    try {
+        ok := AIRequest(userPrompt, &result, &reasoning, &errMsg, sysPrompt)
+    } catch Error as e {
+        ok := false
+        errMsg := "请求异常：" . e.Message
+    }
+    ai_model := savedModel
+    ai_timeout := savedTimeout
+
+    if (!ok) {
+        DebugLog("[runbox] 解析失败：" . errMsg)
+        RunBoxBackToInput("解析失败：" . errMsg)
+        return
+    }
+    parsed := RunBoxParseReply(result)
+    if (parsed.error != "") {
+        DebugLog("[runbox] 模型表示做不到：" . parsed.error)
+        RunBoxBackToInput("模型认为无法完成：" . parsed.error)
+        return
+    }
+    runboxActions := parsed.actions
+    runboxDropped := parsed.dropped
+    DebugLog("[runbox] 解析出 " . runboxActions.Length . " 条动作，丢弃 " . runboxDropped.Length . " 行")
+    RunBoxLogAdd("[模型] 解析出 " . runboxActions.Length . " 条动作，丢弃 " . runboxDropped.Length . " 行")
+    if (runboxActions.Length = 0) {
+        RunBoxBackToInput("没有可执行的动作（模型输出见 debug.log）")
+        return
+    }
+    RunBoxShowConfirm()
+}
+
+; ---- 解析失败 / 无动作：回到输入态并把提示写在状态栏 ----
+RunBoxBackToInput(msg) {
+    global runboxEdit, runboxStatus, runboxState, runboxBusy
+    runboxBusy := false
+    runboxState := "input"
+    try runboxEdit.Visible := true
+    RunBoxApplyHeight()
+    try runboxStatus.Text := msg . "（可修改需求后重试）"
+    try runboxEdit.Focus()
+}
+
+; ---- 显示"将执行"清单；confirm = false 时直接执行 ----
+RunBoxShowConfirm() {
+    global runboxActions, runboxDropped, runboxStatus, runboxState, runboxBusy, runboxConfirm
+    runboxBusy := false
+    runboxState := "confirm"
+    ; 界面只有"输入框 + 可展开的执行过程"两块：清单与丢弃明细记在过程面板里，
+    ; 这里只在状态行给一行摘要（想看明细就点底部把手展开）
+    try runboxStatus.Text := "将执行 " . runboxActions.Length . " 条动作（丢弃 " . runboxDropped.Length
+        . " 行）：回车执行，Esc 取消；点下方把手可看明细"
+    ; 全过程日志：把"将执行什么、丢弃了什么"也记下来
+    RunBoxLogAdd("[清单] 将执行 " . runboxActions.Length . " 条：")
+    for i, a in runboxActions
+        RunBoxLogAdd("      " . i . ". " . RunBoxActionLine(a))
+    if (runboxDropped.Length > 0) {
+        RunBoxLogAdd("[丢弃] " . runboxDropped.Length . " 行（不会执行）：")
+        for d in runboxDropped
+            RunBoxLogAdd("      ✗ " . d)
+    }
+    if (!runboxConfirm)
+        RunBoxExecute()
+}
+
+; ---- 开始执行（逐条、定时器推进、Esc 可中止）----
+RunBoxExecute() {
+    global runboxActions, runboxRunIdx, runboxPrevWin, runboxPrevTitle, runboxStatus, runboxState, runboxBusy
+    global runboxStartTick
+    if (runboxState = "running" || runboxActions.Length = 0)
+        return
+    runboxState := "running"
+    runboxBusy := true
+    runboxRunIdx := 0
+    RunBoxEscOn()                                  ; 执行期间 Esc = 中止后续动作
+    if (runboxPrevWin)
+        RadialActivateFocusWin(runboxPrevWin)      ; 动作要打到原来的前台窗口
+    runboxStartTick := A_TickCount
+    RunBoxLogAdd("[开始] 目标窗口：「" . (runboxPrevTitle != "" ? runboxPrevTitle : "未知") . "」")
+    try runboxStatus.Text := "开始执行…（Esc 可中止剩余动作）"
+    SetTimer(RunBoxStep, -10)
+}
+
+RunBoxStep() {
+    global runboxActions, runboxRunIdx, runboxPrevWin, runboxStatus, runboxStepDelay, runboxRunWait
+    runboxRunIdx++
+    if (runboxRunIdx > runboxActions.Length) {
+        RunBoxFinish("全部 " . runboxActions.Length . " 条动作已执行完毕")
+        return
+    }
+    act := runboxActions[runboxRunIdx]
+    desc := RunBoxActionLine(act)
+    try runboxStatus.Text := "正在执行 " . runboxRunIdx . "/" . runboxActions.Length . "：" . desc
+    ; 每条动作执行前，确保目标窗口是前台（run: 之后前台可能已经变成新程序，那时就发给新程序）
+    cur := WinExist("A")
+    if (!cur && runboxPrevWin)
+        RadialActivateFocusWin(runboxPrevWin)
+    t0 := A_TickCount
+    ok := OverlayActionExecute(act, "runbox", runboxPrevWin)
+    cost := A_TickCount - t0
+    DebugLog("[runbox] 第 " . runboxRunIdx . "/" . runboxActions.Length . " 条" . (ok ? "完成" : "未执行") . "：" . desc)
+    RunBoxLogAdd("[" . runboxRunIdx . "/" . runboxActions.Length . "] " . desc . (ok ? "    ✔ 完成  " : "    ✖ 未执行  ") . cost . "ms")
+    delay := runboxStepDelay
+    if (act.type = "run")
+        delay += runboxRunWait                      ; 启动程序后多等一会儿
+    SetTimer(RunBoxStep, -Max(delay, 10))
+}
+
+; ---- 收尾：停掉定时器、交还 Esc、显示结果 ----
+RunBoxFinish(msg) {
+    global runboxBusy, runboxState, runboxStatus, runboxGui, runboxEdit, runboxStartTick
+    SetTimer(RunBoxStep, 0)
+    runboxBusy := false
+    RunBoxEscOff()
+    DebugLog("[runbox] " . msg)
+    RunBoxLogAdd("[结果] " . msg . "（本次共 " . (A_TickCount - runboxStartTick) . "ms）")
+    ; 执行完（或被 Esc 中止）后**回到可编辑状态**：刚执行的动作留在清单里可回看，
+    ; 输入框清空并重新聚焦，方便直接接着输入下一条需求；想关掉按 Esc 或再按触发键。
+    runboxState := "input"
+    hw := RunBoxHwnd()
+    if (!hw)
+        return
+    try WinActivate("ahk_id " . hw)
+    try runboxEdit.Value := ""
+    try runboxEdit.Visible := true
+    try runboxEdit.Focus()
+    try runboxStatus.Text := msg . " · 可直接输入下一个需求（Esc 关闭）"
+}
+
+; ---- 执行期间接管 Esc（按一次中止后续动作），结束后交还给浮层栈或系统 ----
+RunBoxEscOn() {
+    Hotkey("Escape", RunBoxEscHandler, "On")
+}
+
+RunBoxEscOff() {
+    global overlayStack
+    if (IsSet(overlayStack) && overlayStack.Length > 0)
+        OverlayRegisterEscape()        ; 还有浮层开着：把 Esc 还给它们
+    else
+        Hotkey("Escape", "Off")
+}
+
+RunBoxEscHandler(*) {
+    global runboxBusy
+    if (runboxBusy) {
+        SetTimer(RunBoxStep, 0)
+        DebugLog("[runbox] 用户按 Esc 中止了后续动作")
+        RunBoxFinish("已被 Esc 中止，剩余动作不再执行")
+        return
+    }
+    RunBoxEsc()
 }
 
 ; ---- 加载 config.ini 的 [keypad] 与 [keypad.<kind>] 段 ----
@@ -4072,6 +4950,10 @@ if (keypadSymbolHotkey != "")
 if (keypadLetterHotkey != "")
     Hotkey(keypadLetterHotkey, (*) => KeypadToggle("letter"))
 
+; 自然语言运行框触发键（[runbox] hotkey，默认 Ctrl+Shift+I）：再按一次 = 关闭运行框
+if (runboxHotkey != "")
+    Hotkey(runboxHotkey, (*) => RunBoxShow())
+
 ; ============================================================================
 ; 12. 主入口 —— 触发命令（默认 Ctrl+J）
 ; ============================================================================
@@ -4651,10 +5533,12 @@ HttpResponseUtf8(whr) {
 ;     成功返回 true，result 为最终补全文本、reasoning 为思考过程（思考模式开启时非空）；
 ;     失败返回 false 且 errMsg 说明原因。
 ; ============================================================================
-AIRequest(prompt, &result, &reasoning, &errMsg) {
+AIRequest(prompt, &result, &reasoning, &errMsg, systemPrompt := "") {
     global ai_key, ai_base_url, ai_endpoint, ai_style, ai_model
     global ai_temperature, ai_max_tokens, ai_timeout, ai_system_prompt
     global ai_thinking, ai_reasoning_effort, ai_opencode_session
+    ; systemPrompt 非空时用它替代 [ai] system_prompt（自然语言运行框用它传"翻译成动作"的提示语）
+    sp := (systemPrompt = "") ? ai_system_prompt : systemPrompt
     if (ai_key = "") {
         errMsg := "未配置 API 密钥（config.ini → [ai] api_key）"
         return false
@@ -4671,7 +5555,7 @@ AIRequest(prompt, &result, &reasoning, &errMsg) {
     if (ai_style = "completion") {
         body := "{"
             . K("model") . J(ai_model) . ","
-            . K("prompt") . J(ai_system_prompt . "`n`n" . prompt) . ","
+            . K("prompt") . J(sp . "`n`n" . prompt) . ","
             . K("temperature") . ai_temperature . ","
             . K("max_tokens") . ai_max_tokens . ","
             . K("stream") . "false" . tail . "}"
@@ -4680,7 +5564,7 @@ AIRequest(prompt, &result, &reasoning, &errMsg) {
         body := "{"
             . K("model") . J(ai_model) . ","
             . K("messages") . "["
-            . "{" . K("role") . J("system") . "," . K("content") . J(ai_system_prompt) . "},"
+            . "{" . K("role") . J("system") . "," . K("content") . J(sp) . "},"
             . "{" . K("role") . J("user") . "," . K("content") . J(prompt) . "}"
             . "],"
             . K("temperature") . ai_temperature . ","
