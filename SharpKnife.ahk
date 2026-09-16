@@ -153,6 +153,12 @@ show_progress := (IniRead(configFile, "ui", "show_progress", "true") = "true")
 progress_text := IniRead(configFile, "ui", "progress_text", "正在生成...")
 ui_font_size  := Max(IniRead(configFile, "ui", "font_size", 10), 6)   ; 磅，最小 6
 
+; 浮层文字颜色（四块小键盘 + 径向菜单共用）：#RRGGBB 或 RRGGBB（也接受少量颜色名），
+; 默认亮黄色 FFFF00；非法值 / 纯黑（等于看不见）一律退回默认。
+overlay_text_color := OverlayParseColor(IniRead(configFile, "ui", "overlay_text_color", ""), "FFFF00")
+; 浮层文字的黑边宽度（像素，0 = 不描边，默认 1）；描边同样不受透明度影响
+overlay_text_outline := Max(Min(IniRead(configFile, "ui", "overlay_text_outline", 1) + 0, 3), 0)
+
 ; 调试日志开关（config.ini 的 [debug] enabled）：默认 false，不输出调试日志
 debug_enabled := (IniRead(configFile, "debug", "enabled", "false") = "true")
 
@@ -237,6 +243,7 @@ global radialTrigger := ""     ; 触发快捷键
 global radialFontSize := 0     ; 径向菜单字体大小（磅；[radial] font_size，缺省=全局 ui_font_size）
 global radialCommonMax := 6    ; 第一层【常用】周边显示的高频菜单项个数（[radial] common_max，默认 6）
 global radialGui := 0          ; 当前菜单 GUI 对象
+global radialTextGui := 0      ; 菜单的文字层窗口（文字始终不透明；见 10c-3）
 global radialLevel := 0        ; 当前层级：0=未显示，1=常用层，2=快捷菜单(分组)层，3=分组明细层
 global radialCurrentGroup := 0 ; 第二级时当前组的索引
 global radialFocusWin := 0     ; 弹窗前的焦点窗口
@@ -1567,16 +1574,18 @@ RadialComputeLayout(n, centerText, items, sizePt) {
 ; 双缓冲绘制真正的环形扇区菜单：外环按角度均分扇区，圆心为真正的圆形按钮，
 ; 扇区之间用细线分隔，文字放射状排布（沿径向，正立可读）。
 RadialBuildMenu() {
-    global radialGroups, radialGui, radialLevel, radialCurrentGroup, radialCenterX, radialCenterY
+    global radialGroups, radialGui, radialTextGui, radialLevel, radialCurrentGroup, radialCenterX, radialCenterY
     global radialMenuItems, radialHover, radialLayout, radialFontSize, radialCommonMax
 
-    ; 销毁旧 GUI
+    ; 销毁旧 GUI（含文字层；文字层无条件销毁，避免主窗口异常时残留）
     if (radialGui) {
         RadialUnregisterMsg()
         RadialFreeRgns()
         radialGui.Destroy()
         radialGui := 0
     }
+    OverlayTextLayerDestroy(radialTextGui)
+    radialTextGui := 0
     radialHover := 0
 
     ; 确定菜单项（展现内容）与圆心文字：
@@ -1679,6 +1688,9 @@ RadialBuildMenu() {
     ; 注册鼠标消息（窗口已显示，Hwnd 有效）
     RadialRegisterMsg()
 
+    ; 文字层：文字始终不透明（不受 opacity 影响），单独一层、与圆盘完全重合
+    radialTextGui := OverlayTextLayerNew(guiX, guiY, winSize, winSize)
+
     ; 首次绘制
     RadialDraw()
 
@@ -1687,6 +1699,19 @@ RadialBuildMenu() {
 
     ; 与其它已打开浮层避让（同屏时不允许重叠；圆盘刚打开，以它为准推开别人）
     OverlayAvoid("radial")
+
+    ; 文字层内容（在避让之后绘制，保证与圆盘最终位置完全一致）
+    RadialTextLayerPresent()
+}
+
+; ---- 重建 / 刷新圆盘文字层（自动取圆盘当前位置，保证完全重合）----
+RadialTextLayerPresent() {
+    global radialGui, radialTextGui, radialLayout
+    if (!radialGui || !radialTextGui || !radialLayout)
+        return
+    WinGetPos(&tx, &ty, , , "ahk_id " . radialGui.Hwnd)
+    OverlayTextLayerPresent(radialTextGui, tx, ty, radialLayout.winSize, radialLayout.winSize
+        , (maskDC, colorDC, w, h) => RadialPaintTexts(maskDC, colorDC))
 }
 
 ; ---- 布局常量 ----
@@ -1828,43 +1853,8 @@ RadialDraw() {
     DllCall("SelectObject", "Ptr", memDC, "Ptr", oldPen, "Ptr")
     DllCall("DeleteObject", "Ptr", pen)
 
-    ; 圆心文字
-    RadialDrawText(memDC, L.centerText, cx, cy, L.innerR, "3D3D4D", true)
-
-    ; 扇区文字（放射性排布：文字沿径向，正立可读，左右横排、上下竖排、斜侧沿径向外/内）
-    Loop n {
-        i := A_Index
-        item := radialMenuItems[i]
-        aMid := startRad + (i - 0.5) * angleStep
-        rMid := (L.innerR + L.outerR) / 2
-        tx := cx + Round(rMid * Cos(aMid))
-        ty := cy + Round(rMid * Sin(aMid))
-        ; 屏幕视觉角（度，与锚点/命中一致：0=右, +90=下, -90=上）
-        deg := aMid * 180 / 3.141592653589793
-        ; 归一化到 (-180, 180]
-        while (deg > 180)
-            deg -= 360
-        while (deg <= -180)
-            deg += 360
-        ; 文字基线目标视觉角：右半圆（含正上/正右/正下）沿径向朝外；
-        ; 左半圆翻转 180° 保持正立（正左即水平从左到右）。
-        ; 底部（"正下"）用户要求同顶部"从上到下"竖排 → 翻转到字头朝上。
-        ; 目标：视觉上文字"字头朝远离圆心"或"水平正立"——用统一规则：
-        ;   右半圆 (-90..90)：esc 视觉 = deg（顶部-90竖排朝上、右侧0横排、右下45斜）
-        ;   左半圆 (<-90 或 >90)：esc 视觉 = deg - 180（翻转，正左=0水平）
-        escVis := 0
-        if (deg >= -90 && deg <= 90) {
-            escVis := deg                 ; 右半圆
-        } else {
-            escVis := deg - 180           ; 左半圆翻转
-            if (escVis < -180)            ; 规整（deg≈-180 时 -> -360→0）
-                escVis += 360
-        }
-        ; 屏幕视觉角 → GDI 数学角（y 向上逆时针正；屏幕 y 向下 → 取负）
-        gdiEsc := Round(-escVis * 10)
-        ; 显示文本已在布局阶段按环宽实测截断并缓存（见 RadialBuildMenu）
-        RadialDrawRotatedText(memDC, item.shownName, tx, ty, gdiEsc)
-    }
+    ; 文字不在这里画：文字统一由独立的文字层绘制（见 RadialPaintTexts / 10c-3），
+    ; 这样文字不会跟随主窗口的透明度变淡。
 
     ; 外环描边
     outerBrush := BrushSolid("2A2A38")
@@ -1997,7 +1987,10 @@ RadialCreateFont(sizePt, face, escapement := 0) {
         , "Int", -px, "Int", 0, "Int", escapement, "Int", escapement
         , "Int", 400, "UInt", 0, "UInt", 0, "UInt", 0
         , "UInt", 1, "UInt", 0, "UInt", 0
-        , "UInt", 0x01 | 0x04, "UInt", 0   ; CLEARTYPE_NATURAL_QUALITY | DEFAULT_PITCH
+        ; 品质固定用 ANTIALIASED_QUALITY(4) = 灰度抗锯齿：本项目的文字现在画在
+        ; 独立的透明文字层上（见 10c-3），灰度抗锯齿的像素 = 覆盖度 × 字色，
+        ; 可直接当作"预乘 ARGB"用；ClearType 是次像素抗锯齿，会破坏这个前提。
+        , "UInt", 4, "UInt", 0   ; ANTIALIASED_QUALITY | DEFAULT_PITCH
         , "Str", face, "Ptr")
 }
 
@@ -2045,13 +2038,17 @@ RadialTruncateToWidth(text, sizePt, maxWidth, hardMax := 8) {
 ; escapementTenths：GDI 旋转角度（0.1 度单位，正=逆时针/数学角）。
 ; 输入 (cx,cy) 视为目标视觉中心：文字包围盒中心应落在按钮中心，
 ; 因此需先按字体 ascent/descent 把 TextOut 的基线锚点沿文字法线方向补偿。
-RadialDrawRotatedText(memDC, text, cx, cy, escapementTenths) {
+; colorDC 画彩色字身；maskDC 画白色"字身 + 黑边"，其覆盖度作为最终 alpha。
+RadialDrawRotatedText(maskDC, colorDC, text, cx, cy, escapementTenths) {
     global radialFontSize
+    if (text = "")
+        return
     font := RadialCreateFont(radialFontSize, "Microsoft YaHei", escapementTenths)
-    oldFont := DllCall("SelectObject", "Ptr", memDC, "Ptr", font, "Ptr")
-    DllCall("SetBkMode", "Ptr", memDC, "Int", 1)   ; TRANSPARENT
+
+    ; 先按字体 ascent/descent 把 TextOut 的基线锚点沿文字法线方向补偿（与改造前一致）
+    oldFont := DllCall("SelectObject", "Ptr", colorDC, "Ptr", font, "Ptr")
     tm := Buffer(60, 0)
-    DllCall("GetTextMetricsW", "Ptr", memDC, "Ptr", tm)
+    DllCall("GetTextMetricsW", "Ptr", colorDC, "Ptr", tm)
     ascent := NumGet(tm, 4, "Int")
     descent := NumGet(tm, 8, "Int")
     shift := (ascent - descent) / 2
@@ -2059,37 +2056,105 @@ RadialDrawRotatedText(memDC, text, cx, cy, escapementTenths) {
     theta := screenDeg * 3.141592653589793 / 180.0
     baseX := Round(cx + (-Sin(theta)) * shift)
     baseY := Round(cy + Cos(theta) * shift)
-    ; TA_CENTER（文字方向中点）| TA_BASELINE（基线）：再配合上面的法线补偿，
-    ; 使最终可见文字中心尽量落在扇区按钮中心。
-    DllCall("SetTextAlign", "Ptr", memDC, "UInt", 0x0006 | 0x0008, "UInt")
-    DllCall("SetTextColor", "Ptr", memDC, "UInt", 0xFFFFFF)
-    DllCall("TextOutW", "Ptr", memDC, "Int", baseX, "Int", baseY, "Str", text, "Int", StrLen(text))
-    DllCall("SelectObject", "Ptr", memDC, "Ptr", oldFont, "Ptr")
+
+    ; 彩色层：字身只画一次
+    DllCall("SetBkMode", "Ptr", colorDC, "Int", 1)   ; TRANSPARENT
+    DllCall("SetTextAlign", "Ptr", colorDC, "UInt", 0x0006 | 0x0008, "UInt")   ; TA_CENTER | TA_BASELINE
+    DllCall("SetTextColor", "Ptr", colorDC, "UInt", OverlayTextColor())
+    DllCall("TextOutW", "Ptr", colorDC, "Int", baseX, "Int", baseY, "Str", text, "Int", StrLen(text))
+    DllCall("SelectObject", "Ptr", colorDC, "Ptr", oldFont, "Ptr")
+
+    ; 掩码层：先画黑边偏移、最后画字身（保证字身覆盖度不会被偏移的低覆盖盖掉）
+    oldFont := DllCall("SelectObject", "Ptr", maskDC, "Ptr", font, "Ptr")
+    DllCall("SetBkMode", "Ptr", maskDC, "Int", 1)
+    DllCall("SetTextAlign", "Ptr", maskDC, "UInt", 0x0006 | 0x0008, "UInt")
+    DllCall("SetTextColor", "Ptr", maskDC, "UInt", 0xFFFFFF)
+    for off in OverlayTextOffsets(OverlayTextOutlineWidth())
+        DllCall("TextOutW", "Ptr", maskDC, "Int", baseX + off.x, "Int", baseY + off.y, "Str", text, "Int", StrLen(text))
+    DllCall("TextOutW", "Ptr", maskDC, "Int", baseX, "Int", baseY, "Str", text, "Int", StrLen(text))
+
+    DllCall("SelectObject", "Ptr", maskDC, "Ptr", oldFont, "Ptr")
     DllCall("DeleteObject", "Ptr", font)
 }
 
 ; ---- 绘制文字（水平垂直双居中，圆心文字用）----
-RadialDrawText(memDC, text, cx, cy, maxR, bgColor, isCenter) {
+; 圆心文字：colorDC 画彩色字身；maskDC 画白色"字身 + 黑边"（决定 alpha）。
+RadialDrawText(maskDC, colorDC, text, cx, cy, maxR, bgColor, isCenter) {
     global radialFontSize
+    if (text = "")
+        return
     font := RadialCreateFont(radialFontSize, "Microsoft YaHei")
-    oldFont := DllCall("SelectObject", "Ptr", memDC, "Ptr", font, "Ptr")
-    DllCall("SetBkMode", "Ptr", memDC, "Int", 1)   ; TRANSPARENT
-    DllCall("SetTextColor", "Ptr", memDC, "UInt", 0xFFFFFF)
-    ; 测量文字尺寸
+    oldFont := DllCall("SelectObject", "Ptr", colorDC, "Ptr", font, "Ptr")
     sz := Buffer(8)
-    DllCall("GetTextExtentPoint32W", "Ptr", memDC, "Str", text, "Int", StrLen(text), "Ptr", sz)
+    DllCall("GetTextExtentPoint32W", "Ptr", colorDC, "Str", text, "Int", StrLen(text), "Ptr", sz)
     tw := NumGet(sz, 0, "Int")
     th := NumGet(sz, 4, "Int")
-    ; 以 (cx,cy) 为中心的矩形 → DrawTextW 双居中
-    rc := Buffer(16)
-    NumPut("Int", cx - tw // 2, rc, 0)
-    NumPut("Int", cy - th // 2, rc, 4)
-    NumPut("Int", cx + tw // 2, rc, 8)
-    NumPut("Int", cy + th // 2, rc, 12)
-    DllCall("DrawTextW", "Ptr", memDC, "Str", text, "Int", -1, "Ptr", rc
-        , "UInt", 0x0001 | 0x0004 | 0x0020 | 0x0800)   ; DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
-    DllCall("SelectObject", "Ptr", memDC, "Ptr", oldFont, "Ptr")
+    l := cx - tw // 2
+    t := cy - th // 2
+    r := cx + tw // 2
+    b := cy + th // 2
+
+    ; 彩色层：字身
+    OverlayDrawCenteredText(colorDC, text, l, t, r, b, OverlayTextColor())
+    DllCall("SelectObject", "Ptr", colorDC, "Ptr", oldFont, "Ptr")
+
+    ; 掩码层：先画黑边偏移、最后画字身
+    oldFont := DllCall("SelectObject", "Ptr", maskDC, "Ptr", font, "Ptr")
+    for off in OverlayTextOffsets(OverlayTextOutlineWidth())
+        OverlayDrawCenteredText(maskDC, text, l + off.x, t + off.y, r + off.x, b + off.y, 0xFFFFFF)
+    OverlayDrawCenteredText(maskDC, text, l, t, r, b, 0xFFFFFF)
+
+    DllCall("SelectObject", "Ptr", maskDC, "Ptr", oldFont, "Ptr")
     DllCall("DeleteObject", "Ptr", font)
+}
+
+; ---- 文字层内容：圆心文字 + 各扇区放射性文字（彩色字身 + 黑色描边，画在两块纯黑底上）----
+; 与改造前 RadialDraw 里的文字绘制逐行等价，只是改为画到文字层的 DC 上。
+RadialPaintTexts(maskDC, colorDC) {
+    global radialLayout, radialMenuItems
+    if (!radialLayout)
+        return
+    L := radialLayout
+    cx := L.cx
+    cy := L.cy
+    n := L.n
+    startRad := L.startRad
+    angleStep := 2 * 3.141592653589793 / n
+
+    ; 圆心文字
+    RadialDrawText(maskDC, colorDC, L.centerText, cx, cy, L.innerR, "3D3D4D", true)
+
+    ; 扇区文字（放射性排布：文字沿径向，正立可读，左右横排、上下竖排、斜侧沿径向外/内）
+    Loop n {
+        i := A_Index
+        if (i > radialMenuItems.Length)
+            break
+        item := radialMenuItems[i]
+        aMid := startRad + (i - 0.5) * angleStep
+        rMid := (L.innerR + L.outerR) / 2
+        tx := cx + Round(rMid * Cos(aMid))
+        ty := cy + Round(rMid * Sin(aMid))
+        ; 屏幕视觉角（度，与锚点/命中一致：0=右, +90=下, -90=上）
+        deg := aMid * 180 / 3.141592653589793
+        ; 归一化到 (-180, 180]
+        while (deg > 180)
+            deg -= 360
+        while (deg <= -180)
+            deg += 360
+        ; 文字基线目标视觉角：右半圆沿径向朝外；左半圆翻转 180° 保持正立（正左=水平）
+        escVis := 0
+        if (deg >= -90 && deg <= 90) {
+            escVis := deg                 ; 右半圆
+        } else {
+            escVis := deg - 180           ; 左半圆翻转
+            if (escVis < -180)            ; 规整（deg≈-180 时 -> -360→0）
+                escVis += 360
+        }
+        ; 屏幕视觉角 → GDI 数学角（y 向上逆时针正；屏幕 y 向下 → 取负）
+        gdiEsc := Round(-escVis * 10)
+        ; 显示文本已在布局阶段按环宽实测截断并缓存（见 RadialBuildMenu）
+        RadialDrawRotatedText(maskDC, colorDC, item.shownName, tx, ty, gdiEsc)
+    }
 }
 
 ; ---- 命中检测：返回 0=无，-1=圆心，i=扇区索引(1基) ----（基于区域句柄 PtInRegion，与绘制完全一致）
@@ -2136,7 +2201,7 @@ ATan2(y, x) {
 ; ---- 鼠标移动：更新悬停并重绘；圆心按下期间改为「拖拽判定 / 移动圆盘」----
 ; 返回空值放行消息（悬停检测不吞 WM_MOUSEMOVE，避免影响其它窗口/控件）
 RadialOnMouseMove(wParam, lParam, msg, hwnd) {
-    global radialGui, radialHover, radialCenterX, radialCenterY
+    global radialGui, radialTextGui, radialHover, radialCenterX, radialCenterY
     global radialDragPending, radialDragging, radialDragMoved
     global radialDragStartX, radialDragStartY, radialDragWinX, radialDragWinY
     if (!radialGui || hwnd != radialGui.Hwnd)
@@ -2166,6 +2231,8 @@ RadialOnMouseMove(wParam, lParam, msg, hwnd) {
             nx := Max(vb.x, Min(radialDragWinX + dx, vb.x + vb.w - ww))
             ny := Max(vb.y, Min(radialDragWinY + dy, vb.y + vb.h - wh))
             radialGui.Move(nx, ny)
+            ; 文字层跟着圆盘一起移动
+            OverlayTextLayerMove(radialTextGui, nx, ny)
             ; 同步菜单中心：切层重建时仍在该位置弹出
             radialCenterX := nx + ww // 2
             radialCenterY := ny + wh // 2
@@ -2214,11 +2281,12 @@ RadialOnMouseLeave(wParam, lParam, msg, hwnd) {
 ; 注意：OnMessage 回调返回「空值」（return / return ""）才放行消息让其正常流转；
 ; 返回整数（含 0）会被当作已回复而吞掉消息。径向菜单未打开或不属于它时务必返回空。
 RadialOnLButtonDown(wParam, lParam, msg, hwnd) {
-    global radialGui, radialDragPending, radialDragging, radialDragMoved
+    global radialGui, radialTextGui, radialDragPending, radialDragging, radialDragMoved
     global radialDragStartX, radialDragStartY, radialDragWinX, radialDragWinY
     if (!radialGui || hwnd != radialGui.Hwnd)
         return
     OverlayTouch("radial")       ; 在圆盘上按下（含点空位扇区的无效点击）也算"操作过"
+    OverlayTextLayerRaise(radialTextGui)   ; 点击会把圆盘提到最上层 → 立刻把文字层压回它上面
     x := lParam & 0xFFFF
     y := (lParam >> 16) & 0xFFFF
     if (x > 32767)
@@ -2317,7 +2385,7 @@ RadialShow(*) {
 
 ; ---- 关闭菜单 ----
 RadialClose() {
-    global radialGui, radialLevel, radialCurrentGroup, radialFocusWin
+    global radialGui, radialTextGui, radialLevel, radialCurrentGroup, radialFocusWin
     global radialDragPending, radialDragging, radialDragMoved
 
     ; 清理拖拽状态并释放鼠标捕获（拖拽中途关闭时不留后遗症）
@@ -2332,6 +2400,8 @@ RadialClose() {
         radialGui.Destroy()
         radialGui := 0
     }
+    OverlayTextLayerDestroy(radialTextGui)
+    radialTextGui := 0
     radialLevel := 0
     radialCurrentGroup := 0
     ; 圆盘窗口本身不抢焦点，关闭时不应无条件把前台强拉回旧窗口，
@@ -2709,18 +2779,21 @@ OverlayRects() {
 
 ; ---- 移动指定浮层；径向菜单顺带更新"中心"记录（切层重建时仍在当前位置）----
 OverlayMoveTo(name, x, y) {
-    global keypadPanels, radialGui, radialCenterX, radialCenterY
+    global keypadPanels, radialGui, radialTextGui, radialCenterX, radialCenterY
     if (name = "radial") {
         if (!radialGui)
             return
         radialGui.Move(x, y)
+        OverlayTextLayerMove(radialTextGui, x, y)      ; 文字层跟着走
         WinGetPos(, , &w, &h, "ahk_id " . radialGui.Hwnd)
         radialCenterX := x + w // 2
         radialCenterY := y + h // 2
         return
     }
-    if (keypadPanels.Has(name) && keypadPanels[name].gui)
+    if (keypadPanels.Has(name) && keypadPanels[name].gui) {
         keypadPanels[name].gui.Move(x, y)
+        OverlayTextLayerMove(keypadPanels[name].textGui, x, y)   ; 文字层跟着走
+    }
 }
 
 ; ---- 两个矩形是否重叠（把 A 按 gap 外扩后再判，等价于"间距小于 gap 也算需要让位"）----
@@ -2797,6 +2870,196 @@ OverlayAvoid(active) {
     loop OverlayAvoidMaxPass() {
         if (!OverlayAvoidPass(active, gap))
             break
+    }
+}
+
+; ============================================================================
+; 10c-3. 浮层文字层 —— 文字必须"始终不透明且为红色"，而主窗口整体受 opacity 参数控制
+;      （整窗 LWA_ALPHA 会把文字一起变淡），所以文字单独画在第二个窗口里：
+;        · 文字层用逐像素 alpha 合成（UpdateLayeredWindow + 预乘 ARGB），文字 alpha 恒为
+;          255，**完全不受透明度参数影响**；背景像素 alpha=0，等于透明；
+;        · 文字层点击穿透（WS_EX_TRANSPARENT）、不抢焦点（WS_EX_NOACTIVATE）、
+;          永远贴在所属面板正上方，并跟着面板一起移动（拖动 / 被避让推开都要跟着动）；
+;        · 逐像素合成只在"文字层创建 / 文字内容变化"时做一次（420×252 约 60ms），
+;          鼠标悬停只重绘主窗口，因此不影响悬停反馈速度。
+; ============================================================================
+
+; ---- 文字颜色（COLORREF，0x00BBGGRR）：由 [ui] overlay_text_color 配置，默认 #FFFF00 亮黄 ----
+OverlayTextColor() {
+    global overlay_text_color
+    if (IsSet(overlay_text_color) && overlay_text_color != "")
+        return overlay_text_color
+    return 0x00FFFF          ; 兜底：亮黄（正常情况下配置加载阶段已赋值）
+}
+
+; ---- 描边宽度（像素；[ui] overlay_text_outline，0 = 不描边，默认 1）----
+OverlayTextOutlineWidth() {
+    global overlay_text_outline
+    if (IsSet(overlay_text_outline) && overlay_text_outline != "")
+        return Max(0, Min(overlay_text_outline + 0, 3))
+    return 1
+}
+
+; ---- 描边偏移表：以 (0,0) 为中心、半径 r 的整圈偏移（不含中心）----
+OverlayTextOffsets(r) {
+    list := []
+    if (r <= 0)
+        return list
+    Loop r * 2 + 1 {
+        dy := A_Index - 1 - r
+        Loop r * 2 + 1 {
+            dx := A_Index - 1 - r
+            if (dx = 0 && dy = 0)
+                continue
+            list.Push({x: dx, y: dy})
+        }
+    }
+    return list
+}
+
+; ---- 在指定 DC 上"水平垂直双居中"画一次文字（黑边的每次偏移也用它）----
+OverlayDrawCenteredText(dc, text, l, t, r, b, color) {
+    DllCall("SetBkMode", "Ptr", dc, "Int", 1)          ; TRANSPARENT
+    DllCall("SetTextColor", "Ptr", dc, "UInt", color)
+    rc := Buffer(16)
+    NumPut("Int", l, rc, 0)
+    NumPut("Int", t, rc, 4)
+    NumPut("Int", r, rc, 8)
+    NumPut("Int", b, rc, 12)
+    DllCall("DrawTextW", "Ptr", dc, "Str", text, "Int", -1, "Ptr", rc
+        , "UInt", 0x0001 | 0x0004 | 0x0020 | 0x0800)   ; DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
+}
+
+; ---- 把"白字掩码图"的覆盖度搬进"彩字图"的 alpha 通道，得到预乘 ARGB ----
+; 彩字图里 RGB 已经是预乘形式（覆盖度 × 字色，黑边处 RGB = 0），只差 alpha；
+; 掩码图用白色画（含描边偏移），其 R 通道就是 (字身 ∪ 黑边) 的覆盖度 → 直接抄进 alpha。
+OverlayTextMaskToAlpha(colorDib, maskDib) {
+    o := 0
+    total := colorDib.w * colorDib.h
+    Loop total {
+        NumPut("UChar", NumGet(maskDib.bits, o + 2, "UChar"), colorDib.bits, o + 3)
+        o += 4
+    }
+}
+
+; ---- 解析颜色文本 → COLORREF；非法 / 纯黑时用默认色（防空 + 防呆）----
+; 支持 "#RRGGBB" / "RRGGBB" / 少量颜色名；颜色名与 sRGB 常见值一致。
+OverlayParseColor(text, defHex) {
+    static names := Map("yellow", "FFFF00", "gold", "FFD700", "orange", "FFA500"
+        , "red", "FF0000", "pink", "FF80AB", "green", "00FF00", "lime", "00FF00"
+        , "cyan", "00FFFF", "blue", "4A90D9", "white", "FFFFFF", "purple", "B388FF")
+    hex := Trim(text)
+    if (hex = "")
+        hex := defHex
+    else if (names.Has(StrLower(hex)))
+        hex := names[StrLower(hex)]
+    if (SubStr(hex, 1, 1) = "#")
+        hex := SubStr(hex, 2)
+    if (!RegExMatch(hex, "^[0-9A-Fa-f]{6}$"))
+        hex := defHex
+    rgb := Integer("0x" . hex)
+    if (rgb = 0)                       ; 纯黑 = 看不见，退回默认
+        rgb := Integer("0x" . defHex)
+    r := (rgb >> 16) & 0xFF
+    g := (rgb >> 8) & 0xFF
+    b := rgb & 0xFF
+    return (b << 16) | (g << 8) | r    ; RGB → COLORREF
+}
+
+; ---- 新建 32bpp DIB 段（含内存 DC）；新建时位图已被系统清零（= 全透明黑底）----
+OverlayTextDibNew(w, h) {
+    bi := Buffer(40, 0)
+    NumPut("UInt", 40, bi, 0)          ; biSize
+    NumPut("Int", w, bi, 4)
+    NumPut("Int", h, bi, 8)
+    NumPut("UShort", 1, bi, 12)        ; biPlanes
+    NumPut("UShort", 32, bi, 14)       ; biBitCount
+    NumPut("UInt", 0, bi, 16)          ; BI_RGB
+    ppv := Buffer(8, 0)
+    hbm := DllCall("CreateDIBSection", "Ptr", 0, "Ptr", bi, "UInt", 0, "Ptr", ppv, "Ptr", 0, "UInt", 0, "Ptr")
+    hdc := DllCall("CreateCompatibleDC", "Ptr", 0, "Ptr")
+    old := DllCall("SelectObject", "Ptr", hdc, "Ptr", hbm, "Ptr")
+    return {hbm: hbm, hdc: hdc, old: old, bits: NumGet(ppv, 0, "Ptr"), w: w, h: h}
+}
+
+OverlayTextDibFree(d) {
+    DllCall("SelectObject", "Ptr", d.hdc, "Ptr", d.old)
+    DllCall("DeleteObject", "Ptr", d.hbm)
+    DllCall("DeleteDC", "Ptr", d.hdc)
+}
+
+; ---- 创建文字层窗口（分层窗口；此时还没有内容，由 Present 一次性给出位置、尺寸与像素）----
+OverlayTextLayerNew(x, y, w, h) {
+    GWL_EXSTYLE := -20
+    WS_EX_LAYERED := 0x00080000
+    getFn := (A_PtrSize = 8) ? "GetWindowLongPtrW" : "GetWindowLongW"
+    setFn := (A_PtrSize = 8) ? "SetWindowLongPtrW" : "SetWindowLongW"
+
+    ; +E0x08000000 = WS_EX_NOACTIVATE（不抢焦点）；+E0x20 = WS_EX_TRANSPARENT（点击穿透到下面的面板）
+    g := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x08000000 +E0x20")
+    g.BackColor := "000000"
+    g.MarginX := 0
+    g.MarginY := 0
+    ex := DllCall(getFn, "Ptr", g.Hwnd, "Int", GWL_EXSTYLE, "Ptr")
+    DllCall(setFn, "Ptr", g.Hwnd, "Int", GWL_EXSTYLE, "Ptr", ex | WS_EX_LAYERED)
+    g.Show("x" . x . " y" . y . " w" . w . " h" . h . " NoActivate")
+    return g
+}
+
+; ---- 画出并呈现文字层内容 ----
+; drawFn(maskDC, colorDC, w, h)：在两张纯黑底位图上各画一遍——
+;   colorDC：字身用配置色画（描边不画，黑边处保持 RGB=0）；
+;   maskDC ：字身 + 黑边（8 方向偏移）都用白色画，其覆盖度作为最终 alpha。
+; 两者的并集 = "彩色字身 + 不透明黑边"，且黑边与字身一样**不受透明度影响**。
+OverlayTextLayerPresent(g, x, y, w, h, drawFn) {
+    dColor := OverlayTextDibNew(w, h)
+    dMask := OverlayTextDibNew(w, h)
+    drawFn(dMask.hdc, dColor.hdc, w, h)
+    OverlayTextMaskToAlpha(dColor, dMask)
+
+    ptDst := Buffer(8, 0)
+    sz := Buffer(8, 0)
+    ptSrc := Buffer(8, 0)
+    bf := Buffer(4, 0)
+    NumPut("Int", x, ptDst, 0)
+    NumPut("Int", y, ptDst, 4)
+    NumPut("Int", w, sz, 0)
+    NumPut("Int", h, sz, 4)
+    NumPut("UChar", 0, bf, 0)      ; BlendOp = AC_SRC_OVER
+    NumPut("UChar", 0, bf, 1)      ; BlendFlags
+    NumPut("UChar", 255, bf, 2)    ; SourceConstantAlpha
+    NumPut("UChar", 1, bf, 3)      ; AlphaFormat = AC_SRC_ALPHA（使用源像素 alpha）
+    ok := DllCall("UpdateLayeredWindow", "Ptr", g.Hwnd, "Ptr", 0, "Ptr", ptDst, "Ptr", sz
+        , "Ptr", dColor.hdc, "Ptr", ptSrc, "UInt", 0, "Ptr", bf, "UInt", 0x2)   ; ULW_ALPHA
+    if (!ok)
+        DebugLog("[overlay] 文字层呈现失败（UpdateLayeredWindow 返回 0）：hwnd=" . g.Hwnd . " size=" . w . "x" . h)
+    OverlayTextDibFree(dColor)
+    OverlayTextDibFree(dMask)
+    OverlayTextLayerRaise(g)
+}
+
+; ---- 移动文字层（与面板保持完全重合）----
+; 注意：**不传 SWP_NOZORDER** —— 面板被拖动（Gui.Move）时会被系统提到最上层，
+; 文字层必须跟着回到它上面，否则半透明面板会盖住文字（看起来像"文字又变淡了"）。
+OverlayTextLayerMove(g, x, y) {
+    if (!g)
+        return
+    DllCall("SetWindowPos", "Ptr", g.Hwnd, "Ptr", 0, "Int", x, "Int", y, "Int", 0, "Int", 0
+        , "UInt", 0x0001 | 0x0010)     ; SWP_NOSIZE | SWP_NOACTIVATE（置顶）
+}
+
+; ---- 把文字层抬到最上层（面板被点击 / 移动后都会被系统提到最上层，需重新压回下面）----
+OverlayTextLayerRaise(g) {
+    if (!g)
+        return
+    DllCall("SetWindowPos", "Ptr", g.Hwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0
+        , "UInt", 0x0001 | 0x0002 | 0x0010)     ; SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
+}
+
+; ---- 销毁文字层 ----
+OverlayTextLayerDestroy(g) {
+    if (g) {
+        try g.Destroy()
     }
 }
 
@@ -3009,7 +3272,7 @@ KeypadShow(kind) {
 
     keys := KeypadKeysFor(kind)
     layout := KeypadComputeLayout(kind, keys, keypadFontSize)
-    P := {gui: 0, keys: keys, layout: layout, hover: 0, focusWin: 0, registered: false
+    P := {gui: 0, textGui: 0, keys: keys, layout: layout, hover: 0, focusWin: 0, registered: false
         , dragPending: false, dragging: false, dragMoved: false, dragIndex: 0
         , dragStartX: 0, dragStartY: 0, dragWinX: 0, dragWinY: 0}
     keypadPanels[kind] := P
@@ -3062,11 +3325,17 @@ KeypadShow(kind) {
     P.registered := true
     OverlayPush(kind)
 
+    ; 文字层：文字始终不透明（不受 opacity 影响），单独一层、与主面板完全重合
+    P.textGui := OverlayTextLayerNew(guiX, guiY, L.winW, L.winH)
+
     ; 首次绘制
     KeypadDraw(kind)
 
     ; 与其它已打开浮层避让（同屏时不允许重叠；面板刚弹出，以它为准推开别人）
     OverlayAvoid(kind)
+
+    ; 文字层内容（在避让之后绘制，保证与面板最终位置完全一致）
+    KeypadTextLayerPresent(kind)
 }
 
 ; ---- 关闭指定面板（只关这一个，不影响径向菜单与另一个小键盘）----
@@ -3088,6 +3357,8 @@ KeypadClose(kind) {
         KeypadUnregisterMsg()
         P.registered := false
     }
+    OverlayTextLayerDestroy(P.textGui)
+    P.textGui := 0
     if (P.gui) {
         P.gui.Destroy()
         P.gui := 0
@@ -3178,7 +3449,8 @@ KeypadDraw(kind) {
         DllCall("DeleteObject", "Ptr", brush)
         DllCall("DeleteObject", "Ptr", rgn)
 
-        KeypadDrawText(memDC, k.label, R.x + R.w // 2, R.y + R.h // 2, keypadFontSize)
+        ; 文字不在这里画：文字统一由独立的文字层绘制（见 KeypadPaintTexts / 10c-3），
+        ; 这样文字不会跟随主窗口的透明度变淡。
     }
 
     ; 一次 BitBlt 到位
@@ -3193,26 +3465,66 @@ KeypadDraw(kind) {
 }
 
 ; ---- 绘制按键文字（水平垂直双居中）----
-KeypadDrawText(memDC, text, cx, cy, sizePt) {
+; colorDC 画配置色字身；maskDC 画白色"字身 + 黑边"，其覆盖度作为最终 alpha。
+KeypadDrawText(maskDC, colorDC, text, cx, cy, sizePt) {
     if (text = "")
         return
     font := RadialCreateFont(sizePt, "Microsoft YaHei")
-    oldFont := DllCall("SelectObject", "Ptr", memDC, "Ptr", font, "Ptr")
-    DllCall("SetBkMode", "Ptr", memDC, "Int", 1)   ; TRANSPARENT
-    DllCall("SetTextColor", "Ptr", memDC, "UInt", 0xFFFFFF)
+    oldFont := DllCall("SelectObject", "Ptr", colorDC, "Ptr", font, "Ptr")
     sz := Buffer(8)
-    DllCall("GetTextExtentPoint32W", "Ptr", memDC, "Str", text, "Int", StrLen(text), "Ptr", sz)
+    DllCall("GetTextExtentPoint32W", "Ptr", colorDC, "Str", text, "Int", StrLen(text), "Ptr", sz)
     tw := NumGet(sz, 0, "Int")
     th := NumGet(sz, 4, "Int")
-    rc := Buffer(16)
-    NumPut("Int", cx - tw // 2, rc, 0)
-    NumPut("Int", cy - th // 2, rc, 4)
-    NumPut("Int", cx + tw // 2, rc, 8)
-    NumPut("Int", cy + th // 2, rc, 12)
-    DllCall("DrawTextW", "Ptr", memDC, "Str", text, "Int", -1, "Ptr", rc
-        , "UInt", 0x0001 | 0x0004 | 0x0020 | 0x0800)   ; DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
-    DllCall("SelectObject", "Ptr", memDC, "Ptr", oldFont, "Ptr")
+    l := cx - tw // 2
+    t := cy - th // 2
+    r := cx + tw // 2
+    b := cy + th // 2
+
+    ; 彩色层：字身
+    OverlayDrawCenteredText(colorDC, text, l, t, r, b, OverlayTextColor())
+    DllCall("SelectObject", "Ptr", colorDC, "Ptr", oldFont, "Ptr")
+
+    ; 掩码层：先画黑边偏移、最后画字身
+    oldFont := DllCall("SelectObject", "Ptr", maskDC, "Ptr", font, "Ptr")
+    for off in OverlayTextOffsets(OverlayTextOutlineWidth())
+        OverlayDrawCenteredText(maskDC, text, l + off.x, t + off.y, r + off.x, b + off.y, 0xFFFFFF)
+    OverlayDrawCenteredText(maskDC, text, l, t, r, b, 0xFFFFFF)
+
+    DllCall("SelectObject", "Ptr", maskDC, "Ptr", oldFont, "Ptr")
     DllCall("DeleteObject", "Ptr", font)
+}
+
+; ---- 文字层内容：把面板上所有按键的文字画到给定两块 DC（彩色字身 + 黑色描边掩码）----
+; 坐标与主窗口的按键矩形完全一致（同一个 KeypadComputeLayout 结果）。
+KeypadPaintTexts(kind, maskDC, colorDC) {
+    global keypadPanels, keypadFontSize
+    if (!keypadPanels.Has(kind))
+        return
+    P := keypadPanels[kind]
+    if (!P.layout)
+        return
+    L := P.layout
+    for i, k in P.keys {
+        if (k.role = "blank" || k.label = "")
+            continue
+        if (i > L.rects.Length)
+            break
+        R := L.rects[i]
+        KeypadDrawText(maskDC, colorDC, k.label, R.x + R.w // 2, R.y + R.h // 2, keypadFontSize)
+    }
+}
+
+; ---- 重建 / 刷新某个面板的文字层（自动取面板当前位置，保证与面板完全重合）----
+KeypadTextLayerPresent(kind) {
+    global keypadPanels
+    if (!keypadPanels.Has(kind))
+        return
+    P := keypadPanels[kind]
+    if (!P.gui || !P.textGui || !P.layout)
+        return
+    WinGetPos(&tx, &ty, , , "ahk_id " . P.gui.Hwnd)
+    OverlayTextLayerPresent(P.textGui, tx, ty, P.layout.winW, P.layout.winH
+        , (maskDC, colorDC, w, h) => KeypadPaintTexts(kind, maskDC, colorDC))
 }
 
 ; ---- TrackMouseEvent 结构（WM_MOUSELEAVE 需要；hwndTrack 由调用方传入）----
@@ -3289,6 +3601,8 @@ KeypadOnMouseMove(wParam, lParam, msg, hwnd) {
             nx := Max(vb.x, Min(P.dragWinX + dx, vb.x + vb.w - ww))
             ny := Max(vb.y, Min(P.dragWinY + dy, vb.y + vb.h - wh))
             P.gui.Move(nx, ny)
+            ; 文字层跟着面板一起移动
+            OverlayTextLayerMove(P.textGui, nx, ny)
             ; 拖动中以本面板为准，把它压住的其它浮层推开
             OverlayAvoid(kind)
             if (P.hover != 0) {
@@ -3343,6 +3657,7 @@ KeypadOnLButtonDown(wParam, lParam, msg, hwnd) {
         return
     OverlayTouch(kind)           ; 在面板上按下（含点空位 / 空白处的无效点击）也算"操作过"
     P := keypadPanels[kind]
+    OverlayTextLayerRaise(P.textGui)   ; 点击会把面板提到最上层 → 立刻把文字层压回它上面
     x := lParam & 0xFFFF
     y := (lParam >> 16) & 0xFFFF
     if (x > 32767)
@@ -3437,6 +3752,7 @@ KeypadOnKeyPress(kind, idx) {
         DebugLog("[keypad] 字母键盘大小写切换 → " . (keypadLetterUpper ? "大写" : "小写"))
         P.keys := KeypadKeysFor(kind)
         KeypadDraw(kind)
+        KeypadTextLayerPresent(kind)     ; 文字层同步重建（位置不变）
         return
     }
     if (k.role = "action") {

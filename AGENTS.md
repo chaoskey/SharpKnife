@@ -178,6 +178,14 @@ git config --global --unset https.proxy
   **不要**再用"按角度算索引"的方式做命中——屏幕 y 向下会导致方向/索引错位（曾反复出错，最终靠共用区域根治）。
 - 圆盘"空位扇区"的实现：**文字留空 + 命中返回未命中**（即可实现"无文字、禁止高亮、点击无效"），**不需要改绘制代码**。
 
+- **文字必须"永远不透明"，所以文字单独成层**（2026-09-15 改造，代码见 10c-3）：主窗口继续用整窗 LWA_ALPHA 承担 `opacity`，但**不再画任何文字**；每个浮层另有一个"文字层"窗口，用 UpdateLayeredWindow + 预乘 ARGB 呈现，文字 alpha 恒为 255 → 不受透明度影响。要点：
+  - 文字层窗口必须带 `WS_EX_LAYERED`（建立后再 Show）+ `WS_EX_TRANSPARENT`（点击穿透到下面的面板）+ `WS_EX_NOACTIVATE`，并且**永远跟着所属面板移动**（拖动、被避让推开都要同步移动）。
+  - 生成预乘 ARGB 的做法（**两块 DIB**）：① colorDC 用配置色画字身（描边不画，黑边处保持 RGB=0）；② maskDC 用**白色**画"字身 + 黑边"（黑边 = 把同一字在 8 方向各偏移 1px 各画一遍，偏移先画、字身最后画）；③ 把 maskDC 的 R 通道（= 字身 ∪ 黑边 的覆盖度）抄进 colorDC 的 alpha 字节 → 得到"彩色字身 + 不透明黑边"的预乘 ARGB。因此字体**必须用 ANTIALIASED_QUALITY(4) 灰度抗锯齿**：ClearType 是次像素抗锯齿，通道不成比例，会破坏"RGB 即预乘值"这个前提。
+  - 逐像素只在"文字层创建 / 文字内容变化"时做（420×252 约 60ms）；**悬停高亮只重绘主窗口**，别把文字层塞进悬停路径。
+  - **文字层必须始终压在面板之上**：面板被拖动（Gui.Move）或被点击时都会被系统提到最上层，所以 `OverlayTextLayerMove` 一律不带 SWP_NOZORDER（置顶），并在 `KeypadOnLButtonDown` / `RadialOnLButtonDown` / `OverlayTextLayerPresent` 里再 `OverlayTextLayerRaise` 一次；漏掉就会出现"点一下 / 拖一下之后文字又随透明度变淡了"（2026-09-15 用户实测反馈过）。
+  - 文字颜色来自 `[ui] overlay_text_color`（默认 FFFF00 亮黄；`OverlayParseColor` 解析，纯黑 / 非法值退回默认）；黑边宽度来自 `[ui] overlay_text_outline`（默认 1 像素，0 = 关闭，上限 3）。**黑边与字身一样在文字层里、alpha 恒 255，都不受 opacity 影响。**
+  - 新增任何文字，都要画到文字层里（`RadialPaintTexts` / `KeypadPaintTexts`），不要再往主窗口上画。
+
 ### 4.4 其它
 
 - `CreateFontW` 的 `escapement` 单位是 **0.1 度**；旋转文字用 `TextOutW`（`DrawText` 不支持旋转）。
@@ -307,7 +315,8 @@ AHK v2 的**加载期弹框**（`#Warn` 警告、调用了不存在的函数等�
 | `RadialComputeLayout()` | 紧凑自适应半径：①圆心文字内接 ②内圈弧长够字高 ③环宽够最长文字 |
 | `RadialBuildMenu()` | 按 `radialLevel` 构建当前层内容 + 补空位 + 建立 GUI/区域/消息钩子 |
 | `RadialBuildRgns()` / `RadialFreeRgns()` | 扇区多边形区域与圆心区域的建立/释放（绘制与命中共用） |
-| `RadialDraw()` | GDI 双缓冲绘制（三态着色：常态/高亮/变暗；放射性文字） |
+| `RadialDraw()` | GDI 双缓冲绘制**本体**（三态着色：常态/高亮/变暗）；**不画文字**（文字在文字层） |
+| `RadialPaintTexts(maskDC, colorDC)` / `RadialTextLayerPresent()` | 圆盘文字层：圆心文字 + 放射性扇区文字（彩色字身 + 白色掩码含黑边），以及合成 + 呈现（见 4.3） |
 | `RadialHitTest()` | `PtInRegion` 命中；**空位扇区返回 0（不命中）** |
 | `RadialOnItemClick()` | 按 `kind` 分发：`shortcut`/`group`/`exec`/`disabled`（`exec` 只执行不关闭） |
 | `RadialOnLButtonDown()` / `RadialOnMouseMove()` / `RadialOnLButtonUp()` | 扇区点击 + 圆心「点击/拖拽」判定（阈值 3px，`SetCapture`→`Gui.Move`→`ReleaseCapture`） |
@@ -352,6 +361,7 @@ radial.base.1=12     ; 键 = radial.<组标识>.<编号>，与 config.ini 的 [r
 - **五块浮层同屏不得重叠**：`OverlayAvoid(active)` 以"正在拖动 / 刚打开"的那块为 active（active 永不移动），把被它压住的浮层沿**最小位移方向**推开，两两留 8px 间隙、连锁处理、落点夹取虚拟屏幕；推不动就原地不动（避免屏幕边缘抖动）。**四个调用点**：`RadialBuildMenu` 末尾、径向拖拽 `Gui.Move` 之后、`KeypadShow` 末尾、小键盘拖拽 `Gui.Move` 之后——以后再新增浮层时务必补调用点。
 - **字母键盘的大小写切换**：状态放在全局 `keypadLetterUpper`（运行期内一直记住，默认小写）。点【Aa】（`role = "toggle"`）→ `KeypadOnKeyPress` 翻转状态、`P.keys := KeypadKeysFor(kind)` 就地重建按键、`KeypadDraw` 重绘；**不要改窗口大小或位置**（最宽标签是【回车】/【触发】这两个汉字标签，不随大小写变化，布局天然一致）。`KeypadDraw` 里【Aa】键的底色随大写状态变化（大写偏暖色，起 CapsLock 指示灯作用）。
 - 拖动中每次 `WM_MOUSEMOVE` 都会调 `OverlayAvoid`，所以里面只做坐标计算（`WinGetPos` + 比较），**不要在这里加重绘或重日志**。
+- **文字层必须跟着面板动**：`KeypadOnMouseMove` 拖动分支、`OverlayMoveTo()`（避让推开）里都要 `OverlayTextLayerMove`；漏一处就会出现"面板走了、文字留在原地"。
 - 发送按键复用 `RadialActivateFocusWin()` + `RadialWaitModifiersReleased()`（前缀是 Radial，但逻辑通用），再 `SendEvent`。
 - 按键一律发送**普通字符 / 键名**，不用小键盘专用键（数字写 `"7"` 而非 `{Numpad7}`）：不受 NumLock 影响。
 - **Send 特殊字符只有 `^ + ! # { }`**：写成 `{+}` `{^}` `{!}` `{#}` `{{}` `{}}`；另外 `"` 与 `` ` `` 是 AHK **源码**转义，要写成 `` `" `` 与 ` `` `。符号小键盘的 30 键已按此转义，改动时别漏。
@@ -381,7 +391,8 @@ radial.base.1=12     ; 键 = radial.<组标识>.<编号>，与 config.ini 的 [r
 | `KeypadComputeLayout(kind, keys, sizePt)` | 按字号实测文字宽度算面板尺寸与各按键矩形（方向键为正方形） |
 | `KeypadToggle(kind)` / `KeypadShow(kind)` / `KeypadClose(kind)` | 各自开 / 关（只影响自己）/ 弹出（鼠标位置、虚拟屏幕夹取） |
 | `KeypadKindByHwnd(hwnd)` | 按窗口句柄找面板类型，供共用的鼠标回调分发 |
-| `KeypadDraw(kind)` / `KeypadDrawText()` | GDI 双缓冲绘制圆角按键（悬停高亮；【回车】键偏蓝；`role=close` 的暗红配色保留在代码里但当前无面板使用） |
+| `KeypadDraw(kind)` / `KeypadDrawText()` | GDI 双缓冲绘制**面板本体**（悬停高亮；【回车】键偏蓝；`role=close` 的暗红配色保留但未用）；**不画文字** |
+| `KeypadPaintTexts(kind, maskDC, colorDC)` / `KeypadTextLayerPresent(kind)` | 面板文字层：所有按键文字（彩色字身 + 白色掩码含黑边）+ 合成 + 呈现；大小写切换后要重新调用 |
 | `KeypadHitTest(kind, mx, my)` | 按键矩形命中（空位与空白处返回 0） |
 | `KeypadOnMouseMove/…LButtonDown/…LButtonUp/…RButtonDown/…MouseLeave()` | 悬停高亮 + 点击/拖拽判定（阈值 3px）；按 hwnd 分发到对应面板 |
 | `KeypadOnKeyPress(kind, idx)` / `KeypadSendKey(kind, raw)` | 分发（close = 关闭本面板、key = 发送）/ 校验目标窗口与修饰键后 `SendEvent` |
