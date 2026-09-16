@@ -296,6 +296,7 @@ global runboxExpanded := false   ; 执行过程面板是否已展开
 global runboxLog := []           ; 本次需求的执行全过程日志（逐行）
 global runboxStartTick := 0      ; 本次执行的起始时刻（算总耗时）
 global runboxToggleTick := 0     ; 上一次展开/收起的时间（两条点击路径去抖）
+global runboxAvoidTick := 0      ; 运行框上一次"被别人避让挪动"的时刻（防互相顶）
 global runboxHSmall := 0         ; 收起态窗口高度（弹出时量好，之后只做 Move 改高度）
 global runboxExtraDetail := 0    ; 展开过程面板额外需要的高度（= 面板自身高度 + 间距）
 global runboxPrevWin := 0        ; 弹出运行框前的前台窗口（动作最终打到它上面）
@@ -2779,6 +2780,30 @@ OverlayRects() {
         if (w > 0 && h > 0)
             rects.Push({name: name, x: x, y: y, w: w, h: h})
     }
+    ; 运行框 + 它下面的键帽排：视为**一个整体**参与避让（两者必须一起移动）
+    if (hw := RunBoxHwnd()) {
+        WinGetPos(&x, &y, &w, &h, "ahk_id " . hw)
+        if (w > 0 && h > 0) {
+            if (keypadPanels.Has("runkeys") && keypadPanels["runkeys"].gui) {
+                kx := 0
+                ky := 0
+                kw := 0
+                kh := 0
+                WinGetPos(&kx, &ky, &kw, &kh, "ahk_id " . keypadPanels["runkeys"].gui.Hwnd)
+                if (kw > 0 && kh > 0) {
+                    x1 := Min(x, kx)
+                    y1 := Min(y, ky)
+                    x2 := Max(x + w, kx + kw)
+                    y2 := Max(y + h, ky + kh)
+                    x := x1
+                    y := y1
+                    w := x2 - x1
+                    h := y2 - y1
+                }
+            }
+            rects.Push({name: "runbox", x: x, y: y, w: w, h: h})
+        }
+    }
     return rects
 }
 
@@ -2793,6 +2818,16 @@ OverlayMoveTo(name, x, y) {
         WinGetPos(, , &w, &h, "ahk_id " . radialGui.Hwnd)
         radialCenterX := x + w // 2
         radialCenterY := y + h // 2
+        return
+    }
+    if (name = "runbox") {
+        global runboxAvoidTick
+        hw := RunBoxHwnd()
+        if (!hw)
+            return
+        runboxAvoidTick := A_TickCount             ; 记下"是我们自己挪的"，避免马上反推别人
+        try WinMove(x, y, , , "ahk_id " . hw)      ; 只挪位置，不改大小
+        RunKeysAnchor()                            ; 键帽排跟着重新吸附到运行框下方
         return
     }
     if (keypadPanels.Has(name) && keypadPanels[name].gui) {
@@ -2823,27 +2858,44 @@ OverlayTryMove(mover, x, y, other, gap) {
 OverlayPushAway(mover, other, gap) {
     vb := RadialVirtualBounds()
 
-    ; 水平候选：贴到 other 右侧 / 左侧，取位移较小者
+    ; 四个候选：贴到 other 右侧 / 左侧 / 下方 / 上方
     hx1 := other.x + other.w + gap
     hx2 := other.x - mover.w - gap
-    hx := (Abs(hx1 - mover.x) <= Abs(hx2 - mover.x)) ? hx1 : hx2
-    ; 垂直候选：贴到 other 下方 / 上方，取位移较小者
     vy1 := other.y + other.h + gap
     vy2 := other.y - mover.h - gap
-    vy := (Abs(vy1 - mover.y) <= Abs(vy2 - mover.y)) ? vy1 : vy2
 
-    ; 夹取到虚拟屏幕内（多显示器合并区域）
-    hx := Max(vb.x, Min(hx, vb.x + vb.w - mover.w))
-    vy := Max(vb.y, Min(vy, vb.y + vb.h - mover.h))
+    ; 一律夹取到虚拟屏幕内（多显示器合并区域）
+    hx1 := Max(vb.x, Min(hx1, vb.x + vb.w - mover.w))
+    hx2 := Max(vb.x, Min(hx2, vb.x + vb.w - mover.w))
+    vy1 := Max(vb.y, Min(vy1, vb.y + vb.h - mover.h))
+    vy2 := Max(vb.y, Min(vy2, vb.y + vb.h - mover.h))
 
-    if (Abs(hx - mover.x) <= Abs(vy - mover.y)) {
-        if (OverlayTryMove(mover, hx, mover.y, other, gap))
-            return true
-        return OverlayTryMove(mover, mover.x, vy, other, gap)
+    ; 四个候选落点（右 / 左 / 下 / 上）按"位移最小"排序后逐个尝试，直到找到一个不重叠的位置。
+    ; 不能只试"水平较近 + 垂直较近"两个：运行框这类大窗口很容易把两个近位都挡住，
+    ; 那时明明远侧还有空位却推不动（2026-09-15 用户实测"运行框推不开小键盘"）。
+    cand := []
+    cand.Push({x: hx1, y: mover.y, d: Abs(hx1 - mover.x)})
+    cand.Push({x: hx2, y: mover.y, d: Abs(hx2 - mover.x)})
+    cand.Push({x: mover.x, y: vy1, d: Abs(vy1 - mover.y)})
+    cand.Push({x: mover.x, y: vy2, d: Abs(vy2 - mover.y)})
+    sorted := []
+    for c in cand {
+        inserted := false
+        for i, sc in sorted {
+            if (c.d < sc.d) {
+                sorted.InsertAt(i, c)
+                inserted := true
+                break
+            }
+        }
+        if (!inserted)
+            sorted.Push(c)
     }
-    if (OverlayTryMove(mover, mover.x, vy, other, gap))
-        return true
-    return OverlayTryMove(mover, hx, mover.y, other, gap)
+    for c in sorted {
+        if (OverlayTryMove(mover, c.x, c.y, other, gap))
+            return true
+    }
+    return false
 }
 
 ; ---- 一轮避让：把所有重叠的"非 active"浮层各推开一次；返回本轮是否有移动 ----
@@ -3700,7 +3752,10 @@ RunBoxShow() {
     OnMessage(0x00A1, RunBoxNcLButtonDown)
     OnMessage(0x0003, RunBoxMoveHandler, 0)       ; 运行框移动 → 键帽排跟着走
     OnMessage(0x0003, RunBoxMoveHandler)
+    OnMessage(0x0232, RunBoxExitSizeMove, 0)      ; 拖动结束 → 推开被压住的浮层
+    OnMessage(0x0232, RunBoxExitSizeMove)
     RunKeysShow()                                 ; 底部热键键帽（回车 / Tab / 空格 / 删除 / 退格 / 取消 / 触发）
+    OverlayAvoid("runbox")                        ; 运行框也算浮层：把它压住的菜单 / 小键盘推开
     DebugLog("[runbox] 已弹出运行框，目标窗口=" . runboxPrevWin . "「" . runboxPrevTitle . "」")
 }
 
@@ -3755,12 +3810,27 @@ RunKeysAnchor() {
     OverlayTextLayerMove(P.textGui, nx, ny)          ; 文字层只挪位置（尺寸与面板一致）
 }
 
-; 运行框被拖动时系统会发 WM_MOVE：让键帽排跟着走
+; 运行框被拖动时系统会连续发 WM_MOVE：
+;   ① 让键帽排跟着走；② 顺便做避让 —— 拖动过程中就把被压住的浮层推开（用户要求"运行框也能推开它们"）。
+;   防互相顶：若运行框刚刚是被**别的浮层避让**挪开的（runboxAvoidTick 刚打过），这一段 WM_MOVE 就跳过避让，
+;   否则会形成"你推我、我推你"的来回抖动。运行框自己是 active 时永远不会被避让挪动，所以正常拖动不受影响。
 RunBoxMoveHandler(wParam, lParam, msg, hwnd) {
+    global runboxAvoidTick
     ownHwnd := RunBoxHwnd()
     if (!ownHwnd || hwnd != ownHwnd)
         return
     RunKeysAnchor()
+    if (A_TickCount - runboxAvoidTick > 250)
+        OverlayAvoid("runbox")
+}
+
+; 拖动结束（系统模态移动循环退出，WM_EXITSIZEMOVE）→ 把被运行框压住的浮层推开。
+; 特意不用 WM_MOVE：避让自己挪动运行框也会触发 WM_MOVE，会造成互相触发。
+RunBoxExitSizeMove(wParam, lParam, msg, hwnd) {
+    ownHwnd := RunBoxHwnd()
+    if (!ownHwnd || hwnd != ownHwnd)
+        return
+    OverlayAvoid("runbox")
 }
 
 ; ---- 安全取运行框窗口句柄 ----
@@ -3853,6 +3923,7 @@ RunBoxApplyHeight() {
         DebugLog("[runbox] 调整高度失败：" . e.Message . "（目标高度=" . newH . "）")
     }
     RunKeysAnchor()                                ; 窗口变高 / 变矮后键帽排重新吸附
+    OverlayAvoid("runbox")                         ; 撑开后若压住别的浮层，把它们推开
 }
 
 ; ---- 底部小把手：展开 / 收起"执行全过程"面板 ----
@@ -4001,6 +4072,7 @@ RunBoxClose() {
     OnMessage(0x00A3, RunBoxNoMaximize, 0)
     OnMessage(0x00A1, RunBoxNcLButtonDown, 0)
     OnMessage(0x0003, RunBoxMoveHandler, 0)
+    OnMessage(0x0232, RunBoxExitSizeMove, 0)
     RunKeysHide()                                 ; 键帽排随运行框一起收掉
     runboxBusy := false
     runboxState := ""

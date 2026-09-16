@@ -388,7 +388,11 @@ radial.base.1=12     ; 键 = radial.<组标识>.<编号>，与 config.ini 的 [r
 - **点按键不关闭**面板（可连续点），关闭靠：自己的触发键、`Esc`、鼠标右键（四套面板都没有【关】键——方向小键盘中心已改为【回车】）。
 - 任意位置按下都先记录（`SetCapture`），位移 > 3px 判定为拖拽 → 只 `Gui.Move` 移动面板、不触发按键；抬起时要求**按下与抬起落在同一按键**才发送。**坑：判定为拖拽时必须同时置 `dragging` 与 `dragMoved`** —— 只置 `dragging` 的话，抬起时那段"拖动过就不触发"的分支永远不成立；而面板是 1:1 跟着光标走的，光标底下始终是同一个按键，命中判定挡不住 → 表现为"拖着拖着就把按中的键发出去了"（2026-09-15 用户实测反馈过，四块小键盘都受影响）。
 - 位置夹取用 `RadialVirtualBounds()`（虚拟屏幕），不要改用 `A_ScreenWidth`。
-- **五块浮层同屏不得重叠**：`OverlayAvoid(active)` 以"正在拖动 / 刚打开"的那块为 active（active 永不移动），把被它压住的浮层沿**最小位移方向**推开，两两留 8px 间隙、连锁处理、落点夹取虚拟屏幕；推不动就原地不动（避免屏幕边缘抖动）。**四个调用点**：`RadialBuildMenu` 末尾、径向拖拽 `Gui.Move` 之后、`KeypadShow` 末尾、小键盘拖拽 `Gui.Move` 之后——以后再新增浮层时务必补调用点。
+- **浮层避让现在有 6 个参与者**（2026-09-15 起）：径向菜单、四块小键盘，**外加自然语言运行框**。运行框在 `OverlayRects()` 里以 `runbox` 为名，并且是把"运行框 + 键帽排"取**并集**后push进去的**一个整体矩形**（两者必须一起动，不能被拆开）；`OverlayMoveTo("runbox", …)` 挪运行框后调 `RunKeysAnchor()` 重新吸附键帽排。
+  调用点：`RunBoxShow()` 末尾、`RunBoxApplyHeight()` 末尾（撑开 / 收起后）、**WM_MOVE(0x0003)**（拖动过程中实时推开被压住的浮层）以及 **WM_EXITSIZEMOVE(0x0232)**（松手后再整理一次）。
+  **防互相顶**：运行框被"别人避让"挪动时，`OverlayMoveTo("runbox", …)` 会打时间戳 `runboxAvoidTick`；`RunBoxMoveHandler` 里若 `A_TickCount - runboxAvoidTick <= 250ms` 就跳过避让，否则会出现"你推我、我推你"的来回抖动。运行框作为 active 时永远不会被挪动，所以正常拖动不受影响（2026-09-15 用户反馈"运行框推不开小键盘"就是因为原来只在松手时避让）。
+- **六个浮层同屏不得重叠**：`OverlayAvoid(active)` 以"正在拖动 / 刚打开"的那块为 active（active 永不移动），把被它压住的浮层推开，两两留 8px 间隙、连锁处理、落点夹取虚拟屏幕；推不动就原地不动（避免屏幕边缘抖动）。**调用点**：`RadialBuildMenu` 末尾、径向拖拽 `Gui.Move` 之后、`KeypadShow` 末尾、小键盘拖拽 `Gui.Move` 之后，外加运行框的四处（见上一条）——以后再新增浮层时务必补调用点。
+  `OverlayPushAway` 会生成**四个候选落点（右 / 左 / 下 / 上）并按位移从小到大逐个尝试**，不是只试"较近的水平 + 较近的垂直"两个：运行框这类大窗口很容易把两个近位都挡住，那时远侧明明有空位却推不动（2026-09-15 实测修掉）。
 - **四个面板的按键内容完全由配置驱动**（2026-09-15 改造）：`[keypad.<kind>]` 段里「编号 = 名称 | 动作」，编号即格子序号（行优先、1 起），缺号 = 空位；`cols` / `rows` / `square` / `case` 均可配。动作四类：普通 Send 字符串 / `run:` / `close` / `case` / `self:`（自身命令，直接调用处理函数）。**一个键都没写（或整段删掉）的面板沿用 `KeypadDefaultDefs()` 的内置默认**，所以老配置行为不变。解析用**自定义行解析**（与径向菜单同一套）：整行 `;` 注释、行内「空白 + `;`」注释；值里的 `;` 与 `|` 必须写成 `%3B` / `%7C`（否则被当注释 / 分隔符）。新增面板只需在 `KeypadLoadConfig` 的 kind 白名单与 `KeypadDefaultDefs()` 里各加一处。
 - **`OverlayCaseTransform()` 只返回 `{label, action}`**（它要同时服务小键盘与圆盘菜单，圆盘项没有 `role`）——所以**凡是拿它的返回值当"按键对象"用的地方，必须自己把 `role` 补回来**。2026-09-15 就是漏了这一步：`KeypadKeysFor` 在大写状态下用变换结果替换了整对象，导致 30 个键全没有 `role`，字母键盘一切换大小写，`KeypadHitTest` 读 `.role` 就抛 `This value of type "Object" has no property named "role"`（用户实测崩溃）。修法是在 `KeypadKeysFor` 里变换后 `kk.role := k.role`。以后再给"按键"加字段时，记得同步这条。
 - **大小写状态是通用机制、不是字母面板专属**（实现见 §6.2a 的浮层动作层）：`case = true` 的面板才启用，状态存在 `overlayCaseState`（**按浮层名**，运行期内记住，默认小写）。点动作是 `case` 的键 → `OverlayCaseToggle(kind)` → `OverlayRefresh(kind)` 就地重建按键 + `KeypadDraw` 重绘 + 文字层重建；**不要改窗口大小或位置**。大写只影响「动作恰好是一个 ASCII 小写字母」的键（标签与发送内容一起变大写），其它键（回车、`\`、`^j`、`run:`、数字、符号）不受影响；`KeypadDraw` 里该键底色随状态变化（大写偏暖色，起 CapsLock 指示灯作用）。
@@ -537,7 +541,7 @@ case = true
   · `OverlayOwnerHwnd("runkeys")` 返回**运行框的 hwnd**：键帽不抢焦点，点它时前台是运行框，必须当成"自家窗口"才会退回跟踪到的目标窗口。
   · 位置由 `RunKeysAnchor()` 吸附在运行框正下方（水平居中 + 夹取虚拟屏幕）；运行框拖动靠 `WM_MOVE(0x0003)` 钩子跟随，展开 / 收起靠 `RunBoxApplyHeight()` 里再调一次；发送目标随 `RunBoxTrackTarget()` 一起更新（`RunKeysSyncTarget()`）。
   · 生命周期跟着运行框：`RunBoxShow()` 里 `RunKeysShow()`、`RunBoxClose()` 里 `RunKeysHide()`。
-  · 键帽排**故意不进** `OverlayRects()` 的避让列表（它必须固定贴着运行框，不能被别的浮层推开）。
+  · 键帽排**自己**不进 `OverlayRects()`，而是与运行框合并成一个整体矩形参与避让（见 §6.3 的避让说明）：两者一起被推开、一起被推开后仍严格保持"下方居中、间隔 6px"的吸附关系。
 - **`RunBox*` 函数改完必须核对 `global` 声明**（2026-09-15 已犯两次，都是"新增全局变量后忘了把它加进某个函数的 global 行"）：
   漏写时那行赋值会变成**函数局部变量**，全局仍是空串 —— 表现是 `runboxDetail.Visible` 报 `This value of type "String" has no property named "Visible"`（一次触发就崩）。
   自查办法（可重复跑）：把每个 `^RunBox[A-Za-z]*\(.*\) \{` 函数体抓出来，比对"函数体内出现的 `runbox*` 变量"与"该函数 global 行里声明的名字"，差集必须为空。
