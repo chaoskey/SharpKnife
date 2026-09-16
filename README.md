@@ -1,10 +1,19 @@
 
 
-# SharpKnife —— LaTeX / Unicode / AI / TikZ 四模式补全（AutoHotkey v2）
+# SharpKnife —— Windows 桌面效率工具箱（AutoHotkey v2）
 
+> **功能概要**（一个脚本、几个全局热键，界面全中文）：
+>
+> - **文本补全**：`Ctrl+J` 把光标前刚输入的键补全为 LaTeX 命令 / Unicode 符号 / 环境模板；四种模式（latex / unicode / AI / tikz）可循环切换或一步直达。
+> - **play 脚本步进**：把一段操作写成 JSON 脚本，`Ctrl+R` 逐步执行（打字 / 按键 / 等待 / 贴图 / 播视频 / 组合键等）。
+> - **径向菜单**：`Ctrl+Shift+M` 弹出三层圆盘快捷菜单，按使用统计把高频功能排到第一层，用鼠标或笔点选即可执行快捷键。
+> - **屏幕小键盘（4 块）**：`Ctrl+Shift+K / N / Y / E` 分别弹出方向 / 数字 / 符号 / 字母按键面板，面向数位板与触屏；可拖动、互不重叠、文字带黑边始终清晰。
+> - **循环提醒**：`Ctrl+Alt+H` 站立 / 坐下 / 走动分阶段提醒，带声音与屏幕通知。
+> - **触摸键盘 helper**：`apps/` 下两个独立小工具（模拟点击版 / COM 版），一键切换 Windows 触摸键盘。
+>
 > 本项目完全由 AI 反复迭代而成。
 
-一个基于 AutoHotkey v2 的全局 **LaTeX 命令 / Unicode 符号** 快速补全工具。在任何文本编辑框中按下 `Ctrl+J`，即可把光标前刚输入的 LaTeX 键补全为完整的 LaTeX 命令、Unicode 字符或环境模板。默认情况下所有数据来自本地触发表 `latexs.cvs`，**不联网、不需要任何 API**（仅 AI 模式需要 API）。
+核心是**文本补全**：在任何文本编辑框中按下 `Ctrl+J`，即可把光标前刚输入的 LaTeX 键补全为完整的 LaTeX 命令、Unicode 字符或环境模板。默认情况下所有数据来自本地触发表 `latexs.cvs`，**不联网、不需要任何 API**（仅 AI 模式需要 API）。
 
 ---
 

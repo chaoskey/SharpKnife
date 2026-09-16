@@ -3592,8 +3592,12 @@ KeypadOnMouseMove(wParam, lParam, msg, hwnd) {
         dx := NumGet(pt, 0, "Int") - P.dragStartX
         dy := NumGet(pt, 4, "Int") - P.dragStartY
         ; 位移超过阈值才认定为拖拽（否则抬起时按点击处理）
-        if (!P.dragging && (Abs(dx) > 3 || Abs(dy) > 3))
+        ; 注意：一旦认定为拖拽就必须置 dragMoved，否则抬起时仍会触发按键 ——
+        ; 面板是 1:1 跟着光标走的，光标下面始终是同一个按键，命中判定挡不住。
+        if (!P.dragging && (Abs(dx) > 3 || Abs(dy) > 3)) {
             P.dragging := true
+            P.dragMoved := true
+        }
         if (P.dragging) {
             WinGetPos(, , &ww, &wh, "ahk_id " . hwnd)
             ; 与鼠标位移 1:1 跟随；只在**虚拟屏幕**（全部显示器合并区域）内夹取
