@@ -1469,7 +1469,7 @@ RadialLoadConfig() {
             } else if (SubStr(line, 1, 8) = "[radial." && SubStr(line, -1) = "]") {
                 inRadial := true
                 gid := SubStr(line, 9, StrLen(line) - 9)
-                radialGroups.Push({name: "", id: gid, items: []})
+                radialGroups.Push({name: "", id: gid, items: [], hidden: false})
                 currentGroup := radialGroups.Length
             } else {
                 inRadial := false
@@ -1514,6 +1514,13 @@ RadialLoadConfig() {
             ; [radial.xxx] 段
             if (key = "name") {
                 radialGroups[currentGroup].name := value
+            } else if (key = "hidden" || key = "hide") {
+                ; 该分组是否在圆盘菜单里隐藏（默认 false = 显示）；非法值忽略、沿用默认
+                v := StrLower(Trim(value))
+                if (v = "1" || v = "true" || v = "yes" || v = "on")
+                    radialGroups[currentGroup].hidden := true
+                else if (v = "0" || v = "false" || v = "no" || v = "off" || v = "")
+                    radialGroups[currentGroup].hidden := false
             } else if RegExMatch(key, "^\d+$") {
                 pipePos := InStr(value, "|")
                 if (pipePos > 0) {
@@ -1608,6 +1615,12 @@ RadialBuildMenu() {
     ;   第一层【常用】：第 1 个周边固定为【快捷菜单】，其后按统计取高频前 6 的常用菜单项
     ;   第二层【快捷菜单】：各菜单分组名
     ;   第三层【<组名>】：该组内各菜单项
+    ; 第三层：若该分组已被隐藏（正常进不去），退回第二层，避免显示一个"不存在"的分组
+    if (radialLevel = 3 && radialCurrentGroup >= 1 && radialCurrentGroup <= radialGroups.Length) {
+        if (radialGroups[radialCurrentGroup].hidden)
+            radialLevel := 2
+    }
+
     radialMenuItems := []
     if (radialLevel = 1) {
         centerText := "常用"
@@ -1616,8 +1629,8 @@ RadialBuildMenu() {
             radialMenuItems.Push({name: RadialCaseShownName(f.name, RadialItemAction(f.gi, f.ii)), kind: "exec", gi: f.gi, ii: f.ii})
     } else if (radialLevel = 2) {
         centerText := "快捷菜单"
-        for gi, g in radialGroups
-            radialMenuItems.Push({name: g.name, kind: "group", gi: gi})
+        for vg in RadialVisibleGroups()        ; 隐藏的分组不出现在这里
+            radialMenuItems.Push({name: vg.g.name, kind: "group", gi: vg.gi})
     } else {
         ; 第三层：需有效的分组索引（防御越界）
         if (radialCurrentGroup < 1 || radialCurrentGroup > radialGroups.Length)
@@ -2605,10 +2618,23 @@ RadialBumpStat(gid, num) {
 ; ---- 取执行次数最高的前 maxN 个菜单项（供第一层【常用】的周边使用）----
 ; 逐项查询 menu_stats.ini（只查 config.ini 中现存的配置项，忽略已删除项）；
 ; 返回 [{gi, ii, name, cnt}]，按次数降序（同次数保持配置顺序），仅含次数 > 0 的项。
+; ---- 未隐藏的分组（第一层/第二层都按它过滤；隐藏分组不出现在圆盘菜单里）----
+RadialVisibleGroups() {
+    global radialGroups
+    out := []
+    for gi, g in radialGroups {
+        if (!g.hidden)
+            out.Push({gi: gi, g: g})
+    }
+    return out
+}
+
 RadialTopFrequent(maxN := 6) {
     global radialGroups, radialStatsFile
     list := []
     for gi, g in radialGroups {
+        if (g.hidden)                      ; 隐藏的分组：它的项也不进【常用】
+            continue
         for ii, it in g.items {
             cnt := 0
             try {
@@ -3119,7 +3145,7 @@ OverlayLookupItem(name) {
     if (want = "")
         return 0
     for it in OverlayConfiguredItems() {
-        if (it.name = want)
+        if (it.name == want)              ; == 才区分大小写（= 在 AHK 里大小写不敏感，会把 A 匹配成 a）
             return it
     }
     return 0
@@ -3138,6 +3164,10 @@ OverlayConfiguredItems() {
             if (k.role = "blank" || k.label = "" || k.action = "")
                 continue
             list.Push({name: k.label, action: k.action, source: def.name})
+            ; case = true 的面板（字母键盘）本来就能产出大写（【Aa】键），
+            ; 这里把大写变体也列出来，模型才能直接引用"大写字母"这一项
+            if (def.case && RegExMatch(k.action, "^[a-z]$"))
+                list.Push({name: StrUpper(k.label), action: StrUpper(k.action), source: def.name})
         }
     }
     for g in radialGroups
@@ -3293,6 +3323,8 @@ OverlayOwnerHwnd(owner) {
         return (radialGui ? radialGui.Hwnd : 0)
     if (owner = "runbox")
         return (runboxGui ? runboxGui.Hwnd : 0)
+    if (owner = "runkeys")
+        return (runboxGui ? runboxGui.Hwnd : 0)   ; 键帽不抢焦点，前台会是运行框 → 同样视为"自家窗口"
     if (keypadPanels.Has(owner) && keypadPanels[owner].gui)
         return keypadPanels[owner].gui.Hwnd
     return 0
@@ -3453,22 +3485,22 @@ RunBoxBuildPrompt() {
     global runboxPromptExtra
     ; 注意：AHK v2 字符串里的双引号要用单引号字符串或 `" 转义，不能写 ""（那是 v1 的写法）
     p := '你是把中文操作需求翻译成"动作序列"的翻译器。你的输出会被程序逐行执行，必须严格遵守格式。' . "`n`n"
+    p .= "【最重要的规则】程序**只允许执行「已配置动作表」里已有的动作**：`n"
+    p .= "  · 表里没有的按键、快捷键、程序路径、功能名，一律不允许；`n"
+    p .= "  · **不允许输出自由文字内容**（例如 send: 你好、paste: 随便一段话，都不允许）；`n"
+    p .= "  · 若需求需要表里没有的东西（比如要输入一段中文），只输出一行：ERROR: 简短原因。`n`n"
     p .= "【输出格式】一行一个动作；不要编号、不要解释、不要 markdown 代码块、不要空行。`n"
-    p .= "可用动作只有下面这些：`n"
-    p .= "  send: 内容     按 AutoHotkey Send 语法输入（普通文本与按键都算，如 send: 你好）`n"
-    p .= "  hotkey: 内容   与 send: 等价，用于明确的快捷键（如 hotkey: ^s、hotkey: {F5}）`n"
-    p .= "  paste: 内容    用剪贴板粘贴（超过 20 个字的文本优先用它）`n"
-    p .= "  item: 名称     执行下表里名称对应的功能（最稳，优先使用）`n"
-    p .= "  run: 命令行    启动程序，命令行必须与下表里某个 run: 完全一致`n"
-    p .= "  self: 命令     必须与下表里某个 self: 完全一致`n"
-    p .= "若需求无法用上表完成，只输出一行：ERROR: 简短原因`n`n"
+    p .= "只允许下面三种写法：`n"
+    p .= "  item: 名称      首选：执行表里某个功能（按名称）`n"
+    p .= "  动作原文         次选：把表里某个动作原样照抄一行（例如 ^c 或 hotkey: ^c、{Enter}、run: xxx、self: xxx）`n"
+    p .= "  ERROR: 原因      需求无法用表里的动作完成时（只输出这一行）`n`n"
     p .= "【规则】`n"
-    p .= "1. 优先复用下表：能对上名称就用 item: 名称；能对上热键就用 hotkey: 热键。`n"
-    p .= "2. 不要自己发明快捷键、程序路径或功能名；表里没有的 run: 与 self: 一律不允许。`n"
-    p .= "3. 需要输入的文字用 send:（短）或 paste:（长）原样写出，不要改写、不要翻译。`n"
+    p .= "1. 优先用 item: 名称 —— 能对上名称就用它，这是最稳的方式。`n"
+    p .= "2. 也可以用 hotkey: 热键，但热键必须与表里某个动作**逐字一致**。`n"
+    p .= "3. 需要输入文字时：只有表里存在对应的输入动作才可以引用它；否则输出 ERROR。`n"
     p .= "4. 启动程序后不用写等待，程序会自动等待。`n"
     p .= "5. 最多输出 40 行，且只输出动作行。`n`n"
-    p .= "【已配置命令表】`n" . RunBoxCatalogText() . "`n"
+    p .= "【已配置动作表】（名称=动作；只有这些可用）`n" . RunBoxCatalogText() . "`n"
     if (runboxPromptExtra != "")
         p .= "`n【补充要求】`n" . runboxPromptExtra . "`n"
     return p
@@ -3499,15 +3531,25 @@ RunBoxParseReply(reply) {
     dropped := []
     errText := ""
 
-    ; 白名单：配置里出现过的 run: / self:
-    allowedRun := Map()
-    allowedSelf := Map()
+    ; ---------- 白名单：只承认"配置里已有的动作"（圆盘菜单 + 四块小键盘）----------
+    ; allowedAct ："类型|归一化内容" → 配置里的原始写法（执行时用配置的写法，保证执行的就是配置里的动作）
+    ; allowedName：归一化名称 → 配置里的名称（item: 用）
+    allowedAct := Map()
+    allowedName := Map()
     for it in OverlayConfiguredItems() {
-        a := OverlayActionParse(it.action)
-        if (a.type = "run")
-            allowedRun[StrLower(a.value)] := true
-        else if (a.type = "self")
-            allowedSelf[StrLower(a.value)] := true
+        raw := Trim(it.action)
+        if (raw != "") {
+            a := OverlayActionParse(raw)
+            if (a.type != "none") {
+                ; 键保留原样大小写：动作必须与配置"逐字一致"（a 与 A 是不同的动作）
+                k := a.type . "|" . a.value
+                if (!allowedAct.Has(k))
+                    allowedAct[k] := raw
+            }
+        }
+        nm := Trim(it.name)
+        if (nm != "")
+            allowedName[nm] := nm          ; 名字也精确区分大小写
     }
 
     fence := Chr(96) . Chr(96) . Chr(96)     ; markdown 代码块围栏（三个反引号）
@@ -3516,6 +3558,8 @@ RunBoxParseReply(reply) {
         errText := Trim(em[1])
 
     if (errText = "") {
+        if (allowedAct.Count = 0 && allowedName.Count = 0)
+            dropped.Push("（配置里没有任何可用动作，无法执行——请先在 config.ini 里配置小键盘 / 圆盘菜单项）")
         Loop parse, txt, "`n", "`r" {
             line := Trim(A_LoopField)
             if (line = "")
@@ -3525,49 +3569,42 @@ RunBoxParseReply(reply) {
             if (line = "")
                 continue
 
-            if RegExMatch(line, "i)^(?:send|hotkey|paste)\s*:", &m) {
-                act := OverlayActionParse(line)
-                if (act.type = "none") {
-                    dropped.Push(line . "   ← 内容为空")
-                    continue
-                }
-                if (StrLen(act.value) > 500) {
-                    act.value := SubStr(act.value, 1, 500)
-                    dropped.Push("（有一条文本超过 500 字，已截断）")
-                }
-                actions.Push(act)
-                continue
-            }
-            if RegExMatch(line, "i)^run\s*:(.*)$", &m) {
-                raw := Trim(m[1])
-                if (allowedRun.Has(StrLower(raw)))
-                    actions.Push({type: "run", value: raw})
-                else
-                    dropped.Push(line . "   ← 不在「已配置命令表」中")
-                continue
-            }
-            if RegExMatch(line, "i)^self\s*:(.*)$", &m) {
-                raw := StrLower(Trim(m[1]))
-                if (allowedSelf.Has(raw))
-                    actions.Push({type: "self", value: raw})
-                else
-                    dropped.Push(line . "   ← 不在「已配置命令表」中")
-                continue
-            }
+            ; ① item: 名称 —— 名称必须是配置里有的
             if RegExMatch(line, "i)^item\s*:(.*)$", &m) {
-                name := Trim(m[1])
-                if (OverlayLookupItem(name))
-                    actions.Push({type: "item", value: name})
+                nm := Trim(m[1])
+                if (allowedName.Has(nm))
+                    actions.Push({type: "item", value: allowedName[nm]})
                 else
-                    dropped.Push(line . "   ← 配置里没有这个名称")
+                    dropped.Push(line . "   ← 配置里没有这个名称（名称区分大小写）")
                 continue
             }
-            low := StrLower(line)
-            if (low = "close" || low = "case") {
-                dropped.Push(line . "   ← 本场景不使用 close / case")
+
+            ; ② 其余行：动作必须"逐字"等于配置里的某个动作
+            act := OverlayActionParse(line)
+            if (act.type = "none") {
+                ; 退一步：整行正好是配置里的某个名称，也当 item: 处理（宽容但同样安全）
+                if (allowedName.Has(line)) {
+                    actions.Push({type: "item", value: allowedName[line]})
+                } else {
+                    low := StrLower(line)
+                    if (low = "close" || low = "case")
+                        dropped.Push(line . "   ← 本场景不使用 close / case")
+                    else
+                        dropped.Push(line . "   ← 不在「已配置动作」中，未执行")
+                }
                 continue
             }
-            dropped.Push(line . "   ← 无法识别，未执行")
+            k := act.type . "|" . act.value        ; 精确匹配（区分大小写）
+            if (allowedAct.Has(k)) {
+                actions.Push(OverlayActionParse(allowedAct[k]))    ; 用配置里的原始写法执行
+                continue
+            }
+            if (act.type = "run" || act.type = "self")
+                dropped.Push(line . "   ← 不在「已配置命令表」中")
+            else if (act.type = "wait")
+                dropped.Push(line . "   ← 等待由程序自动插入，不需要写 wait:（它也不在配置的动作里）")
+            else
+                dropped.Push(line . "   ← 不在「已配置动作」中，未执行")
         }
     }
 
@@ -3587,7 +3624,15 @@ RunBoxShow() {
     global runboxPrevWin, runboxPrevTitle, runboxState, runboxBusy, runboxLog
     global runboxExpanded, runboxHSmall, ui_font_size
     if (runboxGui) {
-        RunBoxClose()
+        ; 已经打开：若焦点就在运行框里 → 关掉（开 / 关切换）；否则把焦点拿回运行框
+        hwCur := RunBoxHwnd()
+        if (hwCur && WinExist("A") = hwCur) {
+            RunBoxClose()
+        } else if (hwCur) {
+            try WinActivate("ahk_id " . hwCur)
+            try runboxEdit.Focus()
+            DebugLog("[runbox] 焦点已回到运行框")
+        }
         return
     }
     if (runboxBusy)
@@ -3653,7 +3698,69 @@ RunBoxShow() {
     OnMessage(0x00A3, RunBoxNoMaximize)
     OnMessage(0x00A1, RunBoxNcLButtonDown, 0)     ; 小把手的第二道点击入口
     OnMessage(0x00A1, RunBoxNcLButtonDown)
+    OnMessage(0x0003, RunBoxMoveHandler, 0)       ; 运行框移动 → 键帽排跟着走
+    OnMessage(0x0003, RunBoxMoveHandler)
+    RunKeysShow()                                 ; 底部热键键帽（回车 / Tab / 空格 / 删除 / 退格 / 取消 / 触发）
     DebugLog("[runbox] 已弹出运行框，目标窗口=" . runboxPrevWin . "「" . runboxPrevTitle . "」")
+}
+
+; ============ 运行框下方的热键键帽（复用第 5 个小键盘面板 runkeys）============
+; 做法：直接调 KeypadShow 创建"第 5 个面板"，因此布局 / 圆角窗口 / 悬停高亮 /
+; 文字层（彩色字身 + 黑边，字号取 [keypad] font_size）与小键盘、圆盘完全一致。
+; 区别只有三点：① 不登记浮层栈（Esc 仍归运行框管）；② 目标窗口取运行框跟踪到的
+; "最近一次活动的窗口"；③ 位置永远吸附在运行框正下方（运行框一动就跟着走）。
+RunKeysShow() {
+    global keypadPanels, runboxPrevWin
+    KeypadShow("runkeys", false)                    ; 不登记浮层栈：Esc 仍归运行框管
+    if (!keypadPanels.Has("runkeys"))
+        return
+    keypadPanels["runkeys"].focusWin := runboxPrevWin
+    RunKeysAnchor()
+}
+
+RunKeysHide() {
+    global keypadPanels
+    if (keypadPanels.Has("runkeys"))
+        KeypadClose("runkeys")
+}
+
+RunKeysSyncTarget() {
+    global keypadPanels, runboxPrevWin
+    if (keypadPanels.Has("runkeys"))
+        keypadPanels["runkeys"].focusWin := runboxPrevWin
+}
+
+; 把键帽排吸附到运行框正下方（水平居中、夹取在虚拟屏幕内）
+RunKeysAnchor() {
+    global keypadPanels
+    if (!keypadPanels.Has("runkeys"))
+        return
+    ownHwnd := RunBoxHwnd()
+    if (!ownHwnd)
+        return
+    P := keypadPanels["runkeys"]
+    if (!P.gui)
+        return
+    L := P.layout
+    WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " . ownHwnd)
+    if (ww <= 0 || wh <= 0)
+        return
+    vb := RadialVirtualBounds()
+    nx := wx + (ww - L.winW) // 2
+    nx := Max(vb.x, Min(nx, vb.x + vb.w - L.winW))
+    ny := wy + wh + 6                              ; 紧贴运行框下沿，留 6px 缝
+    if (ny + L.winH > vb.y + vb.h)
+        ny := Max(vb.y, vb.y + vb.h - L.winH)      ; 下方放不下就往上收
+    P.gui.Move(nx, ny)
+    OverlayTextLayerMove(P.textGui, nx, ny)          ; 文字层只挪位置（尺寸与面板一致）
+}
+
+; 运行框被拖动时系统会发 WM_MOVE：让键帽排跟着走
+RunBoxMoveHandler(wParam, lParam, msg, hwnd) {
+    ownHwnd := RunBoxHwnd()
+    if (!ownHwnd || hwnd != ownHwnd)
+        return
+    RunKeysAnchor()
 }
 
 ; ---- 安全取运行框窗口句柄 ----
@@ -3745,6 +3852,7 @@ RunBoxApplyHeight() {
     } catch Error as e {
         DebugLog("[runbox] 调整高度失败：" . e.Message . "（目标高度=" . newH . "）")
     }
+    RunKeysAnchor()                                ; 窗口变高 / 变矮后键帽排重新吸附
 }
 
 ; ---- 底部小把手：展开 / 收起"执行全过程"面板 ----
@@ -3878,6 +3986,7 @@ RunBoxTrackTarget() {
     t := ""
     try WinGetTitle(&t, "ahk_id " . cur)
     runboxPrevTitle := t
+    RunKeysSyncTarget()                        ; 键帽排的发送目标跟着一起变
     DebugLog("[runbox] 目标窗口更新为「" . t . "」（hwnd=" . cur . "）")
 }
 
@@ -3891,6 +4000,8 @@ RunBoxClose() {
     OnMessage(0x0084, RunBoxHitTest, 0)
     OnMessage(0x00A3, RunBoxNoMaximize, 0)
     OnMessage(0x00A1, RunBoxNcLButtonDown, 0)
+    OnMessage(0x0003, RunBoxMoveHandler, 0)
+    RunKeysHide()                                 ; 键帽排随运行框一起收掉
     runboxBusy := false
     runboxState := ""
     g := runboxGui
@@ -4065,24 +4176,44 @@ RunBoxStep() {
 }
 
 ; ---- 收尾：停掉定时器、交还 Esc、显示结果 ----
-RunBoxFinish(msg) {
+; 收尾：回到可编辑状态；focusTarget = true（正常执行完）时把焦点还给"最近一次活动的窗口"
+RunBoxFinish(msg, focusTarget := true) {
     global runboxBusy, runboxState, runboxStatus, runboxGui, runboxEdit, runboxStartTick
+    global runboxPrevWin, runboxPrevTitle
     SetTimer(RunBoxStep, 0)
     runboxBusy := false
     RunBoxEscOff()
     DebugLog("[runbox] " . msg)
     RunBoxLogAdd("[结果] " . msg . "（本次共 " . (A_TickCount - runboxStartTick) . "ms）")
-    ; 执行完（或被 Esc 中止）后**回到可编辑状态**：刚执行的动作留在清单里可回看，
-    ; 输入框清空并重新聚焦，方便直接接着输入下一条需求；想关掉按 Esc 或再按触发键。
+    ; 回到可编辑状态：输入框清空，方便直接接着输入下一条需求（运行框保持打开）
     runboxState := "input"
     hw := RunBoxHwnd()
     if (!hw)
         return
-    try WinActivate("ahk_id " . hw)
     try runboxEdit.Value := ""
     try runboxEdit.Visible := true
-    try runboxEdit.Focus()
-    try runboxStatus.Text := msg . " · 可直接输入下一个需求（Esc 关闭）"
+
+    ; 焦点去向（用户要求）：
+    ;   · 正常执行完 → 焦点还给"最近一次活动的窗口"（即动作打过去的目标窗口）。
+    ;     运行框只留在屏幕上（+AlwaysOnTop）不再抢焦点，用户可以接着在原窗口干活；
+    ;     想回来接着下需求：点一下输入框，或再按一次触发键（会重新聚焦运行框）。
+    ;   · 被 Esc 中止 / 没有可用目标窗口 → 焦点留在运行框，方便改一改再跑。
+    back := false
+    if (focusTarget && runboxPrevWin && WinExist("ahk_id " . runboxPrevWin))
+        back := RadialActivateFocusWin(runboxPrevWin)
+    if (back) {
+        t := runboxPrevTitle
+        if (StrLen(t) > 24)
+            t := SubStr(t, 1, 24) . "…"
+        if (t = "")
+            t := "目标窗口"
+        try runboxStatus.Text := msg . " · 焦点已还给「" . t . "」（点输入框或按触发键可回到这里）"
+        DebugLog("[runbox] 焦点已还给目标窗口 " . runboxPrevWin)
+    } else {
+        try WinActivate("ahk_id " . hw)
+        try runboxEdit.Focus()
+        try runboxStatus.Text := msg . " · 可直接输入下一个需求（Esc 关闭）"
+    }
 }
 
 ; ---- 执行期间接管 Esc（按一次中止后续动作），结束后交还给浮层栈或系统 ----
@@ -4092,10 +4223,13 @@ RunBoxEscOn() {
 
 RunBoxEscOff() {
     global overlayStack
-    if (IsSet(overlayStack) && overlayStack.Length > 0)
+    if (IsSet(overlayStack) && overlayStack.Length > 0) {
         OverlayRegisterEscape()        ; 还有浮层开着：把 Esc 还给它们
-    else
-        Hotkey("Escape", "Off")
+    } else {
+        ; 必须包 try：Escape 当时没注册的话，Hotkey(...,"Off") 会抛 Nonexistent hotkey
+        ; （与 OverlayUnregisterEscape 同一处理；关闭运行框但没执行过动作时就会走到这里）
+        try Hotkey("Escape", "Off")
+    }
 }
 
 RunBoxEscHandler(*) {
@@ -4103,7 +4237,7 @@ RunBoxEscHandler(*) {
     if (runboxBusy) {
         SetTimer(RunBoxStep, 0)
         DebugLog("[runbox] 用户按 Esc 中止了后续动作")
-        RunBoxFinish("已被 Esc 中止，剩余动作不再执行")
+        RunBoxFinish("已被 Esc 中止，剩余动作不再执行", false)   ; 中止时焦点留在运行框，方便改完再跑
         return
     }
     RunBoxEsc()
@@ -4318,6 +4452,18 @@ KeypadDefaultDefs() {
         {label: "=", action: "=", role: "key"}, {label: "~", action: "~", role: "key"}, {label: "``", action: "``", role: "key"}, {label: "/", action: "/", role: "key"}, {label: "空格", action: "{Space}", role: "key"}, {label: "Tab", action: "{Tab}", role: "key"}
     ]}
 
+    ; 运行框下方的热键键帽：一排 7 个（复用同一套布局 / 绘制 / 文字层，
+    ; 所以字符款式、字号、黑边、颜色与小键盘完全一致）
+    defs["runkeys"] := {name: "运行热键", cols: 7, rows: 1, square: false, case: false, keys: [
+        {label: "回车", action: "{Enter}",      role: "key"},
+        {label: "Tab",  action: "{Tab}",        role: "key"},
+        {label: "空格", action: "{Space}",      role: "key"},
+        {label: "删除", action: "{Del}",        role: "key"},
+        {label: "退格", action: "{BS}",         role: "key"},
+        {label: "取消", action: "{Esc}",        role: "key"},
+        {label: "触发", action: "self:trigger", role: "key"}
+    ]}
+
     ; 字母键盘：6 列 × 5 行（a-z + 【Aa】大小写切换 + 回车 / 反斜杠 / 【触发】）
     letterKeys := []
     Loop 26 {
@@ -4359,8 +4505,10 @@ KeypadKeysFor(kind) {
     keys := []
     for k in def.keys {
         kk := {label: k.label, action: k.action, role: k.role}
-        if (upper)
+        if (upper) {
             kk := OverlayCaseTransform(kind, kk.label, kk.action)   ; 只对"动作是单个 a-z 字母"的键生效
+            kk.role := k.role                                       ; 该变换只返回 label/action，role 必须补回来
+        }                                                           ; （否则大写状态下命中测试读 .role 会直接崩）
         keys.Push(kk)
     }
     return keys
@@ -4435,7 +4583,8 @@ KeypadToggle(kind) {
 }
 
 ; ---- 弹出面板（在鼠标位置；限制在全部显示器合并区域内）----
-KeypadShow(kind) {
+; pushEscape = false：只建面板、不登记浮层栈（用于运行框下方的键帽排——它不接管 Esc）
+KeypadShow(kind, pushEscape := true) {
     global keypadPanels, keypadFontSize, keypadOpacity
 
     if (keypadPanels.Has(kind))
@@ -4494,7 +4643,8 @@ KeypadShow(kind) {
     ; 注册鼠标消息（多个面板共用同一批回调，按引用计数）并登记 Esc 接管
     KeypadRegisterMsg(g.Hwnd)
     P.registered := true
-    OverlayPush(kind)
+    if (pushEscape)
+        OverlayPush(kind)
 
     ; 文字层：文字始终不透明（不受 opacity 影响），单独一层、与主面板完全重合
     P.textGui := OverlayTextLayerNew(guiX, guiY, L.winW, L.winH)

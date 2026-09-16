@@ -304,6 +304,8 @@ AHK v2 的**加载期弹框**（`#Warn` 警告、调用了不存在的函数等�
 - 圆盘窗口带 **`+E0x08000000`（`WS_EX_NOACTIVATE`）**：点击/拖拽菜单都**不改变前台窗口**（不抢焦点，编辑器光标与焦点不受影响）。
 - 因窗口不获取键盘焦点，**Esc 由打开期间的全局热键接管**，但**不再由 radial 自己注册**：统一走 `Overlay*`（见 6.3），`RadialBuildMenu` 末尾 `OverlayPush("radial")`、`RadialClose` 里 `OverlayRemove("radial")`。
   **坑**：`Hotkey(Key,"Off")` 之后，即使再用函数对象注册（不报错）也不会重新启用，必须显式调 `Hotkey(Key,"On")`（`OverlayRegisterEscape` 已按此处理）。
+- **分组隐藏参数 `hidden`（2026-09-15 新增）**：`[radial.<组>]` 段里可写 `hidden = true/false`（也接受 `1/0`、`yes/no`、`on/off`；**非法值沿用默认 false**）。分组对象在 `RadialLoadConfig` 里创建时带 `hidden: false`，解析到该键才置位。**三处过滤**（少一处都会"漏"出来）：① 第二层【快捷菜单】用 `RadialVisibleGroups()` 列分组；② 第一层【常用】的 `RadialTopFrequent()` 里 `if (g.hidden) continue`（否则隐藏组的高频项照样冒出来）；③ `RadialBuildMenu` 构建第三层前，若当前分组已隐藏则退回第二层。
+  注意：隐藏只影响**圆盘菜单的显示**；`OverlayConfiguredItems()`（运行框的白名单 / `item:` 查表）仍包含隐藏分组的项。如果以后想连运行框也排除，改 `OverlayConfiguredItems()` 一处即可。
 - **位置夹取必须用虚拟屏幕**（`SysGet(76/77/78/79)`），不能用 `A_ScreenWidth/A_ScreenHeight`（仅主屏）——否则多显示器下圆盘会被"拉回主屏"，表现为一拖动就"消失"。
 - `WM_LBUTTONUP` 需在 `RadialRegisterMsg`/`RadialUnregisterMsg` 成对注册/注销（`radialMsgUp`）。
 
@@ -388,6 +390,7 @@ radial.base.1=12     ; 键 = radial.<组标识>.<编号>，与 config.ini 的 [r
 - 位置夹取用 `RadialVirtualBounds()`（虚拟屏幕），不要改用 `A_ScreenWidth`。
 - **五块浮层同屏不得重叠**：`OverlayAvoid(active)` 以"正在拖动 / 刚打开"的那块为 active（active 永不移动），把被它压住的浮层沿**最小位移方向**推开，两两留 8px 间隙、连锁处理、落点夹取虚拟屏幕；推不动就原地不动（避免屏幕边缘抖动）。**四个调用点**：`RadialBuildMenu` 末尾、径向拖拽 `Gui.Move` 之后、`KeypadShow` 末尾、小键盘拖拽 `Gui.Move` 之后——以后再新增浮层时务必补调用点。
 - **四个面板的按键内容完全由配置驱动**（2026-09-15 改造）：`[keypad.<kind>]` 段里「编号 = 名称 | 动作」，编号即格子序号（行优先、1 起），缺号 = 空位；`cols` / `rows` / `square` / `case` 均可配。动作四类：普通 Send 字符串 / `run:` / `close` / `case` / `self:`（自身命令，直接调用处理函数）。**一个键都没写（或整段删掉）的面板沿用 `KeypadDefaultDefs()` 的内置默认**，所以老配置行为不变。解析用**自定义行解析**（与径向菜单同一套）：整行 `;` 注释、行内「空白 + `;`」注释；值里的 `;` 与 `|` 必须写成 `%3B` / `%7C`（否则被当注释 / 分隔符）。新增面板只需在 `KeypadLoadConfig` 的 kind 白名单与 `KeypadDefaultDefs()` 里各加一处。
+- **`OverlayCaseTransform()` 只返回 `{label, action}`**（它要同时服务小键盘与圆盘菜单，圆盘项没有 `role`）——所以**凡是拿它的返回值当"按键对象"用的地方，必须自己把 `role` 补回来**。2026-09-15 就是漏了这一步：`KeypadKeysFor` 在大写状态下用变换结果替换了整对象，导致 30 个键全没有 `role`，字母键盘一切换大小写，`KeypadHitTest` 读 `.role` 就抛 `This value of type "Object" has no property named "role"`（用户实测崩溃）。修法是在 `KeypadKeysFor` 里变换后 `kk.role := k.role`。以后再给"按键"加字段时，记得同步这条。
 - **大小写状态是通用机制、不是字母面板专属**（实现见 §6.2a 的浮层动作层）：`case = true` 的面板才启用，状态存在 `overlayCaseState`（**按浮层名**，运行期内记住，默认小写）。点动作是 `case` 的键 → `OverlayCaseToggle(kind)` → `OverlayRefresh(kind)` 就地重建按键 + `KeypadDraw` 重绘 + 文字层重建；**不要改窗口大小或位置**。大写只影响「动作恰好是一个 ASCII 小写字母」的键（标签与发送内容一起变大写），其它键（回车、`\`、`^j`、`run:`、数字、符号）不受影响；`KeypadDraw` 里该键底色随状态变化（大写偏暖色，起 CapsLock 指示灯作用）。
 - 拖动中每次 `WM_MOUSEMOVE` 都会调 `OverlayAvoid`，所以里面只做坐标计算（`WinGetPos` + 比较），**不要在这里加重绘或重日志**。
 - **文字层必须跟着面板动**：`KeypadOnMouseMove` 拖动分支、`OverlayMoveTo()`（避让推开）里都要 `OverlayTextLayerMove`；漏一处就会出现"面板走了、文字留在原地"。
@@ -419,7 +422,7 @@ radial.base.1=12     ; 键 = radial.<组标识>.<编号>，与 config.ini 的 [r
 | `OverlayCaseUpper(owner)` / `overlayCaseState` | 大小写状态**按浮层名**存（`Map`：`"letter"` / `"radial"` → true/false，运行期内记住）——属于浮层动作层（见 6.2a） |
 | `KeypadColsFor()` / `KeypadRowsFor()` / `KeypadSquareFor()` | 列数 / 行数 / 是否正方形按键，全部来自定义表（`[keypad.<kind>]`，缺省用内置默认） |
 | `KeypadComputeLayout(kind, keys, sizePt)` | 按字号实测文字宽度算面板尺寸与各按键矩形；行数取「定义里声明的行数」与「按键数推导」的较大者，`square = true` 时按键取正方形 |
-| `KeypadToggle(kind)` / `KeypadShow(kind)` / `KeypadClose(kind)` | 各自开 / 关（只影响自己）/ 弹出（鼠标位置、虚拟屏幕夹取） |
+| `KeypadToggle(kind)` / `KeypadShow(kind, pushEscape := true)` / `KeypadClose(kind)` | 各自开 / 关（只影响自己）/ 弹出（鼠标位置、虚拟屏幕夹取）；`pushEscape = false` 时只建面板、不登记浮层栈（运行框下方的键帽排 `runkeys` 用它，见 6.5） |
 | `KeypadKindByHwnd(hwnd)` | 按窗口句柄找面板类型，供共用的鼠标回调分发 |
 | `KeypadDraw(kind)` / `KeypadDrawText()` | GDI 双缓冲绘制**面板本体**（悬停高亮；【回车】键偏蓝；`role=close` 的暗红配色保留但未用）；**不画文字** |
 | `KeypadPaintTexts(kind, maskDC, colorDC)` / `KeypadTextLayerPresent(kind)` | 面板文字层：所有按键文字（彩色字身 + 白色掩码含黑边）+ 合成 + 呈现；大小写切换后要重新调用 |
@@ -475,6 +478,9 @@ case = true
 > ① sed 提取函数要用 `^函数名(参数) {` **带上 ` {`** 锚定：只写 `^KeypadLoadConfig()` 会同时匹配 auto-execute 段里的**裸调用**，把中间的其它函数一起卷进来、导致"无输出卡死"；
 > ② 被测函数用到的**全局变量必须在测试脚本里也赋值**（哪怕赋空串）：AHK v2 对"从未被赋值的全局变量"会弹**加载期警告框**阻塞脚本，症状同样是"毫无输出"（与 §4.1 #15 同类）；
 > ③ 测试脚本里的变量名别撞内置函数：`Ln`（自然对数）当变量名会报错，`log` 同理（§4.1 #3）——本例中 `Ln` 就白折腾了一轮。
+> ④ 提取出来的测试脚本顶部要写 `#Warn All, Off`：AHK 的**加载期 `#Warn` 警告框会阻塞脚本**，而 `/ErrorStdOut` 抓不到，症状是"日志一个字都没写、进程一直挂着"（2026-09-15 加了这行才跑起来）。
+> ⑤ 测试脚本里的全局变量要**按类型**赋初值：`keypadPanels` / `keypadDefs` 之类必须是 `Map()`，`overlayStack` 是 `[]`，计数器是 `0`；赋成空串会在 `.Has()` / `++` 上直接报错。另外**块外被调用的 GDI 辅助函数（`BrushSolid` / `RectStruct` / `BrushColorVal` / `RadialMeasureText` / `RadialCreateFont`）要抽真实实现**，打成返回空串的桩会在 `.w` / `FillRect` 上炸。
+> ⑥ **不要在无桌面测试里走到 `Hotkey(...)` 注册**（例如 `OverlayPush` → `OverlayRegisterEscape`）：Session 0 下会直接阻塞。
 > 另注意 `SharpKnifeCore.ahk` 里有单字母函数 `J()` / `K()`，**顶层**变量不能叫 `j` / `k`（函数内的局部变量没问题）。
 
 ### 6.4 已知的历史遗留（可清理，非必须）
@@ -504,12 +510,21 @@ case = true
 **设计要点 / 坑**：
 
 - **界面只有两块**（用户明确要求，2026-09-15 从三块改为两块）：① 输入框（`runboxEdit`）；② 可展开 / 收起的"动作执行过程"（`runboxDetail`）。**没有**独立的"计划清单"控件 —— 清单明细、丢弃原因都只写在过程日志里，状态行只给一行摘要（"将执行 N 条，丢弃 M 行：回车执行…"）。自查：`WinGetControls` 应只看到 2 个 `Edit`（输入框 + 过程面板）。
-- **模型输出=不可信输入**：除 `send:`/`hotkey:`/`paste:`/`run:`/`self:`/`item:` 之外的行**一律丢弃**并展示给用户；**绝不能**退回"裸行 = 普通发送"（那会把模型解释的话原样打进编辑器）。`run:` 与 `self:` 还必须先过「已配置命令表」白名单。
+- **模型输出=不可信输入；而且只允许执行"配置里已有的动作"**（2026-09-15 用户选择最严格方案 B）：`RunBoxParseReply` 会把 `OverlayConfiguredItems()`（圆盘菜单 + 四块小键盘的全部项）压成白名单 —— `"类型|归一化内容" → 配置里的原始写法`，以及 `归一化名称 → 配置里的名称`。任何一行都必须落在这两个表里才会执行：
+  · `item: 名称` → 名称必须在配置里；裸写一个配置里的名称也当 `item:` 处理；
+  · 按键 / `run:` / `self:` / `paste:` 等 → 其"动作内容"必须与配置里某个动作**逐字一致**（比较时忽略大小写，**执行时用配置里的原始写法**，保证执行的动作确实来自配置）；
+  · 因此**自由文字被禁止**（`send: 你好`、`paste: 任意文本` 都会被丢弃）；`wait:` 也被丢弃（等待由程序自动插入）；
+  · 丢弃时一定在"执行过程"里写明原因（"不在「已配置动作」中，未执行"等）。
+  要输入文字就必须先在配置里建一项（如 `5 = 写你好 | paste: 你好`），模型再用 `item: 写你好` 引用它。
+  **大小写必须精确匹配**（2026-09-15 用户实测"要大写却打出小写"的根因）：`RunBoxParseReply` 的白名单键、`OverlayLookupItem` 的比较都**不能**用 `StrLower` 折叠或 AHK 的 `=`（`=` 大小写不敏感）—— 否则 `item: A` 会命中配置里先出现的 `a`（字母键盘的小写项），于是打出小写。现在名字用 `allowedName[原名]`、动作用 `type . "|" . 原样动作` 作键，`OverlayLookupItem` 用 `==` 比较。
+  另外 `OverlayConfiguredItems()` 会给 `case = true` 的面板**追加大写变体**（`StrUpper` 标签与动作，与 `KeypadKeysFor` 生成大写键的方式一致），这样"说出大写字母"时模型才能引用到 `A` 这一项。
+  提示语 `RunBoxBuildPrompt` 同步改成"只允许执行已配置动作表里的动作、不允许自由文字，做不到就输出 ERROR 行"。
+  **不要**为了让模型"更聪明"而放宽这里的校验 —— 这是用户明确要求的红线。
 - 等待**不让模型输出**：动作间 `step_delay_ms`、`run:` 后 `run_wait_ms` 由程序插；`wait:` 动作只留给配置层用（面板/菜单做宏）。
 - `AIRequest` 第 5 个参数 `systemPrompt` 为空时沿用 `[ai] system_prompt`，非空时覆盖 —— 运行框靠它换提示语，其它调用点不受影响。
 - 运行框**要抢焦点**（要打字、要输入法），这与五块浮层的 `WS_EX_NOACTIVATE` 相反；因此必须跟踪"最近一个活动窗口"并在提交/执行时把焦点还给它。
 - **目标窗口用 `RunBoxTrackTarget()` 持续跟踪**（运行框打开期间 `SetTimer(..., 400)`，跳过运行框自己的 hwnd）：只看弹出那一刻的前台窗口是不够的——用户可能在运行框开着时切到别的程序，之后连续下需求时目标就该是那个程序。用户明确要求"动作针对最近一个活动的窗口，且不包括运行框本身"。
-- **执行完毕必须回到可编辑状态**（`RunBoxFinish` 把状态置回 `"input"`、清空并重新聚焦输入框、清单保留可回看）：用户要求"执行完能接着输入下一条，不用再按一次热键"。同理，被 `Esc` 中止后也回到输入态。
+- **执行完毕回到可编辑状态**（`RunBoxFinish` 把状态置回 `"input"`、清空输入框）：焦点去向见下一条（正常执行完是还给目标窗口，不是拉回运行框）。
 - **展开 / 收起：确定性高度 + 默认收起 + 把手永不消失**（2026-09-15 用户连报三次后定稿）：
   · 高度只用两个值：`runboxHSmall`（收起态）与 `runboxExtraDetail`（过程面板额外高度 = 面板自身高度 + 间距）。
   · 只在**弹窗时**量一次：`Show("AutoSize Hide")`（窗口隐藏 + 两个可选项都隐藏）量出收起高度；过程面板额外高度直接取 `ControlGetPos` 的面板高度（**隐藏状态下也能取到真实尺寸**，已验证）——**不要**再靠"切成可见→Show→量→切回"那套，它一旦中途抛异常就会把过程面板留在可见状态，表现是"默认打开就是展开的"（用户实测）。量高度整体用 `try/finally`，finally 里强制把两个可选项恢复为隐藏。
@@ -517,10 +532,19 @@ case = true
   · **默认必须是收起态**：弹出流程结尾显式 `runboxExpanded := false` + 两个可选项隐藏 + `RunBoxApplyHeight()`。
   · **收起时不渲染执行过程**（用户明确要求）：`RunBoxLogAdd` 只把行压进 `runboxLog`，只有展开时才 `RunBoxRenderLog()` 写进面板；展开时补渲染一次，保证打开就看到完整过程。
   · 实测数据（12pt 字体、两块界面）：收起 135 / 展开 379（额外 244）；此前带中间清单框时是 492 / 806 —— 去掉清单框后窗口明显瘦了。
+- **运行框下方的热键键帽（2026-09-15 新增）**：实现方式是把它做成**第 5 个小键盘面板** `runkeys`（`KeypadDefaultDefs()` 里一排 7 键：回车 `{Enter}` / Tab `{Tab}` / 空格 `{Space}` / 删除 `{Del}` / 退格 `{BS}` / 取消 `{Esc}` / 触发 `self:trigger`，`cols: 7, rows: 1`），于是布局、圆角窗口、悬停高亮、**文字层（彩色字身 + 黑边，字号取 `[keypad] font_size`）**全部与小键盘 / 圆盘一致 —— 用户要的"字符款式、大小、黑边、颜色一致"就是这样零成本满足的。
+  · `KeypadShow(kind, pushEscape := true)` 新增了开关：键帽排传 `false`，**不登记浮层栈**（Esc 仍归运行框管）。这样也不会因为弹一次键帽排就去注册 / 注销全局 Escape 热键。
+  · `OverlayOwnerHwnd("runkeys")` 返回**运行框的 hwnd**：键帽不抢焦点，点它时前台是运行框，必须当成"自家窗口"才会退回跟踪到的目标窗口。
+  · 位置由 `RunKeysAnchor()` 吸附在运行框正下方（水平居中 + 夹取虚拟屏幕）；运行框拖动靠 `WM_MOVE(0x0003)` 钩子跟随，展开 / 收起靠 `RunBoxApplyHeight()` 里再调一次；发送目标随 `RunBoxTrackTarget()` 一起更新（`RunKeysSyncTarget()`）。
+  · 生命周期跟着运行框：`RunBoxShow()` 里 `RunKeysShow()`、`RunBoxClose()` 里 `RunKeysHide()`。
+  · 键帽排**故意不进** `OverlayRects()` 的避让列表（它必须固定贴着运行框，不能被别的浮层推开）。
 - **`RunBox*` 函数改完必须核对 `global` 声明**（2026-09-15 已犯两次，都是"新增全局变量后忘了把它加进某个函数的 global 行"）：
   漏写时那行赋值会变成**函数局部变量**，全局仍是空串 —— 表现是 `runboxDetail.Visible` 报 `This value of type "String" has no property named "Visible"`（一次触发就崩）。
   自查办法（可重复跑）：把每个 `^RunBox[A-Za-z]*\(.*\) \{` 函数体抓出来，比对"函数体内出现的 `runbox*` 变量"与"该函数 global 行里声明的名字"，差集必须为空。
   同一轮还修了：`ControlGetPos` 等**输出参数失败时会被置回"未赋值"**，所以 `if (dh <= 0)` 这类比较会抛 `This local variable has not been assigned a value` —— 输出参数一律先 `IsSet()` 判断再比较。
+- **执行完焦点还给"最近一次活动的窗口"**（用户要求）：`RunBoxFinish(msg, focusTarget := true)` —— 正常执行完时调 `RadialActivateFocusWin(runboxPrevWin)` 把焦点还给目标窗口，**不要再** `WinActivate` + `runboxEdit.Focus()` 把焦点抢回运行框；只有被 Esc 中止（`focusTarget := false`）或目标窗口已不存在时才把焦点留在运行框。
+  配套：触发键 `RunBoxShow` 在"窗口已打开"时——**焦点已在运行框里才关闭**，否则只把焦点拿回来（`WinActivate` + `runboxEdit.Focus()`），这样"执行完在目标窗口干活 → 按触发键回来下一条"才顺。
+- **`Hotkey("Escape","Off")` 必须包 try**：Escape 当时没注册时会抛 `Nonexistent hotkey`。`RunBoxEscOff` 原先漏了 `try`，在"打开运行框但没执行过动作就关闭"的路径上会直接抛错（2026-09-15 在无桌面自测里复现并修掉；`OverlayUnregisterEscape` 早就包了 try，照它办）。
 - **关闭窗口的竞态**：`RunBoxClose` 必须"先停跟踪定时器 → 清空全局引用 → 最后 `Destroy()`"，句柄读取一律走 `RunBoxHwnd()`（`try` 包住并失败返回 0）。原先顺序写反了，Esc 关闭时定时器插进来读 `.Hwnd`，抛 `Gui has no window`（用户实测崩溃，已修）。
 - 底部把手是 `Text` 控件 + `+0x100`（SS_NOTIFY）才能收到 `Click`；**它和过程面板必须在 `RunBoxHitTest` 里放行**，否则点击会被 `HTCAPTION` 当成拖标题栏，把手就"点不动"（2026-09-15 一并处理）。展开 / 收起后按上面那条"显式改窗口高度"的做法处理，再把焦点还给输入框。
 - **运行框的拖动用 `WM_NCHITTEST(0x0084)`**（`RunBoxHitTest` 里对运行框及其子控件返回 `HTCAPTION(2)`，输入框单独放行），并用 `WM_NCLBUTTONDBLCLK(0x00A3)` 吞掉"双击最大化"。**不要**照抄思考窗口那套 `WM_LBUTTONDOWN(0x0201)`：0x0201 同一时刻只能挂一个回调，径向菜单 / 小键盘 / 思考窗口已经各自在抢，运行框再抢会把它们顶掉（2026-09-15 特意避开）。
