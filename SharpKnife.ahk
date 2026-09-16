@@ -274,7 +274,8 @@ global keypadArrowHotkey := "^+k"  ; 方向小键盘触发键（[keypad] arrow_h
 global keypadNumpadHotkey := "^+n" ; 数字小键盘触发键（[keypad] numpad_hotkey）
 global keypadSymbolHotkey := "^+y" ; 符号小键盘触发键（[keypad] symbol_hotkey）
 global keypadLetterHotkey := "^+e" ; 字母小键盘触发键（[keypad] letter_hotkey）
-global keypadLetterUpper := false  ; 字母小键盘当前是否大写（由面板上的【Aa】键切换；运行期内一直记住）
+global keypadDefs := Map()       ; 四个面板的按键定义（[keypad.<kind>] 段；缺省 = 内置默认）：kind -> {name, cols, rows, square, case, keys:[{label, action, role}]}
+global overlayCaseState := Map()  ; 各浮层的大小写状态（按浮层名存，如 "letter" / "radial"）：owner -> true（大写）/ false
 global keypadFontSize := 0       ; 小键盘字体大小（磅；[keypad] font_size，缺省=全局 ui_font_size）
 global keypadOpacity := 1.0      ; 小键盘透明度（[keypad] opacity，默认 1 = 不透明）
 global keypadMsgCount := 0       ; 已打开面板数：鼠标消息钩子按引用计数注册 / 注销
@@ -1376,23 +1377,6 @@ RadialMakeClickHandler(idx) {
     return (*) => RadialOnItemClick(idx)
 }
 
-; ---- 解析径向菜单动作 ----
-; 兼容两种写法：
-;   1) 旧写法：^c / #x / {F5}        → actionType=hotkey
-;   2) 新写法：run:"C:\a b\app.exe" --x 1  → actionType=run
-; 为避免和 AHK 快捷键语法混淆，启动程序要求显式以 run: 前缀声明。
-RadialParseAction(raw) {
-    t := Trim(raw)
-    if (t = "")
-        return 0
-    if RegExMatch(t, "i)^run\s*:(.*)$", &m) {
-        cmdLine := Trim(m[1])
-        if (cmdLine = "")
-            return 0
-        return {type: "run", value: cmdLine}
-    }
-    return {type: "hotkey", value: t}
-}
 
 ; ---- 加载 config.ini 的 [radial] 段（逐行扫描，保证顺序）----
 RadialLoadConfig() {
@@ -1503,8 +1487,9 @@ RadialLoadConfig() {
                 pipePos := InStr(value, "|")
                 if (pipePos > 0) {
                     itemName := Trim(SubStr(value, 1, pipePos - 1))
-                    itemAction := RadialParseAction(SubStr(value, pipePos + 1))
-                    if (itemName != "" && itemAction)
+                    ; 动作统一走浮层动作层（与四块小键盘同一套：send / run / close / case / self）
+                    itemAction := OverlayActionParse(SubStr(value, pipePos + 1))
+                    if (itemName != "" && itemAction.type != "none")
                         radialGroups[currentGroup].items.Push({name: itemName, actionType: itemAction.type, actionValue: itemAction.value, _num: Integer(key)})
                 }
             }
@@ -1597,7 +1582,7 @@ RadialBuildMenu() {
         centerText := "常用"
         radialMenuItems.Push({name: "快捷菜单", kind: "shortcut"})
         for f in RadialTopFrequent(radialCommonMax)
-            radialMenuItems.Push({name: f.name, kind: "exec", gi: f.gi, ii: f.ii})
+            radialMenuItems.Push({name: RadialCaseShownName(f.name, RadialItemAction(f.gi, f.ii)), kind: "exec", gi: f.gi, ii: f.ii})
     } else if (radialLevel = 2) {
         centerText := "快捷菜单"
         for gi, g in radialGroups
@@ -1609,7 +1594,7 @@ RadialBuildMenu() {
         group := radialGroups[radialCurrentGroup]
         centerText := group.name
         for ii, item in group.items
-            radialMenuItems.Push({name: item.name, kind: "exec", gi: radialCurrentGroup, ii: ii})
+            radialMenuItems.Push({name: RadialCaseShownName(item.name, item.actionValue), kind: "exec", gi: radialCurrentGroup, ii: ii})
     }
 
     ; 周边菜单至少 4 个：不足则补空位（无文字、禁止高亮、点击无效）
@@ -2469,68 +2454,31 @@ RadialOnCenterClick() {
     }
 }
 
-; ---- 执行径向菜单动作 ----
+; ---- 取某菜单项的动作文本（越界返回空串），供"大小写状态"判断用 ----
+RadialItemAction(gi, ii) {
+    global radialGroups
+    if (gi < 1 || gi > radialGroups.Length)
+        return ""
+    g := radialGroups[gi]
+    if (ii < 1 || ii > g.items.Length)
+        return ""
+    return g.items[ii].actionValue
+}
+
+; ---- 菜单项显示名：大小写状态生效时，动作是单个 a-z 字母的菜单项，名字也一起变大写 ----
+RadialCaseShownName(name, action) {
+    return OverlayCaseTransform("radial", name, action).label
+}
+
+; ---- 执行一个菜单项的动作：统一走浮层动作层（与四块小键盘同一套）----
 RadialExecAction(item) {
+    global radialFocusWin
     if (!IsObject(item) || !item.HasOwnProp("actionType") || !item.HasOwnProp("actionValue"))
         return false
-    if (item.actionType = "run")
-        return RadialRunCommand(item.actionValue)
-    return RadialExecHotkey(item.actionValue)
+    return OverlayActionExecute({type: item.actionType, value: item.actionValue}, "radial", radialFocusWin)
 }
 
-; ---- 执行预配置快捷键 ----
-RadialExecHotkey(hotkey) {
-    targetWin := RadialGetExecTargetWin()
-    if (!targetWin) {
-        DebugLog("[radial] 已取消发送快捷键：当前前台窗口不可用，hotkey=" . hotkey)
-        return false
-    }
-    if (!RadialActivateFocusWin(targetWin)) {
-        DebugLog("[radial] 已取消发送快捷键：目标窗口不存在或未能重新获得前台，hotkey=" . hotkey)
-        return false
-    }
-    if (!RadialWaitModifiersReleased()) {
-        DebugLog("[radial] 已取消发送快捷键：检测到物理修饰键仍按下，hotkey=" . hotkey)
-        return false
-    }
 
-    ; 用 SendEvent（keybd_event）发送组合键，避免 GUI 关闭/切换后的 SendInput 焦点竞态。
-    SendEvent(hotkey)
-    return true
-}
-
-; ---- 启动指定路径 + 参数的程序 ----
-; 采用 AHK Run 直接执行配置的完整命令行；路径含空格时请在 config.ini 中自行加引号。
-RadialRunCommand(cmdLine) {
-    if (Trim(cmdLine) = "") {
-        DebugLog("[radial] 已取消启动程序：命令行为空")
-        return false
-    }
-    if (!RadialWaitModifiersReleased()) {
-        DebugLog("[radial] 已取消启动程序：检测到物理修饰键仍按下，cmd=" . cmdLine)
-        return false
-    }
-    try {
-        Run(cmdLine)
-        return true
-    } catch Error as e {
-        DebugLog("[radial] 启动程序失败：" . e.Message . " | cmd=" . cmdLine)
-        return false
-    }
-}
-
-; ---- 决定本次执行快捷键的目标窗口 ----
-; 仅使用“点击菜单项当下的前台窗口”：圆盘带 WS_EX_NOACTIVATE，
-; 用户在菜单打开后若主动切到新窗口，快捷键就应始终发往这个新窗口。
-; 若当前前台异常/丢失，则直接取消发送，绝不回退到打开菜单时的旧窗口。
-RadialGetExecTargetWin() {
-    global radialGui
-
-    cur := WinExist("A")
-    if (cur && (!radialGui || cur != radialGui.Hwnd))
-        return cur
-    return 0
-}
 
 ; ---- 激活本次要执行快捷键的目标前台窗口，并确认它真的成为前台 ----
 ; 若目标窗口已不存在、最小化、或系统前台锁导致激活失败，则放弃发送快捷键，
@@ -3077,139 +3025,483 @@ OverlayTextLayerDestroy(g) {
 ;      关闭方式：自己的触发键、Esc（关最近操作过的那个）、鼠标右键（四套面板都没有【关】键）。
 ; ============================================================================
 
-; ---- 加载 config.ini 的 [keypad] 段 ----
-; 用 IniRead 读取（Windows 原生 INI 解析：支持 UTF-16 配置文件与行内注释）；
-; 配置缺失 / 非法值一律沿用默认（防空 + 防呆）。
-KeypadLoadConfig() {
-    global configFile, keypadArrowHotkey, keypadNumpadHotkey, keypadSymbolHotkey, keypadLetterHotkey, keypadFontSize, keypadOpacity, ui_font_size
+; ============================================================================
+; 10c-4. 浮层动作层（四块小键盘 + 径向菜单共用）
+; ============================================================================
+; 配置里写的一格动作，统一解析成 {type, value}：
+;   none ：空（该格不成立）
+;   send ：普通按键 / 文本，按 AutoHotkey 的 Send 规则发送到当前前台窗口
+;   run  ：run: 命令行 —— 启动程序 / 打开文件
+;   close：close —— 关闭发起动作的那个浮层（小键盘=关该面板；圆盘=关整个菜单）
+;   case ：case —— 切换发起动作那个浮层的【大小写状态】
+;   self ：self: 命令 —— 调用 SharpKnife 自身功能（不模拟按键，见 OverlayRunSelf）
+;
+; 以后新增一类动作，只需要改 OverlayActionParse（认得它）与 OverlayActionExecute（执行它）两处，
+; 四块小键盘与径向菜单会**同时**支持，不必各改一遍。
+; 保留字：close / case（动作想发送这两个词本身时，目前请用 self: 扩展或改用其它形式）。
+OverlayActionParse(text) {
+    t := Trim(text)
+    if (t = "")
+        return {type: "none", value: ""}
+    if RegExMatch(t, "i)^run\s*:(.*)$", &m) {
+        cmd := Trim(m[1])
+        return (cmd = "") ? {type: "none", value: ""} : {type: "run", value: cmd}
+    }
+    if RegExMatch(t, "i)^self\s*:(.*)$", &m) {
+        cmd := StrLower(Trim(m[1]))
+        return (cmd = "") ? {type: "none", value: ""} : {type: "self", value: cmd}
+    }
+    low := StrLower(t)
+    if (low = "close")
+        return {type: "close", value: ""}
+    if (low = "case")
+        return {type: "case", value: ""}
+    return {type: "send", value: t}
+}
 
+; ---- 执行动作 ----
+; owner：发起动作的浮层名（"radial" 或小键盘 kind）；fallbackWin：该浮层记录的备用目标窗口
+OverlayActionExecute(act, owner, fallbackWin) {
+    if (!IsObject(act))
+        return false
+    if (act.type = "run")
+        return OverlayRunCommand(act.value)
+    if (act.type = "self")
+        return OverlayRunSelf(act.value, owner, fallbackWin)
+    if (act.type = "close")
+        return OverlayCloseOwner(owner)
+    if (act.type = "case")
+        return OverlayCaseToggle(owner)
+    if (act.type = "send") {
+        t := OverlayCaseTransform(owner, "", act.value)
+        return OverlaySendKey(t.action, owner, fallbackWin)
+    }
+    return false
+}
+
+; ---- close：关闭发起动作的浮层 ----
+OverlayCloseOwner(owner) {
+    if (owner = "radial") {
+        DebugLog("[overlay] close → 关闭径向菜单")
+        RadialClose()
+        return true
+    }
+    DebugLog("[overlay] close → 关闭小键盘：" . owner)
+    KeypadClose(owner)
+    return true
+}
+
+; ---- 大小写状态：按浮层存（owner -> true 大写 / false 小写），只影响"动作恰好是一个 a-z 字母"的键 ----
+OverlayCaseUpper(owner) {
+    global overlayCaseState
+    return overlayCaseState.Has(owner) && overlayCaseState[owner]
+}
+
+; 标签与动作一起变大写（不满足条件时原样返回）；小键盘取键时、圆盘取菜单名时都调它
+OverlayCaseTransform(owner, label, action) {
+    if (!OverlayCaseUpper(owner) || !RegExMatch(action, "^[a-z]$"))
+        return {label: label, action: action}
+    return {label: StrUpper(label), action: StrUpper(action)}
+}
+
+OverlayCaseToggle(owner) {
+    global overlayCaseState
+    overlayCaseState[owner] := !OverlayCaseUpper(owner)
+    DebugLog("[overlay] " . owner . " 大小写切换 → " . (overlayCaseState[owner] ? "大写" : "小写"))
+    OverlayRefresh(owner)
+    return true
+}
+
+; ---- 大小写切换后刷新显示：小键盘就地重建按键 + 重绘；圆盘重建菜单 ----
+OverlayRefresh(owner) {
+    global keypadPanels
+    if (owner = "radial") {
+        RadialBuildMenu()
+        return
+    }
+    if (!keypadPanels.Has(owner))
+        return
+    P := keypadPanels[owner]
+    P.keys := KeypadKeysFor(owner)
+    KeypadDraw(owner)
+    KeypadTextLayerPresent(owner)
+}
+
+; ---- 发送按键：目标窗口校验 + 物理修饰键释放等待（两个组件共用同一套守卫）----
+OverlaySendKey(raw, owner, fallbackWin) {
+    if (raw = "")
+        return false
+    if (!OverlayPrepareInject(owner, fallbackWin, "发送按键 " . raw))
+        return false
+    SendEvent(raw)
+    return true
+}
+
+; ---- 浮层自己的窗口句柄（用于判断"前台窗口是不是被浮层自己占了"）----
+OverlayOwnerHwnd(owner) {
+    global radialGui, keypadPanels
+    if (owner = "radial")
+        return (radialGui ? radialGui.Hwnd : 0)
+    if (keypadPanels.Has(owner) && keypadPanels[owner].gui)
+        return keypadPanels[owner].gui.Hwnd
+    return 0
+}
+
+OverlayPrepareInject(owner, fallbackWin, what) {
+    target := WinExist("A")
+    ownHwnd := OverlayOwnerHwnd(owner)
+    ; 防御：万一把浮层自己当成了前台窗口，就退回弹出浮层前记录的前台窗口
+    if (ownHwnd && target = ownHwnd)
+        target := fallbackWin
+    if (!target) {
+        DebugLog("[overlay] 已取消：" . what . " —— 当前前台窗口不可用（" . owner . "）")
+        return false
+    }
+    if (!RadialActivateFocusWin(target)) {
+        DebugLog("[overlay] 已取消：" . what . " —— 目标窗口未能重新获得前台（" . owner . "）")
+        return false
+    }
+    if (!RadialWaitModifiersReleased()) {
+        DebugLog("[overlay] 已取消：" . what . " —— 检测到物理修饰键仍按下（" . owner . "）")
+        return false
+    }
+    return true
+}
+
+; ---- 启动程序 / 打开文件（run: 动作，两个组件共用）----
+OverlayRunCommand(cmdLine) {
+    if (Trim(cmdLine) = "") {
+        DebugLog("[overlay] 已取消启动程序：命令行为空")
+        return false
+    }
+    if (!RadialWaitModifiersReleased()) {
+        DebugLog("[overlay] 已取消启动程序：检测到物理修饰键仍按下，cmd=" . cmdLine)
+        return false
+    }
+    try {
+        Run(cmdLine)
+        return true
+    } catch Error as e {
+        DebugLog("[overlay] 启动程序失败：" . e.Message . " | cmd=" . cmdLine)
+        return false
+    }
+}
+
+; ---- self: 命令表（两个组件共用）----
+; 为什么不用发 ^j 这类做法：脚本自己发出的按键不会触发脚本自己的钩子热键（见 AGENTS 4.1 #20）。
+OverlayRunSelf(cmd, owner, fallbackWin) {
+    global trigger_hk
+    c := StrLower(Trim(cmd))
+    if (!OverlayPrepareInject(owner, fallbackWin, "self:" . c))
+        return false
+    if (c = "trigger") {
+        DebugLog("[overlay] self:trigger → 执行补全（等同按 " . trigger_hk . "）")
+        CompleteAI()
+    } else if (c = "toggle_mode") {
+        DebugLog("[overlay] self:toggle_mode → 循环切换模式")
+        ToggleMode()
+    } else if (c = "mode_latex") {
+        SetModeDirect(MODE_LATEX)
+    } else if (c = "mode_unicode") {
+        SetModeDirect(MODE_UNICODE)
+    } else if (c = "mode_ai") {
+        SetModeDirect(MODE_AI)
+    } else if (c = "mode_tikz") {
+        SetModeDirect(MODE_TIKZ)
+    } else if (c = "mode_list") {
+        ShowModeList()
+    } else if (c = "step") {
+        StepPlay()
+    } else if (c = "health") {
+        HealthToggle()
+    } else if (c = "radial") {
+        RadialShow()
+    } else if (c = "keypad_arrow") {
+        KeypadToggle("arrow")
+    } else if (c = "keypad_numpad") {
+        KeypadToggle("numpad")
+    } else if (c = "keypad_symbol") {
+        KeypadToggle("symbol")
+    } else if (c = "keypad_letter") {
+        KeypadToggle("letter")
+    } else {
+        DebugLog("[overlay] 未知的 self: 命令：" . cmd . "（owner=" . owner . "）")
+        return false
+    }
+    return true
+}
+
+; ---- 加载 config.ini 的 [keypad] 与 [keypad.<kind>] 段 ----
+; 采用与径向菜单一致的**自定义行解析**（FileRead 自动识别 UTF-16 / UTF-8 BOM）：
+;   · 以 ; 开头的整行是注释；行内注释为「空白 + ;」起至行尾（与径向菜单同一规则）；
+;   · 值里的 ; 与 | 用 %3B / %7C 转义（沿用统计键 %3D 的转义约定）；
+;   · 解析结果非法 / 缺失时一律沿用内置默认（防空 + 防呆）。
+;
+; 四个面板各自一个子段：[keypad.arrow] / [keypad.numpad] / [keypad.symbol] / [keypad.letter]
+;   name   = 面板名（仅日志用，不显示在面板上）
+;   cols   = 列数（1~12）；rows = 行数（1~12）
+;   square = true / false：按键是否正方形（默认 false，方向键盘默认为 true）
+;   case   = true / false：是否启用「大小写状态」（默认 false，字母键盘默认为 true）
+;   编号   = 名称 | 动作     编号即格子序号（行优先，1 起）；缺号 = 空位（不绘制、不命中）
+;
+; 动作支持四种写法：
+;   ① 普通 Send 字符串：{BS} / ^c / 7 / {Enter} …（发送到当前前台窗口）
+;   ② run: 命令行          ：run: notepad.exe
+;   ③ 内置动作             ：close = 关闭本面板；case = 切换大小写
+;   ④ self: 命令           ：直接调用本脚本自身功能（见 OverlayRunSelf）
+KeypadLoadConfig() {
+    global configFile, keypadArrowHotkey, keypadNumpadHotkey, keypadSymbolHotkey, keypadLetterHotkey
+    global keypadFontSize, keypadOpacity, keypadDefs, ui_font_size
+
+    ; 内置默认（等于改造前写死的四套按键；配置缺失 / 非法时就用它）
     keypadArrowHotkey  := "^+k"                 ; 方向小键盘触发键（默认 Ctrl+Shift+K）
     keypadNumpadHotkey := "^+n"                 ; 数字小键盘触发键（默认 Ctrl+Shift+N）
     keypadSymbolHotkey := "^+y"                 ; 符号小键盘触发键（默认 Ctrl+Shift+Y）
     keypadLetterHotkey := "^+e"                 ; 字母小键盘触发键（默认 Ctrl+Shift+E）
     keypadFontSize     := Max(ui_font_size, 6)  ; 字体大小默认 = 全局 [ui] font_size
     keypadOpacity      := 1.0                   ; 面板透明度（0.0~1.0），默认 1 = 不透明
+    keypadDefs         := KeypadDefaultDefs()
 
     if !FileExist(configFile)
         return
 
-    v := Trim(IniRead(configFile, "keypad", "arrow_hotkey", ""))
-    if (v != "")
-        keypadArrowHotkey := v
-    v := Trim(IniRead(configFile, "keypad", "numpad_hotkey", ""))
-    if (v != "")
-        keypadNumpadHotkey := v
-    v := Trim(IniRead(configFile, "keypad", "symbol_hotkey", ""))
-    if (v != "")
-        keypadSymbolHotkey := v
-    v := Trim(IniRead(configFile, "keypad", "letter_hotkey", ""))
-    if (v != "")
-        keypadLetterHotkey := v
-    v := Trim(IniRead(configFile, "keypad", "font_size", ""))
-    if RegExMatch(v, "^\d+(\.\d+)?$")
-        keypadFontSize := Max(v + 0, 6)
-    v := Trim(IniRead(configFile, "keypad", "opacity", ""))
-    if RegExMatch(v, "^\d*\.?\d+$")
-        keypadOpacity := Max(0.0, Min(v + 0, 1.0))
+    txt := ""
+    try {
+        txt := FileRead(configFile, "UTF-16")
+    } catch {
+        try {
+            txt := FileRead(configFile, "UTF-8")
+        } catch {
+            return
+        }
+    }
+    if (txt = "")
+        return
+
+    section := ""      ; ""（不在小键盘段）/ "keypad" / "keypad.<kind>"
+    pending := Map()   ; kind -> Map(编号 -> 原始值)：读完整份文件再落地，与字段书写顺序无关
+    names := Map()     ; kind -> 段内 name
+
+    Loop parse, txt, "`n", "`r"
+    {
+        line := Trim(A_LoopField)
+        if (line = "" || SubStr(line, 1, 1) = ";")
+            continue
+        if RegExMatch(line, "\s;", &cm)
+            line := Trim(SubStr(line, 1, cm.Pos - 1))
+        if (line = "")
+            continue
+
+        ; 节头
+        if (SubStr(line, 1, 1) = "[") {
+            if (line = "[keypad]") {
+                section := "keypad"
+            } else if (SubStr(line, 1, 8) = "[keypad." && SubStr(line, -1) = "]") {
+                k := SubStr(line, 9, StrLen(line) - 9)
+                section := (k = "arrow" || k = "numpad" || k = "symbol" || k = "letter") ? "keypad." . k : ""
+            } else {
+                section := ""
+            }
+            continue
+        }
+
+        if (section = "")
+            continue
+        eqPos := InStr(line, "=")
+        if (eqPos = 0)
+            continue
+        key := Trim(SubStr(line, 1, eqPos - 1))
+        value := Trim(SubStr(line, eqPos + 1))
+
+        if (section = "keypad") {
+            ; 与原 IniRead 版语义一致：空值 / 非法值一律忽略（沿用默认）
+            if (key = "arrow_hotkey" && value != "")
+                keypadArrowHotkey := value
+            else if (key = "numpad_hotkey" && value != "")
+                keypadNumpadHotkey := value
+            else if (key = "symbol_hotkey" && value != "")
+                keypadSymbolHotkey := value
+            else if (key = "letter_hotkey" && value != "")
+                keypadLetterHotkey := value
+            else if (key = "font_size" && RegExMatch(value, "^\d+(\.\d+)?$"))
+                keypadFontSize := Max(value + 0, 6)
+            else if (key = "opacity" && RegExMatch(value, "^\d*\.?\d+$"))
+                keypadOpacity := Max(0.0, Min(value + 0, 1.0))
+            continue
+        }
+
+        kind := SubStr(section, 8)          ; "keypad." 是 7 个字符
+        def := keypadDefs[kind]
+        if (key = "name") {
+            names[kind] := value
+        } else if (key = "cols" && RegExMatch(value, "^\d+$")) {
+            def.cols := Max(1, Min(Integer(value), 12))
+        } else if (key = "rows" && RegExMatch(value, "^\d+$")) {
+            def.rows := Max(1, Min(Integer(value), 12))
+        } else if (key = "square") {
+            def.square := (StrLower(value) = "true")
+        } else if (key = "case") {
+            def.case := (StrLower(value) = "true")
+        } else if RegExMatch(key, "^\d+$") {
+            if (!pending.Has(kind))
+                pending[kind] := Map()
+            pending[kind][Integer(key)] := value
+        }
+    }
+
+    ; 落地：段里写了按键就整体替换该面板的按键；一个键都没写则**保留内置默认**（防空）
+    for kind, items in pending {
+        def := keypadDefs[kind]
+        total := def.cols * def.rows
+        keys := []
+        Loop total
+            keys.Push({label: "", action: "", role: "blank"})
+        for num, raw in items {
+            if (num < 1 || num > total) {
+                DebugLog("[keypad] " . kind . " 的编号 " . num . " 超出 " . def.cols . "×" . def.rows . " 范围，已忽略")
+                continue
+            }
+            it := KeypadParseItem(raw)
+            keys[num] := {label: it.label, action: it.action, role: KeypadRoleFor(it.action)}
+        }
+        def.keys := keys
+    }
+    for kind, nm in names {
+        if (nm != "")
+            keypadDefs[kind].name := nm
+    }
 
     DebugLog("[keypad] 配置加载完成：arrow_hotkey=" . keypadArrowHotkey . " numpad_hotkey=" . keypadNumpadHotkey
         . " symbol_hotkey=" . keypadSymbolHotkey . " letter_hotkey=" . keypadLetterHotkey
-        . " font_size=" . keypadFontSize . " opacity=" . keypadOpacity)
+        . " font_size=" . keypadFontSize . " opacity=" . keypadOpacity
+        . " defs=" . KeypadDefsSummary())
 }
 
-; ---- 按键定义 ----
-; role：key = 点按后发送 send 里的按键；toggle = 切换本面板的开关状态（字母键盘的大小写）；action = 直接调用 SharpKnife 自身命令；close = 关闭面板；blank = 空位（不绘制、不命中）
-; （close / blank 仍受支持，但当前四套按键都没有用到：四块面板都没有【关】键、也没有空位）
-; 字符键统一发送**普通字符**（不受 NumLock 影响），在编辑器 / 输入框里最稳。
-; Send 的特殊字符只有 ^ + ! # { }：加号写 {+}、乘方写 {^}、叹号写 {!}、井号写 {#}、花括号写 {{} {}}。
-; 另外 " 与 ` 是 AHK 源码里的转义字符，要写成 `" 与 ``。
-KeypadKeysFor(kind) {
-    if (kind = "arrow") {
-        ; 3×3 十字：四角 = 退格 / 删除 / 上页 / 下页，中心【回车】
-        ; （四块面板都不设【关】键：关闭走触发键 / Esc / 鼠标右键）
-        return [
-            {label: "退格", send: "{BS}",    role: "key"},
-            {label: "↑",   send: "{Up}",    role: "key"},
-            {label: "删除", send: "{Del}",   role: "key"},
-            {label: "←",   send: "{Left}",  role: "key"},
-            {label: "回车", send: "{Enter}", role: "key"},
-            {label: "→",   send: "{Right}", role: "key"},
-            {label: "上页", send: "{PgUp}",  role: "key"},
-            {label: "↓",   send: "{Down}",  role: "key"},
-            {label: "下页", send: "{PgDn}",  role: "key"}
-        ]
+; ---- 解析一个按键值："名称 | 动作"（没有 | 时整串当动作，名称留空）----
+KeypadParseItem(value) {
+    pipePos := InStr(value, "|")
+    if (pipePos = 0) {
+        label := ""
+        act := Trim(value)
+    } else {
+        label := Trim(SubStr(value, 1, pipePos - 1))
+        act := Trim(SubStr(value, pipePos + 1))
     }
-    if (kind = "symbol") {
-        ; 符号小键盘：6 列 × 5 行共 30 键 —— 标准键盘上除方向 / 数字面板已有键之外的符号
-        ; （不含方向面板的方向键 / 退格 / 删除 / 翻页 / 回车，也不含数字面板的数字与 . + - *）
-        ; 正斜杠是应要求额外加的，与数字面板的 ÷ 重复（÷ 也发 /），这是有意的；
-        ; 末尾的【空格】【Tab】不是符号，是为把 6 × 5 = 30 格补满而加的两个常用键。
-        ; 五行依次为：( ) [ ] { } / < > \ | ; : / ' " , ? ! @ / # $ % ^ & _ / = ~ ` / 空格 Tab
-        return [
-            {label: "(", send: "(", role: "key"}, {label: ")", send: ")", role: "key"}, {label: "[", send: "[", role: "key"}, {label: "]", send: "]", role: "key"}, {label: "{", send: "{{}", role: "key"}, {label: "}", send: "{}}", role: "key"},
-            {label: "<", send: "<", role: "key"}, {label: ">", send: ">", role: "key"}, {label: "\", send: "\", role: "key"}, {label: "|", send: "|", role: "key"}, {label: ";", send: ";", role: "key"}, {label: ":", send: ":", role: "key"},
-            {label: "'", send: "'", role: "key"}, {label: "`"", send: "`"", role: "key"}, {label: ",", send: ",", role: "key"}, {label: "?", send: "?", role: "key"}, {label: "!", send: "{!}", role: "key"}, {label: "@", send: "@", role: "key"},
-            {label: "#", send: "{#}", role: "key"}, {label: "$", send: "$", role: "key"}, {label: "%", send: "%", role: "key"}, {label: "^", send: "{^}", role: "key"}, {label: "&", send: "&", role: "key"}, {label: "_", send: "_", role: "key"},
-            {label: "=", send: "=", role: "key"}, {label: "~", send: "~", role: "key"}, {label: "``", send: "``", role: "key"}, {label: "/", send: "/", role: "key"}, {label: "空格", send: "{Space}", role: "key"}, {label: "Tab", send: "{Tab}", role: "key"}
-        ]
-    }
-    if (kind = "letter")
-        return KeypadLetterKeys()
-
-    ; 数字小键盘：4 列 × 4 行（右列放四则运算 + - × ÷，末行 0 . ÷ 回车）
-    return [
-        {label: "7", send: "7", role: "key"}, {label: "8", send: "8", role: "key"}, {label: "9", send: "9", role: "key"}, {label: "+", send: "{+}", role: "key"},
-        {label: "4", send: "4", role: "key"}, {label: "5", send: "5", role: "key"}, {label: "6", send: "6", role: "key"}, {label: "-", send: "-", role: "key"},
-        {label: "1", send: "1", role: "key"}, {label: "2", send: "2", role: "key"}, {label: "3", send: "3", role: "key"}, {label: "×", send: "*", role: "key"},
-        {label: "0", send: "0", role: "key"}, {label: ".", send: ".", role: "key"}, {label: "÷", send: "/", role: "key"}, {label: "回车", send: "{Enter}", role: "key"}
-    ]
+    return {label: KeypadUnescape(label), action: KeypadUnescape(act)}
 }
 
-; ---- 字母小键盘的按键定义（随大小写状态变化，每次弹出 / 切换时重建）----
-; a-z 顺序排列；末尾的【Aa】是大小写切换键（role = toggle）。
-; 大写时标签与发送字符都变成大写（Send 发大写字母会自动带上 Shift）。
-; 最后三个键用于把 6 × 5 = 30 格补满：【回车】与反斜杠是普通按键，
-; 【触发】是 SharpKnife 自己的触发命令（等同按 Ctrl+J，走 role = action 直接调用处理函数）。
-KeypadLetterKeys() {
-    global keypadLetterUpper
-    keys := []
+; ---- 反转义：%7C → |、%3B → ;（沿用统计键 %3D 的约定）----
+KeypadUnescape(text) {
+    return StrReplace(StrReplace(text, "%7C", "|"), "%3B", ";")
+}
+
+; ---- 动作 → 绘制角色：空 = 空位；close / case = 内置动作；其余 = 普通按键 ----
+; 判定统一交给浮层动作层（OverlayActionParse），所以以后新增动作类型这里不用改。
+KeypadRoleFor(action) {
+    act := OverlayActionParse(action)
+    if (act.type = "none")
+        return "blank"
+    if (act.type = "close" || act.type = "case")
+        return act.type
+    return "key"
+}
+
+; ---- 内置默认：与改造前写死的四套按键逐键一致 ----
+KeypadDefaultDefs() {
+    defs := Map()
+
+    ; 方向键盘：3×3 十字（四角 = 退格 / 删除 / 上页 / 下页，中心【回车】），按键为正方形
+    defs["arrow"] := {name: "方向键盘", cols: 3, rows: 3, square: true, case: false, keys: [
+        {label: "退格", action: "{BS}",    role: "key"},
+        {label: "↑",   action: "{Up}",    role: "key"},
+        {label: "删除", action: "{Del}",   role: "key"},
+        {label: "←",   action: "{Left}",  role: "key"},
+        {label: "回车", action: "{Enter}", role: "key"},
+        {label: "→",   action: "{Right}", role: "key"},
+        {label: "上页", action: "{PgUp}",  role: "key"},
+        {label: "↓",   action: "{Down}",  role: "key"},
+        {label: "下页", action: "{PgDn}",  role: "key"}
+    ]}
+
+    ; 数字键盘：4 列 × 4 行（右列四则运算，末行 0 . ÷ 回车）
+    defs["numpad"] := {name: "数字键盘", cols: 4, rows: 4, square: false, case: false, keys: [
+        {label: "7", action: "7", role: "key"}, {label: "8", action: "8", role: "key"}, {label: "9", action: "9", role: "key"}, {label: "+", action: "{+}", role: "key"},
+        {label: "4", action: "4", role: "key"}, {label: "5", action: "5", role: "key"}, {label: "6", action: "6", role: "key"}, {label: "-", action: "-", role: "key"},
+        {label: "1", action: "1", role: "key"}, {label: "2", action: "2", role: "key"}, {label: "3", action: "3", role: "key"}, {label: "×", action: "*", role: "key"},
+        {label: "0", action: "0", role: "key"}, {label: ".", action: ".", role: "key"}, {label: "÷", action: "/", role: "key"}, {label: "回车", action: "{Enter}", role: "key"}
+    ]}
+
+    ; 符号键盘：6 列 × 5 行共 30 键（标准键盘里其余符号 + 一个重复的 / + 空格 / Tab）
+    defs["symbol"] := {name: "符号键盘", cols: 6, rows: 5, square: false, case: false, keys: [
+        {label: "(", action: "(", role: "key"}, {label: ")", action: ")", role: "key"}, {label: "[", action: "[", role: "key"}, {label: "]", action: "]", role: "key"}, {label: "{", action: "{{}", role: "key"}, {label: "}", action: "{}}", role: "key"},
+        {label: "<", action: "<", role: "key"}, {label: ">", action: ">", role: "key"}, {label: "\", action: "\", role: "key"}, {label: "|", action: "|", role: "key"}, {label: ";", action: ";", role: "key"}, {label: ":", action: ":", role: "key"},
+        {label: "'", action: "'", role: "key"}, {label: "`"", action: "`"", role: "key"}, {label: ",", action: ",", role: "key"}, {label: "?", action: "?", role: "key"}, {label: "!", action: "{!}", role: "key"}, {label: "@", action: "@", role: "key"},
+        {label: "#", action: "{#}", role: "key"}, {label: "$", action: "$", role: "key"}, {label: "%", action: "%", role: "key"}, {label: "^", action: "{^}", role: "key"}, {label: "&", action: "&", role: "key"}, {label: "_", action: "_", role: "key"},
+        {label: "=", action: "=", role: "key"}, {label: "~", action: "~", role: "key"}, {label: "``", action: "``", role: "key"}, {label: "/", action: "/", role: "key"}, {label: "空格", action: "{Space}", role: "key"}, {label: "Tab", action: "{Tab}", role: "key"}
+    ]}
+
+    ; 字母键盘：6 列 × 5 行（a-z + 【Aa】大小写切换 + 回车 / 反斜杠 / 【触发】）
+    letterKeys := []
     Loop 26 {
-        ch := Chr(96 + A_Index)              ; 97 = "a"、122 = "z"
-        if (keypadLetterUpper)
-            ch := StrUpper(ch)
-        keys.Push({label: ch, send: ch, role: "key"})
+        ch := Chr(96 + A_Index)                 ; 97 = "a"、122 = "z"
+        letterKeys.Push({label: ch, action: ch, role: "key"})
     }
-    keys.Push({label: "Aa", send: "", role: "toggle"})
-    keys.Push({label: "回车", send: "{Enter}", role: "key"})
-    keys.Push({label: "\", send: "\", role: "key"})
-    keys.Push({label: "触发", send: "", role: "action", action: "trigger"})
+    letterKeys.Push({label: "Aa",   action: "case",         role: "case"})
+    letterKeys.Push({label: "回车", action: "{Enter}",       role: "key"})
+    letterKeys.Push({label: "\",   action: "\",            role: "key"})
+    letterKeys.Push({label: "触发", action: "self:trigger",  role: "key"})
+    defs["letter"] := {name: "字母键盘", cols: 6, rows: 5, square: false, case: true, keys: letterKeys}
+
+    return defs
+}
+
+; ---- 供日志用的定义摘要（每块面板：列 × 行、键数与启用状态）----
+KeypadDefsSummary() {
+    global keypadDefs
+    s := ""
+    for kind in ["arrow", "numpad", "symbol", "letter"] {
+        if (!keypadDefs.Has(kind))
+            continue
+        d := keypadDefs[kind]
+        s .= (s = "" ? "" : " | ") . kind . "=" . d.cols . "x" . d.rows . "/" . d.keys.Length . "键"
+            . (d.square ? "/square" : "") . (d.case ? "/case" : "")
+    }
+    return s
+}
+
+; ---- 按键定义：按当前大小写状态生成（仅供渲染 / 命中；定义本身不变）----
+; 大小写只作用于「动作恰好是一个 ASCII 小写字母」的键：标签与发送内容一起变大写。
+KeypadKeysFor(kind) {
+    global keypadDefs
+    if (!keypadDefs.Has(kind))
+        return []
+    def := keypadDefs[kind]
+    ; 只有 case = true 的面板才受大小写状态影响（状态由共用动作层按浮层名保存）
+    upper := (def.case ? OverlayCaseUpper(kind) : false)
+    keys := []
+    for k in def.keys {
+        kk := {label: k.label, action: k.action, role: k.role}
+        if (upper)
+            kk := OverlayCaseTransform(kind, kk.label, kk.action)   ; 只对"动作是单个 a-z 字母"的键生效
+        keys.Push(kk)
+    }
     return keys
 }
 
-; ---- 面板上"直接调用 SharpKnife 自身命令"的键（role = action）----
-; 为什么不用 SendEvent 发 Ctrl+J：AHK 的 SendLevel 默认为 0，而
-; "hook hotkeys ignore keyboard and mouse events generated by any AutoHotkey script" ——
-; 脚本自己发出的组合键**不会**触发脚本自己的钩子热键（发送本身是能发出去的，
-; 但只会落到前台程序手里，不会执行本脚本的补全）。
-; 因此这里直接调用与该热键绑定的**同一个处理函数**，效果与按 Ctrl+J 完全一致。
-KeypadRunAction(action) {
-    global trigger_hk
-    if (action = "trigger") {
-        DebugLog("[keypad] 点击【触发】→ 执行 SharpKnife 触发命令（等同按 " . trigger_hk . "）")
-        CompleteAI()
-        return
-    }
+; ---- 面板列数 / 行数 / 是否正方形按键 / 是否启用大小写（都来自定义表）----
+KeypadColsFor(kind) {
+    global keypadDefs
+    return keypadDefs.Has(kind) ? keypadDefs[kind].cols : 3
 }
 
-; ---- 各面板的列数（行数由按键数自动推导：末行不足即留空）----
-KeypadColsFor(kind) {
-    if (kind = "arrow")
-        return 3
-    if (kind = "symbol")
-        return 6
-    if (kind = "letter")
-        return 6
-    return 4                     ; 数字小键盘
+KeypadRowsFor(kind) {
+    global keypadDefs
+    return keypadDefs.Has(kind) ? keypadDefs[kind].rows : 1
+}
+
+KeypadSquareFor(kind) {
+    global keypadDefs
+    return keypadDefs.Has(kind) ? keypadDefs[kind].square : false
 }
 
 ; ---- 计算布局：按字号实测文字宽度，紧凑自适应 ----
@@ -3220,7 +3512,8 @@ KeypadComputeLayout(kind, keys, sizePt) {
     gap := Max(Round(fontPx * 0.28), 4)     ; 按键间距
     padIn := Max(Round(fontPx * 0.55), 8)   ; 按键内文字留白
     cols := KeypadColsFor(kind)
-    rows := Ceil(keys.Length / cols)        ; 行数由按键数推导（末行不满也占一行）
+    ; 行数取「定义里声明的行数」与「按键数推导」的较大者（声明了空位也保留行数；越界时兜底）
+    rows := Max(KeypadRowsFor(kind), Ceil(keys.Length / cols))
 
     ; 单元尺寸：宽 = 最宽按键文字 + 左右留白；高 = 字高 + 上下留白
     maxW := fontPx
@@ -3233,7 +3526,7 @@ KeypadComputeLayout(kind, keys, sizePt) {
     }
     cellW := maxW + 2 * padIn
     cellH := fontPx + 2 * padIn
-    if (kind = "arrow") {
+    if (KeypadSquareFor(kind)) {
         ; 方向键做成正方形（笔点更舒服）：取"文字宽度"与"2.4 倍字高"的较大者
         side := Max(cellW, Round(fontPx * 2.4))
         cellW := side
@@ -3399,7 +3692,7 @@ KeypadHitTest(kind, mx, my) {
 
 ; ---- 绘制面板（经典 Win32 GDI 双缓冲，不用 GDI+）----
 KeypadDraw(kind) {
-    global keypadPanels, keypadFontSize, keypadLetterUpper
+    global keypadPanels, keypadFontSize
     if (!keypadPanels.Has(kind))
         return
     P := keypadPanels[kind]
@@ -3435,8 +3728,8 @@ KeypadDraw(kind) {
             bg := (k.role = "close") ? "C0392B" : "4A90D9"
         else if (k.role = "close")
             bg := "5A3A3A"
-        else if (k.role = "toggle")
-            bg := keypadLetterUpper ? "A0682A" : "3E4A6A"
+        else if (k.role = "case")
+            bg := OverlayCaseUpper(kind) ? "A0682A" : "3E4A6A"
         else if (k.label = "回车")
             bg := "3E5A7A"
         else
@@ -3735,64 +4028,18 @@ KeypadOnRButtonDown(wParam, lParam, msg, hwnd) {
     return
 }
 
-; ---- 按键响应：close 关闭本面板，toggle 切换面板状态，key 发送按键 ----
+; ---- 按键响应：统一交给浮层动作层执行（close / case / run: / self: / 普通按键）----
 KeypadOnKeyPress(kind, idx) {
-    global keypadPanels, keypadLetterUpper
+    global keypadPanels
     if (!keypadPanels.Has(kind))
         return
     P := keypadPanels[kind]
     if (idx < 1 || idx > P.keys.Length)
         return
     k := P.keys[idx]
-    if (k.role = "close") {
-        DebugLog("[keypad] 点击中心关闭键 → 关闭面板：" . kind)
-        KeypadClose(kind)
+    if (k.role = "blank" || k.action = "")
         return
-    }
-    if (k.role = "toggle") {
-        ; 当前只有字母小键盘的【Aa】用这个角色：翻转大小写并就地重建按键 + 重绘。
-        ; 布局不用重算：最宽的标签始终是【回车】/【触发】这两个汉字标签，不随大小写变化。
-        keypadLetterUpper := !keypadLetterUpper
-        DebugLog("[keypad] 字母键盘大小写切换 → " . (keypadLetterUpper ? "大写" : "小写"))
-        P.keys := KeypadKeysFor(kind)
-        KeypadDraw(kind)
-        KeypadTextLayerPresent(kind)     ; 文字层同步重建（位置不变）
-        return
-    }
-    if (k.role = "action") {
-        ; 直接调用 SharpKnife 自身命令（如【触发】= Ctrl+J），不走按键注入
-        KeypadRunAction(k.action)
-        return
-    }
-    if (k.role = "key" && k.send != "")
-        KeypadSendKey(kind, k.send)
-    return
-}
-
-; ---- 把按键发送到当前前台窗口 ----
-; 面板带 WS_EX_NOACTIVATE，点击不会改变前台窗口，正常情况下这里就是直接发送；
-; 仍复用径向菜单的「目标窗口校验 + 物理修饰键释放等待」，避免焦点异常时误发组合键。
-KeypadSendKey(kind, raw) {
-    global keypadPanels
-
-    P := keypadPanels.Has(kind) ? keypadPanels[kind] : 0
-    target := WinExist("A")
-    ; 防御：万一前台窗口变成了面板自身，则退回弹出面板前的前台窗口
-    if (P && P.gui && target = P.gui.Hwnd)
-        target := P.focusWin
-    if (!target) {
-        DebugLog("[keypad] 已取消发送：当前前台窗口不可用，按键=" . raw)
-        return
-    }
-    if (!RadialActivateFocusWin(target)) {
-        DebugLog("[keypad] 已取消发送：目标窗口未能获得前台，按键=" . raw)
-        return
-    }
-    if (!RadialWaitModifiersReleased()) {
-        DebugLog("[keypad] 已取消发送：检测到物理修饰键仍按下，按键=" . raw)
-        return
-    }
-    SendEvent(raw)
+    OverlayActionExecute(OverlayActionParse(k.action), kind, P.focusWin)
     return
 }
 

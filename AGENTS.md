@@ -293,7 +293,7 @@ AHK v2 的**加载期弹框**（`#Warn` 警告、调用了不存在的函数等�
 **流程要点（2026-09-12 改造）**：
 
 - **触发键 = 开/关切换**：未打开则弹出，已打开则关闭（`RadialShow` 内 `if (radialGui) { RadialClose(); return }`）。
-- **执行功能不关闭菜单**：`RadialOnItemClick` 的 `exec` 分支只 `RadialBumpStat()` + `RadialExecHotkey()`，**不再调用 `RadialClose()`**；便于连续执行多个功能。
+- **执行功能默认不关闭菜单**：`RadialOnItemClick` 的 `exec` 分支只 `RadialBumpStat()` + `RadialExecAction()`（后者走浮层动作层），**不调用 `RadialClose()`**；便于连续执行多个功能。想让某一项点击后关闭菜单，把它的动作写成 `close` 即可。
 - **圆心：点击 or 拖拽**（`RadialOnLButtonDown` / `RadialOnMouseMove` / `RadialOnLButtonUp`）：
   按下圆心先记录（鼠标屏幕坐标 + 窗口左上角）+ `SetCapture`；移动时**位移 > 3px** 才判定为拖拽 →
   `Gui.Move(按下时窗口位置 + 位移)` 移动圆盘（1:1 跟手，仅夹取在**虚拟屏幕**内）；抬起时若**没拖过**才触发圆心点击。
@@ -324,7 +324,8 @@ AHK v2 的**加载期弹框**（`#Warn` 警告、调用了不存在的函数等�
 | ~~`RadialOnEscape()`~~ | **已删除**：Esc 改由浮层公共层 `Overlay*` 接管（见 6.3），radial 自己不再注册 / 注销 Esc |
 | `RadialVirtualBounds()` | 全部显示器合并区域（`SysGet(76..79)`），圆盘位置夹取用 |
 | `RadialRestoreFocus()` | 点击后把焦点还给触发菜单前的窗口（圆盘不持焦点；`WS_EX_NOACTIVATE` 下通常已是空操作） |
-| `RadialExecHotkey()` | 恢复焦点窗口后 `Send` 快捷键 |
+| `RadialExecAction(item)` | 执行菜单项：**统一交给浮层动作层** `OverlayActionExecute(..., "radial", radialFocusWin)`（旧版自己判 run:/hotkey 的写法已删除） |
+| `RadialItemAction()` / `RadialCaseShownName()` | 取菜单项动作文本 / 取菜单项显示名（大小写状态生效时单字母项的名字一起变大写） |
 | `RadialStatsInit()` / `RadialStatKey()` / `RadialBumpStat()` / `RadialTopFrequent()` | 统计文件初始化、键转义、计数 +1（实时写盘）、取高频前 N |
 
 配置（`[radial]`）：
@@ -337,8 +338,11 @@ common_max = 6       ; 第一层高频项个数（0~20）
 
 [radial.base]        ; 一个分组 = 一个子节（xxx 为英文标识符，不显示）
 name = 基础通用      ; 组显示名（中文）
-1 = 复制 | ^c        ; 编号 = 功能名 | 快捷键
+1 = 复制 | ^c        ; 编号 = 功能名 | 动作（动作写法与四块小键盘**完全相同**）
 9 = 删除 | {Del}     ; 多字符键名必须用花括号
+8 = 画图 | run: mspaint.exe
+7 = 循环提醒 | self:health    ; self: 直接调用本脚本功能（不模拟按键）
+6 = 关闭 | close              ; 关闭整个菜单
 ```
 
 统计文件 `menu_stats.ini`（运行时生成，UTF-16 LE + BOM）：
@@ -348,9 +352,29 @@ name = 基础通用      ; 组显示名（中文）
 radial.base.1=12     ; 键 = radial.<组标识>.<编号>，与 config.ini 的 [radial.*] 一一对应
 ```
 
+### 6.2a 浮层动作层（四块小键盘 + 径向菜单共用，2026-09-15 新增）
+
+**配置里一格/一项的"动作"只有一套定义，两个组件共用**；以后新增动作类型只改两个函数，
+小键盘与径向菜单会同时支持（**不要**在某个组件里单独实现一套）：
+
+| 函数 | 职责 |
+|------|------|
+| `OverlayActionParse(text)` | 动作文本 → `{type, value}`：`none`（空）/ `send`（普通按键，Send 规则）/ `run`（`run:` 前缀）/ `close`（保留字）/ `case`（保留字）/ `self`（`self:` 前缀，命令名转小写） |
+| `OverlayActionExecute(act, owner, fallbackWin)` | 执行动作；`owner` = `"radial"` 或小键盘 kind，`fallbackWin` = 该浮层记录的备用目标窗口 |
+| `OverlaySendKey()` / `OverlayPrepareInject()` | 普通按键：目标窗口校验 + 物理修饰键等待后 `SendEvent`（两个组件共用同一套守卫；`OverlayOwnerHwnd(owner)` 用于"前台被浮层自己占了"的回退判断） |
+| `OverlayRunCommand(cmdLine)` | `run:`：等待修饰键释放后 `Run()`（原 `RadialRunCommand`，已改名共用） |
+| `OverlayRunSelf(cmd, owner, fallbackWin)` | `self:` 命令表：`trigger` / `toggle_mode` / `mode_latex` / `mode_unicode` / `mode_ai` / `mode_tikz` / `mode_list` / `step` / `health` / `radial` / `keypad_arrow` / `keypad_numpad` / `keypad_symbol` / `keypad_letter`；**直接调用处理函数，不模拟按键**（§4.1 #20） |
+| `OverlayCloseOwner(owner)` | `close`：关掉发起动作的浮层（`radial` → `RadialClose()`；其余 → `KeypadClose(kind)`） |
+| `OverlayCaseUpper()` / `OverlayCaseTransform()` / `OverlayCaseToggle()` / `OverlayRefresh()` | `case`：大小写状态**按浮层名**存在 `overlayCaseState`；`OverlayCaseTransform` 只在"动作恰好是一个 a-z 字母"时把标签与动作一起变大写；`OverlayRefresh` 让小键盘就地重建按键、圆盘重建菜单 |
+
+> **血泪教训（2026-09-15 用户实测反馈）**：径向菜单原来只认 `run:` 与"其余一律当快捷键发送"，
+> 所以配置里写 `self:health` 会把 `self:health` **当文本原样打出去**。修法是让径向菜单也走这一层。
+> 以后加动作类型（例如 `win:` / `delay:`）时，**必须**在 `OverlayActionParse` 与 `OverlayActionExecute` 两处加，
+> 并同步 README / config.ini.example 的动作说明。
+
 ### 6.3 屏幕小键盘（Keypad）—— 与径向菜单同源的 GDI 浮层
 
-四个独立浮层（都在 `KeypadKeysFor` 里定义）：**方向小键盘**（3×3：四角 = 退格/删除/上页/下页，中心【回车】；无【关】键）、**数字小键盘**（4 列 × 4 行：`7 8 9 +` / `4 5 6 -` / `1 2 3 ×` / `0 . ÷ 回车`，右列为四则运算）、**符号小键盘**（6 列 × 5 行共 30 键：标准键盘上除上述两面板已有键之外的全部符号 + 一个重复的正斜杠 + 空格 / Tab）与**字母小键盘**（6 列 × 5 行共 30 键：`a`-`z` 顺序 + 【Aa】大小写切换 + 【回车】反斜杠【触发】）。触发键默认 `^+k` / `^+n` / `^+y` / `^+e`，均为**开/关切换**，且**各自的触发键只管自己的面板**。
+四个独立浮层（按键内容由 `[keypad.<kind>]` 配置驱动，缺省见 `KeypadDefaultDefs()` 的内置默认）：**方向小键盘**（3×3：四角 = 退格/删除/上页/下页，中心【回车】）、**数字小键盘**（4 列 × 4 行：`7 8 9 +` / `4 5 6 -` / `1 2 3 ×` / `0 . ÷ 回车`，右列为四则运算）、**符号小键盘**（6 列 × 5 行共 30 键：标准键盘上除上述两面板已有键之外的全部符号 + 一个重复的正斜杠 + 空格 / Tab）与**字母小键盘**（6 列 × 5 行共 30 键：`a`-`z` 顺序 + 【Aa】大小写切换 + 【回车】反斜杠【触发】）。触发键默认 `^+k` / `^+n` / `^+y` / `^+e`，均为**开/关切换**，且**各自的触发键只管自己的面板**。四个面板共用同一套实现（键网格 + 角色分发），面板之间只有配置不同。
 
 **关键约束（与径向菜单一致，改动时别破坏）**：
 
@@ -359,7 +383,8 @@ radial.base.1=12     ; 键 = radial.<组标识>.<编号>，与 config.ini 的 [r
 - 任意位置按下都先记录（`SetCapture`），位移 > 3px 判定为拖拽 → 只 `Gui.Move` 移动面板、不触发按键；抬起时要求**按下与抬起落在同一按键**才发送。**坑：判定为拖拽时必须同时置 `dragging` 与 `dragMoved`** —— 只置 `dragging` 的话，抬起时那段"拖动过就不触发"的分支永远不成立；而面板是 1:1 跟着光标走的，光标底下始终是同一个按键，命中判定挡不住 → 表现为"拖着拖着就把按中的键发出去了"（2026-09-15 用户实测反馈过，四块小键盘都受影响）。
 - 位置夹取用 `RadialVirtualBounds()`（虚拟屏幕），不要改用 `A_ScreenWidth`。
 - **五块浮层同屏不得重叠**：`OverlayAvoid(active)` 以"正在拖动 / 刚打开"的那块为 active（active 永不移动），把被它压住的浮层沿**最小位移方向**推开，两两留 8px 间隙、连锁处理、落点夹取虚拟屏幕；推不动就原地不动（避免屏幕边缘抖动）。**四个调用点**：`RadialBuildMenu` 末尾、径向拖拽 `Gui.Move` 之后、`KeypadShow` 末尾、小键盘拖拽 `Gui.Move` 之后——以后再新增浮层时务必补调用点。
-- **字母键盘的大小写切换**：状态放在全局 `keypadLetterUpper`（运行期内一直记住，默认小写）。点【Aa】（`role = "toggle"`）→ `KeypadOnKeyPress` 翻转状态、`P.keys := KeypadKeysFor(kind)` 就地重建按键、`KeypadDraw` 重绘；**不要改窗口大小或位置**（最宽标签是【回车】/【触发】这两个汉字标签，不随大小写变化，布局天然一致）。`KeypadDraw` 里【Aa】键的底色随大写状态变化（大写偏暖色，起 CapsLock 指示灯作用）。
+- **四个面板的按键内容完全由配置驱动**（2026-09-15 改造）：`[keypad.<kind>]` 段里「编号 = 名称 | 动作」，编号即格子序号（行优先、1 起），缺号 = 空位；`cols` / `rows` / `square` / `case` 均可配。动作四类：普通 Send 字符串 / `run:` / `close` / `case` / `self:`（自身命令，直接调用处理函数）。**一个键都没写（或整段删掉）的面板沿用 `KeypadDefaultDefs()` 的内置默认**，所以老配置行为不变。解析用**自定义行解析**（与径向菜单同一套）：整行 `;` 注释、行内「空白 + `;`」注释；值里的 `;` 与 `|` 必须写成 `%3B` / `%7C`（否则被当注释 / 分隔符）。新增面板只需在 `KeypadLoadConfig` 的 kind 白名单与 `KeypadDefaultDefs()` 里各加一处。
+- **大小写状态是通用机制、不是字母面板专属**（实现见 §6.2a 的浮层动作层）：`case = true` 的面板才启用，状态存在 `overlayCaseState`（**按浮层名**，运行期内记住，默认小写）。点动作是 `case` 的键 → `OverlayCaseToggle(kind)` → `OverlayRefresh(kind)` 就地重建按键 + `KeypadDraw` 重绘 + 文字层重建；**不要改窗口大小或位置**。大写只影响「动作恰好是一个 ASCII 小写字母」的键（标签与发送内容一起变大写），其它键（回车、`\`、`^j`、`run:`、数字、符号）不受影响；`KeypadDraw` 里该键底色随状态变化（大写偏暖色，起 CapsLock 指示灯作用）。
 - 拖动中每次 `WM_MOUSEMOVE` 都会调 `OverlayAvoid`，所以里面只做坐标计算（`WinGetPos` + 比较），**不要在这里加重绘或重日志**。
 - **文字层必须跟着面板动**：`KeypadOnMouseMove` 拖动分支、`OverlayMoveTo()`（避让推开）里都要 `OverlayTextLayerMove`；漏一处就会出现"面板走了、文字留在原地"。
 - 发送按键复用 `RadialActivateFocusWin()` + `RadialWaitModifiersReleased()`（前缀是 Radial，但逻辑通用），再 `SendEvent`。
@@ -383,36 +408,63 @@ radial.base.1=12     ; 键 = radial.<组标识>.<编号>，与 config.ini 的 [r
 |------|------|
 | `OverlayPush()` / `OverlayRemove()` / `OverlayTouch()` / `OverlayIndex()` / `OverlayOnEscape()` | 浮层栈（最近操作过的在末尾）/ Esc 接管（关闭栈末尾那个）——径向菜单与各小键盘共用 |
 | `OverlayRects()` / `OverlayMoveTo()` / `OverlayRectsOverlap()` / `OverlayTryMove()` / `OverlayPushAway()` / `OverlayAvoidPass()` / `OverlayAvoid()` | 浮层避让（10c-2）：取各浮层的窗口矩形 → 把被动方沿最小位移方向推开（8px 间隙、连锁、夹取虚拟屏幕，推不动就不动）；对外只用 `OverlayAvoid(active)` |
-| `KeypadLoadConfig()` | 读 `[keypad]`：`arrow_hotkey` / `numpad_hotkey` / `symbol_hotkey` / `letter_hotkey` / `font_size` / `opacity`（防空 + 防呆） |
-| `KeypadKeysFor(kind)` | 按键定义数组 `[{label, send, role}]`；`role` = `key` / `toggle` / `action` / `close` / `blank`（`close` / `blank` 保留未用） |
-| `KeypadLetterKeys()` | 字母小键盘按键：`a`-`z`（按全局 `keypadLetterUpper` 决定大小写）+ `Aa`（role = `toggle`）+ 回车 / 反斜杠 + 【触发】（role = `action`）。**最宽标签是汉字标签，不随大小写变化，故切换时不需要重新布局** |
-| `KeypadRunAction(action)` | `role = "action"` 的键：`"trigger"` → 直接调用 `CompleteAI()`（等同按 SharpKnife 触发命令 Ctrl+J）。**必须直接调用处理函数，不能靠发送 Ctrl+J 再触发自身热键**，原因见 §4.1 #20 |
-| `KeypadColsFor(kind)` | 各面板列数（arrow 3 / numpad 4 / symbol 6 / letter 6）；行数由按键数推导，新增面板只需在这里加一行 |
-| `KeypadComputeLayout(kind, keys, sizePt)` | 按字号实测文字宽度算面板尺寸与各按键矩形（方向键为正方形） |
+| `KeypadLoadConfig()` | 自定义行解析 `[keypad]`（4 个触发键 / `font_size` / `opacity`）与 `[keypad.arrow/numpad/symbol/letter]`（`name` / `cols` / `rows` / `square` / `case` / `编号 = 名称 \| 动作`）；防空 + 防呆，缺段 / 非法值一律沿用内置默认 |
+| `KeypadDefaultDefs()` | 四块面板的**内置默认**按键（等于改造前写死的那四套；配置里一个键都没写的面板就用它） |
+| `KeypadParseItem()` / `KeypadUnescape()` / `KeypadRoleFor()` | 解析「名称 \| 动作」、反转义 `%3B`→`;` `%7C`→`\|`、把动作归到角色（`key` / `close` / `case` / `blank`） |
+| `KeypadKeysFor(kind)` | 按定义表 + 当前大小写状态生成按键数组 `[{label, action, role}]`（`role` = `key` / `close` / `case` / `blank`）；**动作语义**见 `KeypadOnKeyPress` |
+| `OverlayCaseUpper(owner)` / `overlayCaseState` | 大小写状态**按浮层名**存（`Map`：`"letter"` / `"radial"` → true/false，运行期内记住）——属于浮层动作层（见 6.2a） |
+| `KeypadColsFor()` / `KeypadRowsFor()` / `KeypadSquareFor()` | 列数 / 行数 / 是否正方形按键，全部来自定义表（`[keypad.<kind>]`，缺省用内置默认） |
+| `KeypadComputeLayout(kind, keys, sizePt)` | 按字号实测文字宽度算面板尺寸与各按键矩形；行数取「定义里声明的行数」与「按键数推导」的较大者，`square = true` 时按键取正方形 |
 | `KeypadToggle(kind)` / `KeypadShow(kind)` / `KeypadClose(kind)` | 各自开 / 关（只影响自己）/ 弹出（鼠标位置、虚拟屏幕夹取） |
 | `KeypadKindByHwnd(hwnd)` | 按窗口句柄找面板类型，供共用的鼠标回调分发 |
 | `KeypadDraw(kind)` / `KeypadDrawText()` | GDI 双缓冲绘制**面板本体**（悬停高亮；【回车】键偏蓝；`role=close` 的暗红配色保留但未用）；**不画文字** |
 | `KeypadPaintTexts(kind, maskDC, colorDC)` / `KeypadTextLayerPresent(kind)` | 面板文字层：所有按键文字（彩色字身 + 白色掩码含黑边）+ 合成 + 呈现；大小写切换后要重新调用 |
 | `KeypadHitTest(kind, mx, my)` | 按键矩形命中（空位与空白处返回 0） |
 | `KeypadOnMouseMove/…LButtonDown/…LButtonUp/…RButtonDown/…MouseLeave()` | 悬停高亮 + 点击/拖拽判定（阈值 3px）；按 hwnd 分发到对应面板 |
-| `KeypadOnKeyPress(kind, idx)` / `KeypadSendKey(kind, raw)` | 分发（close = 关闭本面板、key = 发送）/ 校验目标窗口与修饰键后 `SendEvent` |
+| `KeypadOnKeyPress(kind, idx)` | 取出按键的动作文本，**统一交给浮层动作层**执行：`OverlayActionExecute(OverlayActionParse(k.action), kind, P.focusWin)` |
 | `KeypadTrackMouseEventStruct(hwnd)` | `TrackMouseEvent` 结构（`hwndTrack` 由调用方传入；**不要**复用径向菜单那份） |
 
 配置（`[keypad]`）：
 
 ```ini
-[keypad]
-arrow_hotkey = ^+k   ; 方向小键盘触发键
-numpad_hotkey = ^+n  ; 数字小键盘触发键
-symbol_hotkey = ^+y  ; 符号小键盘触发键
-letter_hotkey = ^+e  ; 字母小键盘触发键
-font_size = 15       ; 面板字体（磅，最小 6）；缺省 = [ui] font_size
-opacity = 1          ; 面板透明度 0.0~1.0
+[keypad]                 ; 触发键 / 字号 / 透明度（与原样一致）
+arrow_hotkey = ^+k
+numpad_hotkey = ^+n
+symbol_hotkey = ^+y
+letter_hotkey = ^+e
+font_size = 15
+opacity = 1
+
+[keypad.arrow]           ; 一个面板一段：cols / rows / square / case + 编号 = 名称 | 动作
+name = 方向键盘
+cols = 3
+rows = 3
+square = true
+1 = 退格 | {BS}
+5 = 回车 | {Enter}
+6 = 复制 | ^c            ; 动作也可以直接是快捷键
+7 = 记事本 | run: notepad.exe
+8 = 触发 | self:trigger  ; self: 调用本脚本自身功能（不模拟按键）
+9 = 关闭 | close
+
+[keypad.letter]          ; 字母面板：case = true 启用大小写状态
+cols = 6
+rows = 5
+case = true
+1 = a | a
+27 = Aa | case           ; 点它切换大小写
+30 = 触发 | self:trigger
 ```
 
+> 配置里某个面板**一个键都没写**（或整段删掉）→ 沿用内置默认按键；`config.ini.example` 里的四段就是内置默认的完整等价写法。
+> 值里的分号 / 竖线写 `%3B` / `%7C`（符号面板的 `;` 与 `|` 两个键即如此）。
+
 > 调试：WSL 下**无法**验证 GUI/点击行为（Session 0 里连原版脚本的 auto-execute 都会卡住，见 §5）。
-> 纯逻辑（配置解析 / 按键定义 / 布局计算）可把函数体逐字提取出来单测——注意 `SharpKnifeCore.ahk` 里有
-> 单字母函数 `J()` / `K()`，**顶层**变量不能叫 `j` / `k`（函数内的局部变量没问题）。
+> 纯逻辑（配置解析 / 按键定义 / 布局计算）可把函数体逐字提取出来单测，但**提取脚本本身有三个坑**（2026-09-15 全部踩过）：
+> ① sed 提取函数要用 `^函数名(参数) {` **带上 ` {`** 锚定：只写 `^KeypadLoadConfig()` 会同时匹配 auto-execute 段里的**裸调用**，把中间的其它函数一起卷进来、导致"无输出卡死"；
+> ② 被测函数用到的**全局变量必须在测试脚本里也赋值**（哪怕赋空串）：AHK v2 对"从未被赋值的全局变量"会弹**加载期警告框**阻塞脚本，症状同样是"毫无输出"（与 §4.1 #15 同类）；
+> ③ 测试脚本里的变量名别撞内置函数：`Ln`（自然对数）当变量名会报错，`log` 同理（§4.1 #3）——本例中 `Ln` 就白折腾了一轮。
+> 另注意 `SharpKnifeCore.ahk` 里有单字母函数 `J()` / `K()`，**顶层**变量不能叫 `j` / `k`（函数内的局部变量没问题）。
 
 ### 6.4 已知的历史遗留（可清理，非必须）
 
