@@ -3478,9 +3478,9 @@ OverlayRunSelf(cmd, owner, fallbackWin) {
 
 ; ---- 读一个 [runbox] 配置值并剥离行内注释 ----
 ; IniRead 不会剥注释（"值  ; 注释" 会把注释一起带回来），这里按"空白 + ;"截断
-RunBoxCfg(key, def) {
+RunBoxCfg(key, def, section := "runbox") {
     global configFile
-    v := Trim(IniRead(configFile, "runbox", key, def))
+    v := Trim(IniRead(configFile, section, key, def))
     if RegExMatch(v, "\s;", &m)
         v := Trim(SubStr(v, 1, m.Pos - 1))
     return (v = "") ? def : v
@@ -3510,6 +3510,8 @@ RunBoxLoadConfig() {
         runboxMaxActions := Max(1, Min(Integer(v), 200))
     ; prompt_extra 是自由文本，不做注释剥离（里面可能有分号）
     runboxPromptExtra := Trim(IniRead(configFile, "runbox", "prompt_extra", ""))
+    ; 底部热键键帽排：独立子节 [runbox.runkeys]（键帽排在后面加载，优先于 [keypad.runkeys]）
+    RunBoxLoadKeycaps()
     DebugLog("[runbox] 配置：hotkey=" . runboxHotkey . " confirm=" . runboxConfirm . " model=" . runboxModel
         . " timeout=" . runboxTimeout . " step=" . runboxStepDelay . " run_wait=" . runboxRunWait
         . " max=" . runboxMaxActions)
@@ -3577,6 +3579,73 @@ RunBoxActionLine(act) {
 
 ; ---- 解析模型回复：严格白名单 ----
 ; 返回 {actions: [...], dropped: [...], error: ""}；error 非空表示模型明确说做不到
+; ---- 底部热键键帽排：[runbox.runkeys] 子节（与 [keypad.<kind>] 完全同一套写法与语义）----
+;   [runbox.runkeys]
+;   name   = 运行热键      ; 面板名（缺省用内置的"运行热键"）
+;   cols   = 7             ; 列数（1~12；缺省用内置的 7）
+;   rows   = 1             ; 行数（1~12；缺省用内置的 1）
+;   square = false         ; 是否正方形按键
+;   case   = false         ; 是否启用大小写状态
+;   1 = 回车 | {Enter}     ; 编号 = 格子序号（行优先、1 起）；缺号 = 空位
+;   2 = Tab  | {Tab}
+;   · 写法 / 语义与小键盘面板一模一样：写了编号就整体替换键帽，缺号是空位；
+;     整节不写（或一条编号都没有）→ 沿用内置默认那 7 个键。列数 / 行数以配置为准，
+;     配置里不写就用内置默认值 —— 与 [keypad.<kind>] 的行为完全一致。
+;   · 动作由 KeypadParseItem / KeypadRoleFor 解析，普通按键 / run: / self: / close / case / paste: 都可写。
+RunBoxLoadKeycaps() {
+    global configFile, keypadDefs
+    if (!keypadDefs.Has("runkeys") || !FileExist(configFile))
+        return
+    def := keypadDefs["runkeys"]
+    sec := "runbox.runkeys"
+
+    v := RunBoxCfg("name", "", sec)
+    if (v != "")
+        def.name := v
+    v := RunBoxCfg("cols", "", sec)
+    if RegExMatch(v, "^\d+$")
+        def.cols := Max(1, Min(Integer(v), 12))
+    v := RunBoxCfg("rows", "", sec)
+    if RegExMatch(v, "^\d+$")
+        def.rows := Max(1, Min(Integer(v), 12))
+    v := RunBoxCfg("square", "", sec)
+    if (v != "")
+        def.square := (StrLower(v) = "true")
+    v := RunBoxCfg("case", "", sec)
+    if (v != "")
+        def.case := (StrLower(v) = "true")
+
+    ; 编号项（上限 12×12，防呆）
+    items := Map()
+    Loop 144 {
+        raw := RunBoxCfg(String(A_Index), "", sec)
+        if (raw != "")
+            items[A_Index] := raw
+    }
+    if (items.Count = 0) {
+        DebugLog("[runbox] 未配置 [" . sec . "] 的按键，沿用内置默认（" . def.keys.Length . " 键）")
+        return
+    }
+
+    ; 落地方式与 KeypadLoadConfig 完全一致：整段替换，缺号 / 越界都是空位
+    total := def.cols * def.rows
+    keys := []
+    Loop total
+        keys.Push({label: "", action: "", role: "blank"})
+    n := 0
+    for num, raw in items {
+        if (num < 1 || num > total) {
+            DebugLog("[runbox] 键帽 " . num . " 超出 " . def.cols . "×" . def.rows . " 范围，已忽略")
+            continue
+        }
+        it := KeypadParseItem(raw)
+        keys[num] := {label: it.label, action: it.action, role: KeypadRoleFor(it.action)}
+        n++
+    }
+    def.keys := keys
+    DebugLog("[runbox] 键帽排已配置：" . n . " 个键，" . def.cols . "×" . def.rows . "，名称=" . def.name)
+}
+
 RunBoxParseReply(reply) {
     global runboxMaxActions
     actions := []
@@ -4382,7 +4451,9 @@ KeypadLoadConfig() {
                 section := "keypad"
             } else if (SubStr(line, 1, 8) = "[keypad." && SubStr(line, -1) = "]") {
                 k := SubStr(line, 9, StrLen(line) - 9)
-                section := (k = "arrow" || k = "numpad" || k = "symbol" || k = "letter") ? "keypad." . k : ""
+                ; 只要 keypadDefs 里有这个面板就认（arrow / numpad / symbol / letter / runkeys…），
+                ; 以后再加面板不必改这里；不认识的段名一律忽略
+                section := keypadDefs.Has(k) ? "keypad." . k : ""
             } else {
                 section := ""
             }

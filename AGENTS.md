@@ -540,6 +540,10 @@ case = true
   · `KeypadShow(kind, pushEscape := true)` 新增了开关：键帽排传 `false`，**不登记浮层栈**（Esc 仍归运行框管）。这样也不会因为弹一次键帽排就去注册 / 注销全局 Escape 热键。
   · `OverlayOwnerHwnd("runkeys")` 返回**运行框的 hwnd**：键帽不抢焦点，点它时前台是运行框，必须当成"自家窗口"才会退回跟踪到的目标窗口。
   · 位置由 `RunKeysAnchor()` 吸附在运行框正下方（水平居中 + 夹取虚拟屏幕）；运行框拖动靠 `WM_MOVE(0x0003)` 钩子跟随，展开 / 收起靠 `RunBoxApplyHeight()` 里再调一次；发送目标随 `RunBoxTrackTarget()` 一起更新（`RunKeysSyncTarget()`）。
+  · **键帽排的配置在 `[runbox.runkeys]` 子节**（用户要求放在 runbox 名下），**语义与 `[keypad.<kind>]` 完全一致**：`RunBoxLoadKeycaps()` 用 `IniRead(configFile, "runbox.runkeys", …)` 读 `name` / `cols` / `rows` / `square` / `case` 与编号项；写了编号就整体替换键帽（缺号 = 空位，越界忽略），一条都没写就沿用 `KeypadDefaultDefs()` 里的内置 7 键；**`cols` / `rows` 不写就用内置默认值，不做任何自动排布**。
+    这次改造的硬要求是 2026-09-15 用户明确说的"仅仅是把写死的改成配置、功能与效果完全不变"：因此**不要**顺手改行为（例如不要加"按配了几个键自动排布"、不要把键帽排塞进 `OverlayConfiguredItems()` —— 那会让运行框的动作表多出条目）。已验证：不配置时与内置默认逐字段一致；把内置默认原样写成配置后结果也逐字段一致。
+    键帽排的按键定义由 `KeypadParseItem` / `KeypadRoleFor` 解析，所以 `run:` / `self:` / `case` / `close` / `paste:` 都可用。
+    加载顺序：`KeypadLoadConfig()` 先跑、`RunBoxLoadConfig()` 后跑（`[keypad.runkeys]` 依旧不生效，段头白名单仍是四块小键盘）。
   · 生命周期跟着运行框：`RunBoxShow()` 里 `RunKeysShow()`、`RunBoxClose()` 里 `RunKeysHide()`。
   · 键帽排**自己**不进 `OverlayRects()`，而是与运行框合并成一个整体矩形参与避让（见 §6.3 的避让说明）：两者一起被推开、一起被推开后仍严格保持"下方居中、间隔 6px"的吸附关系。
 - **`RunBox*` 函数改完必须核对 `global` 声明**（2026-09-15 已犯两次，都是"新增全局变量后忘了把它加进某个函数的 global 行"）：
