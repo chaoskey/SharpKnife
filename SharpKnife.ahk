@@ -299,8 +299,9 @@ global runboxToggleTick := 0     ; 上一次展开/收起的时间（两条点�
 global runboxAvoidTick := 0      ; 运行框上一次"被别人避让挪动"的时刻（防互相顶）
 global runboxHSmall := 0         ; 收起态窗口高度（弹出时量好，之后只做 Move 改高度）
 global runboxExtraDetail := 0    ; 展开过程面板额外需要的高度（= 面板自身高度 + 间距）
-global runboxPrevWin := 0        ; 弹出运行框前的前台窗口（动作最终打到它上面）
+global runboxPrevWin := 0        ; 跟踪到的"最近一次活动的窗口"（动作最终打到它上面）
 global runboxPrevTitle := ""     ; 该窗口标题（喂给模型当上下文）
+global runboxExecBaseWin := 0    ; 开始执行动作那一刻的目标窗口（收尾判"有没有打开新窗口"用）
 global runboxActions := []       ; 本次待执行动作
 global runboxDropped := []       ; 被丢弃的行（展示给用户）
 global runboxRunIdx := 0         ; 执行进度
@@ -3575,22 +3576,25 @@ RunBoxBuildPrompt() {
     global runboxPromptExtra
     ; 注意：AHK v2 字符串里的双引号要用单引号字符串或 `" 转义，不能写 ""（那是 v1 的写法）
     p := '你是把中文操作需求翻译成"动作序列"的翻译器。你的输出会被程序逐行执行，必须严格遵守格式。' . "`n`n"
-    p .= "【最重要的规则】程序**只允许执行「已配置动作表」里已有的动作**：`n"
-    p .= "  · 表里没有的按键、快捷键、程序路径、功能名，一律不允许；`n"
-    p .= "  · **不允许输出自由文字内容**（例如 send: 你好、paste: 随便一段话，都不允许）；`n"
-    p .= "  · 若需求需要表里没有的东西（比如要输入一段中文），只输出一行：ERROR: 简短原因。`n`n"
+    p .= "【需求分两种情况，先分清是哪一种】`n"
+    p .= "  一、要输出文字（纯文本）：用 paste: 原文 或 send: 原文 直接输出，不需要预先配置；`n"
+    p .= "      文字必须与用户要的完全一致——照抄原话，不要改写、不要翻译、不要加引号或解释。`n"
+    p .= "  二、要执行动作（按键 / 热键组合 / 键盘操作 / 启动某个程序 / 本脚本功能）：`n"
+    p .= "      只能使用下面「已配置动作表」里已有的动作，表里没有的一律不许用；做不到就输出 ERROR。`n`n"
     p .= "【输出格式】一行一个动作；不要编号、不要解释、不要 markdown 代码块、不要空行。`n"
-    p .= "只允许下面三种写法：`n"
+    p .= "只允许下面几种写法：`n"
     p .= "  item: 名称      首选：执行表里某个功能（按名称）`n"
     p .= "  动作原文         次选：把表里某个动作原样照抄一行（例如 ^c 或 hotkey: ^c、{Enter}、run: xxx、self: xxx）`n"
-    p .= "  ERROR: 原因      需求无法用表里的动作完成时（只输出这一行）`n`n"
+    p .= "  paste: 文本     要输出的纯文本（推荐：任何符号都会被原样粘贴，最可靠）`n"
+    p .= "  send: 文本      要输出的纯文本；只有文本里不含 ^ ! + # { } 这些按键语法字符时才可用`n"
+    p .= "  ERROR: 原因      需求无法完成时（只输出这一行）`n`n"
     p .= "【规则】`n"
-    p .= "1. 优先用 item: 名称 —— 能对上名称就用它，这是最稳的方式。`n"
-    p .= "2. 也可以用 hotkey: 热键，但热键必须与表里某个动作**逐字一致**。`n"
-    p .= "3. 需要输入文字时：只有表里存在对应的输入动作才可以引用它；否则输出 ERROR。`n"
+    p .= "1. 动作优先用 item: 名称 —— 能对上名称就用它，这是最稳的方式。`n"
+    p .= "2. 要按快捷键 / 组合键时，它必须与表里某个动作**逐字一致**（表里有 ^c 才能写 ^c 或 hotkey: ^c）。`n"
+    p .= "3. 要输入文字时，直接把用户要的文字放进 paste: 里原文照抄；文字里含 ^ ! + # { } 等符号时必须用 paste:。`n"
     p .= "4. 启动程序后不用写等待，程序会自动等待。`n"
     p .= "5. 最多输出 40 行，且只输出动作行。`n`n"
-    p .= "【已配置动作表】（名称=动作；只有这些可用）`n" . RunBoxCatalogText() . "`n"
+    p .= "【已配置动作表】（名称=动作；动作只能用这里的）`n" . RunBoxCatalogText() . "`n"
     if (runboxPromptExtra != "")
         p .= "`n【补充要求】`n" . runboxPromptExtra . "`n"
     return p
@@ -3613,8 +3617,6 @@ RunBoxActionLine(act) {
     return act.type
 }
 
-; ---- 解析模型回复：严格白名单 ----
-; 返回 {actions: [...], dropped: [...], error: ""}；error 非空表示模型明确说做不到
 ; ---- 底部热键键帽排：[runbox.runkeys] 子节（与 [keypad.<kind>] 完全同一套写法与语义）----
 ;   [runbox.runkeys]
 ;   name   = 运行热键      ; 面板名（缺省用内置的"运行热键"）
@@ -3682,6 +3684,10 @@ RunBoxLoadKeycaps() {
     DebugLog("[runbox] 键帽排已配置：" . n . " 个键，" . def.cols . "×" . def.rows . "，名称=" . def.name)
 }
 
+; ---- 解析模型回复：纯文本放行 + 动作严格白名单 ----
+; 需求分两种情况：① 要输出文字（显式 send: / paste:）→ 直接执行、照原样输出，不需要先配置；
+;                 ② 要执行动作（按键 / 热键 / 键盘操作 / 程序 / 自身功能）→ 必须命中"配置里已有的动作"。
+; 返回 {actions: [...], dropped: [...], error: ""}；error 非空表示模型明确说做不到
 RunBoxParseReply(reply) {
     global runboxMaxActions
     actions := []
@@ -3736,7 +3742,30 @@ RunBoxParseReply(reply) {
                 continue
             }
 
-            ; ② 其余行：动作必须"逐字"等于配置里的某个动作
+            ; ② 纯文本输出（需求的第一种情况）：
+            ;    显式写 send: / hotkey: / paste: 就是"要输出的文字"，直接执行、不需要先在配置里建项，
+            ;    且必须照原样输出（模型不得改写）。其余任何情况（要按键 / 热键 / 程序 / 自身功能）
+            ;    都算"动作"，必须命中下面的「已配置动作表」。
+            ;    · paste: 是文本通道：内容一律原样粘贴，含 ^ ! + # { } 等符号也安全；
+            ;    · send: / hotkey: 只放行"不含按键语法（^ ! + # { }）"的纯文本；
+            ;      含按键语法的（如 send: ^c）算按键操作，仍须与配置里某个动作逐字一致。
+            if RegExMatch(line, "i)^(?:send|hotkey|paste)\s*:(.*)$", &fm) {
+                fv := Trim(fm[1])
+                if (fv = "") {
+                    dropped.Push(line . "   ← 内容是空的")
+                    continue
+                }
+                if RegExMatch(line, "i)^paste\s*:") {
+                    actions.Push({type: "paste", value: fv})
+                    continue
+                }
+                if (!RegExMatch(fv, "[\^!+#{}]")) {
+                    actions.Push({type: "send", value: fv})
+                    continue
+                }
+            }
+
+            ; ③ 其余行：动作必须"逐字"等于配置里的某个动作
             act := OverlayActionParse(line)
             if (act.type = "none") {
                 ; 退一步：整行正好是配置里的某个名称，也当 item: 处理（宽容但同样安全）
@@ -3760,6 +3789,8 @@ RunBoxParseReply(reply) {
                 dropped.Push(line . "   ← 不在「已配置命令表」中")
             else if (act.type = "wait")
                 dropped.Push(line . "   ← 等待由程序自动插入，不需要写 wait:（它也不在配置的动作里）")
+            else if (RegExMatch(line, "i)^(?:send|hotkey)\s*:"))
+                dropped.Push(line . "   ← 含按键语法、且不在「已配置动作」中，未执行（纯文本请用 paste:）")
             else
                 dropped.Push(line . "   ← 不在「已配置动作」中，未执行")
         }
@@ -4146,15 +4177,37 @@ RunBoxNoMaximize(wParam, lParam, msg, hwnd) {
 ; ---- 记录"最近一个活动的窗口"（排除运行框自己），动作最终都打到它上面 ----
 ; 运行框本身要抢焦点来打字，所以不能只看弹出那一刻的前台窗口：
 ; 用户可能在运行框开着时切到别的程序，之后连续下需求时目标就该是那个程序。
+; ---- 某个窗口句柄是不是"运行框自己"（运行框主窗口 + 它下方的热键键帽排）----
+; 用途：① 跟踪目标窗口时排除它们；② 收尾判"有没有打开新窗口"时排除它们。
+; 用户要求：自然语言运行框（含键帽排）既可以有焦点，但**永远不能**算作动作目标窗口，
+; 也不能算作"要回退到的上一个窗口"。
+RunBoxIsSelfWin(hwnd) {
+    global keypadPanels
+    if (!hwnd)
+        return true                          ; 没有前台窗口：按"没有可留下的新窗口"处理
+    own := RunBoxHwnd()
+    if (own && hwnd = own)
+        return true
+    if (keypadPanels.Has("runkeys")) {
+        P := keypadPanels["runkeys"]
+        if (P.gui) {
+            kHwnd := 0
+            try kHwnd := P.gui.Hwnd          ; Destroy() 后再读 .Hwnd 会抛，必须包 try
+            if (kHwnd && hwnd = kHwnd)
+                return true
+        }
+    }
+    return false
+}
+
 RunBoxTrackTarget() {
     global runboxPrevWin, runboxPrevTitle
     cur := WinExist("A")
     if (!cur)
         return
-    ownHwnd := RunBoxHwnd()
-    if (ownHwnd && cur = ownHwnd)              ; 运行框自己不算
+    if (RunBoxIsSelfWin(cur))                  ; 运行框自己（含键帽排）不算目标窗口
         return
-    if (!ownHwnd && !IsSet(runboxPrevWin))     ; 极端情况：窗口已关
+    if (!RunBoxHwnd())                         ; 极端情况：运行框已关（定时器通常已停）
         return
     if (cur = runboxPrevWin)                   ; 没变，省掉取标题的开销
         return
@@ -4312,13 +4365,14 @@ RunBoxShowConfirm() {
 ; ---- 开始执行（逐条、定时器推进、Esc 可中止）----
 RunBoxExecute() {
     global runboxActions, runboxRunIdx, runboxPrevWin, runboxPrevTitle, runboxStatus, runboxState, runboxBusy
-    global runboxStartTick
+    global runboxStartTick, runboxExecBaseWin
     if (runboxState = "running" || runboxActions.Length = 0)
         return
     runboxState := "running"
     runboxBusy := true
     runboxRunIdx := 0
     RunBoxEscOn()                                  ; 执行期间 Esc = 中止后续动作
+    runboxExecBaseWin := runboxPrevWin             ; 记下执行前的目标窗口：收尾判"有没有打开新窗口"用
     if (runboxPrevWin)
         RadialActivateFocusWin(runboxPrevWin)      ; 动作要打到原来的前台窗口
     runboxStartTick := A_TickCount
@@ -4356,7 +4410,7 @@ RunBoxStep() {
 ; 收尾：回到可编辑状态；focusTarget = true（正常执行完）时把焦点还给"最近一次活动的窗口"
 RunBoxFinish(msg, focusTarget := true) {
     global runboxBusy, runboxState, runboxStatus, runboxGui, runboxEdit, runboxStartTick
-    global runboxPrevWin, runboxPrevTitle
+    global runboxPrevWin, runboxPrevTitle, runboxExecBaseWin
     SetTimer(RunBoxStep, 0)
     runboxBusy := false
     RunBoxEscOff()
@@ -4370,26 +4424,50 @@ RunBoxFinish(msg, focusTarget := true) {
     try runboxEdit.Value := ""
     try runboxEdit.Visible := true
 
-    ; 焦点去向（用户要求）：
-    ;   · 正常执行完 → 焦点还给"最近一次活动的窗口"（即动作打过去的目标窗口）。
-    ;     运行框只留在屏幕上（+AlwaysOnTop）不再抢焦点，用户可以接着在原窗口干活；
-    ;     想回来接着下需求：点一下输入框，或再按一次触发键（会重新聚焦运行框）。
+    ; 焦点去向（用户要求，"最近操作过的窗口"原则）：
+    ;   · 正常执行完：
+    ;       ① 动作打开了**新窗口**（执行后前台是"别的窗口"）→ 让新窗口保持焦点，绝不抢回来；
+    ;       ② 没有打开新窗口 → 焦点回到执行前那个"最近活动的窗口"（例如原来在编辑的文本框）；
+    ;       ③ 判定时**一律排除自然语言运行框自己**（它可以在必要时有焦点，但既不算动作目标，
+    ;          也不算"要回退到的上一个窗口"）。
     ;   · 被 Esc 中止 / 没有可用目标窗口 → 焦点留在运行框，方便改一改再跑。
-    back := false
-    if (focusTarget && runboxPrevWin && WinExist("ahk_id " . runboxPrevWin))
-        back := RadialActivateFocusWin(runboxPrevWin)
-    if (back) {
-        t := runboxPrevTitle
+    keepNew := false
+    if (focusTarget) {
+        fg := WinExist("A")
+        base := runboxExecBaseWin
+        ; 前台不是运行框自己、并且不是执行前那个窗口 → 说明动作打开了新窗口
+        if (!RunBoxIsSelfWin(fg) && (!base || fg != base))
+            keepNew := true
+    }
+    if (keepNew) {
+        ; ① 打开了新窗口：什么都别做，让新窗口保持焦点（绝不把焦点抢回运行框）
+        fg := WinExist("A")
+        t := ""
+        try WinGetTitle(&t, "ahk_id " . fg)
         if (StrLen(t) > 24)
             t := SubStr(t, 1, 24) . "…"
         if (t = "")
-            t := "目标窗口"
-        try runboxStatus.Text := msg . " · 焦点已还给「" . t . "」（点输入框或按触发键可回到这里）"
-        DebugLog("[runbox] 焦点已还给目标窗口 " . runboxPrevWin)
+            t := "新打开的程序"
+        try runboxStatus.Text := msg . " · 焦点留在新窗口「" . t . "」（点输入框或按触发键可回到这里）"
+        DebugLog("[runbox] 动作打开了新窗口，焦点留在 " . fg . "「" . t . "」")
     } else {
-        try WinActivate("ahk_id " . hw)
-        try runboxEdit.Focus()
-        try runboxStatus.Text := msg . " · 可直接输入下一个需求（Esc 关闭）"
+        ; ② 没打开新窗口 → 把焦点还给执行前那个"最近活动的窗口"；没有可用目标才留在运行框
+        back := false
+        if (focusTarget && runboxPrevWin && WinExist("ahk_id " . runboxPrevWin))
+            back := RadialActivateFocusWin(runboxPrevWin)
+        if (back) {
+            t := runboxPrevTitle
+            if (StrLen(t) > 24)
+                t := SubStr(t, 1, 24) . "…"
+            if (t = "")
+                t := "目标窗口"
+            try runboxStatus.Text := msg . " · 焦点已还给「" . t . "」（点输入框或按触发键可回到这里）"
+            DebugLog("[runbox] 焦点已还给目标窗口 " . runboxPrevWin)
+        } else {
+            try WinActivate("ahk_id " . hw)
+            try runboxEdit.Focus()
+            try runboxStatus.Text := msg . " · 可直接输入下一个需求（Esc 关闭）"
+        }
     }
 }
 

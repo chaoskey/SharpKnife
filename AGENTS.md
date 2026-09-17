@@ -391,7 +391,7 @@ radial.base.1=12     ; 键 = radial.<组标识>.<编号>，与 config.ini 的 [r
 - 位置夹取用 `RadialVirtualBounds()`（虚拟屏幕），不要改用 `A_ScreenWidth`。
 - **浮层避让现在有 6 个参与者**（2026-09-15 起）：径向菜单、四块小键盘，**外加自然语言运行框**。运行框在 `OverlayRects()` 里以 `runbox` 为名，并且是把"运行框 + 键帽排"取**并集**后push进去的**一个整体矩形**（两者必须一起动，不能被拆开）；`OverlayMoveTo("runbox", …)` 挪运行框后调 `RunKeysAnchor()` 重新吸附键帽排。
   调用点：`RunBoxShow()` 末尾、`RunBoxApplyHeight()` 末尾（撑开 / 收起后）、**WM_MOVE(0x0003)**（拖动过程中实时推开被压住的浮层）以及 **WM_EXITSIZEMOVE(0x0232)**（松手后再整理一次）。
-  **防互相顶**：运行框被"别人避让"挪动时，`OverlayMoveTo("runbox", …)` 会打时间戳 `runboxAvoidTick`；`RunBoxMoveHandler` 里若 `A_TickCount - runboxAvoidTick <= 250ms` 就跳过避让，否则会出现"你推我、我推你"的来回抖动。运行框作为 active 时永远不会被挪动，所以正常拖动不受影响（2026-09-15 用户反馈"运行框推不开小键盘"就是因为原来只在松手时避让）。
+  **防互相顶**：运行框被避让挪动时，`OverlayMoveTo("runbox", …)` 记 `runboxAvoidTick`；`RunBoxMoveHandler` 里 `A_TickCount - runboxAvoidTick <= 250ms` 就跳过避让，否则会来回抖。active 永不移动，正常拖动不受影响。
 - **六个浮层同屏不得重叠**：`OverlayAvoid(active)` 以"正在拖动 / 刚打开"的那块为 active（active 永不移动），把被它压住的浮层推开，两两留 8px 间隙、连锁处理、落点夹取虚拟屏幕；推不动就原地不动（避免屏幕边缘抖动）。**调用点**：`RadialBuildMenu` 末尾、径向拖拽 `Gui.Move` 之后、`KeypadShow` 末尾、小键盘拖拽 `Gui.Move` 之后，外加运行框的四处（见上一条）——以后再新增浮层时务必补调用点。
   `OverlayPushAway` 会生成**四个候选落点（右 / 左 / 下 / 上）并按位移从小到大逐个尝试**，不是只试"较近的水平 + 较近的垂直"两个：运行框这类大窗口很容易把两个近位都挡住，那时远侧明明有空位却推不动（2026-09-15 实测修掉）。
 - **四个面板的按键内容完全由配置驱动**（2026-09-15 改造）：`[keypad.<kind>]` 段里「编号 = 名称 | 动作」，编号即格子序号（行优先、1 起），缺号 = 空位；`cols` / `rows` / `square` / `case` 均可配。动作四类：普通 Send 字符串 / `run:` / `close` / `case` / `self:`（自身命令，直接调用处理函数）。**一个键都没写（或整段删掉）的面板沿用 `KeypadDefaultDefs()` 的内置默认**，所以老配置行为不变。解析用**自定义行解析**（与径向菜单同一套）：整行 `;` 注释、行内「空白 + `;`」注释；值里的 `;` 与 `|` 必须写成 `%3B` / `%7C`（否则被当注释 / 分隔符）。新增面板只需在 `KeypadLoadConfig` 的 kind 白名单与 `KeypadDefaultDefs()` 里各加一处。
@@ -504,7 +504,7 @@ case = true
 | `RunBoxLoadConfig()` / `RunBoxCfg()` | 读 `[runbox]` 段；`RunBoxCfg` 负责**剥离行内注释**（`IniRead` 不会剥，"值  ; 注释" 会把注释带回来） |
 | `RunBoxCatalogText()` | 把 `OverlayConfiguredItems()` 压成"`[面板/组] 名字=动作、…`"文本，喂给模型；解析时另用它做白名单 |
 | `RunBoxBuildPrompt()` | 内置"翻译成动作序列"的系统提示语 + 已配置命令表 + `prompt_extra`；借 `AIRequest` 的第 5 个参数覆盖 `[ai] system_prompt` |
-| `RunBoxParseReply(reply)` | **严格白名单解析** → `{actions, dropped, error}`；容忍 markdown 围栏与行首编号；`ERROR:` 单独识别 |
+| `RunBoxParseReply(reply)` | **纯文本放行 + 动作严格白名单**解析 → `{actions, dropped, error}`；容忍 markdown 围栏与行首编号；`ERROR:` 单独识别 |
 | `RunBoxShow()` / `RunBoxClose()` / `RunBoxDefault()` / `RunBoxEsc()` | 单行输入框（`Gui` + `Edit`，隐藏的 `Default` 按钮吃回车，`OnEvent("Escape")` 吃 Esc）；状态机 `input → loading → confirm → running → done` 全在同一个窗口里 |
 | `RunBoxSubmit()` | 取需求 → 临时覆盖 `ai_model` / `ai_timeout` → `AIRequest(..., sysPrompt)` → 解析 → `RunBoxShowConfirm()`；失败回到输入态并把原因显示在状态栏 |
 | `RunBoxShowConfirm()` | 状态行给一行摘要（"将执行 N 条，丢弃 M 行：回车执行…"），明细写进过程日志；`confirm = false` 时直接 `RunBoxExecute()` |
@@ -515,34 +515,34 @@ case = true
 **设计要点 / 坑**：
 
 - **界面只有两块**（用户明确要求，2026-09-15 从三块改为两块）：① 输入框（`runboxEdit`）；② 可展开 / 收起的"动作执行过程"（`runboxDetail`）。**没有**独立的"计划清单"控件 —— 清单明细、丢弃原因都只写在过程日志里，状态行只给一行摘要（"将执行 N 条，丢弃 M 行：回车执行…"）。自查：`WinGetControls` 应只看到 2 个 `Edit`（输入框 + 过程面板）。
-- **模型输出=不可信输入；而且只允许执行"配置里已有的动作"**（2026-09-15 用户选择最严格方案 B）：`RunBoxParseReply` 会把 `OverlayConfiguredItems()`（圆盘菜单 + 四块小键盘的全部项）压成白名单 —— `"类型|归一化内容" → 配置里的原始写法`，以及 `归一化名称 → 配置里的名称`。任何一行都必须落在这两个表里才会执行：
-  · `item: 名称` → 名称必须在配置里；裸写一个配置里的名称也当 `item:` 处理；
-  · 按键 / `run:` / `self:` / `paste:` 等 → 其"动作内容"必须与配置里某个动作**逐字一致**（比较时忽略大小写，**执行时用配置里的原始写法**，保证执行的动作确实来自配置）；
-  · 因此**自由文字被禁止**（`send: 你好`、`paste: 任意文本` 都会被丢弃）；`wait:` 也被丢弃（等待由程序自动插入）；
-  · 丢弃时一定在"执行过程"里写明原因（"不在「已配置动作」中，未执行"等）。
-  要输入文字就必须先在配置里建一项（如 `5 = 写你好 | paste: 你好`），模型再用 `item: 写你好` 引用它。
+- **模型输出=不可信输入；需求分两类处理**（2026-09-15 方案 B；2026-09-16 对"输出文字"单独放宽）：`RunBoxParseReply` 把 `OverlayConfiguredItems()` 压成白名单（`"类型|内容"→配置原写法`、`名称→配置名称`），再分两类：
+  · **输出文字**：显式 `paste:` / `send:` / `hotkey:` **直接执行、无需先配置**且必须照原样输出；`paste:` 一律放行（任何符号都安全），`send:` / `hotkey:` 只在内容不含 `^ ! + # { }` 时当纯文本，含了的按动作处理。
+  · **执行动作**（按键 / 热键 / 键盘操作 / 程序 / 自身功能）：名称或动作必须与配置里某一项**逐字一致**（区分大小写，执行时用配置里的原写法）；裸写配置里的名称也当 `item:` 处理。
+  · **没前缀的裸文字不执行**（防模型解释被打进编辑器）；`wait:` 丢弃（等待由程序自动插入）；
+  · 丢弃原因一定写进"执行过程"（如"不在「已配置动作」中，未执行"、"含按键语法…纯文本请用 paste:"）。
+  **红线只缩小到"动作"**：动作仍只允许执行配置里已有的，不得放宽；"输出文字"是用户单独放行的。
   **大小写必须精确匹配**（2026-09-15 用户实测"要大写却打出小写"的根因）：`RunBoxParseReply` 的白名单键、`OverlayLookupItem` 的比较都**不能**用 `StrLower` 折叠或 AHK 的 `=`（`=` 大小写不敏感）—— 否则 `item: A` 会命中配置里先出现的 `a`（字母键盘的小写项），于是打出小写。现在名字用 `allowedName[原名]`、动作用 `type . "|" . 原样动作` 作键，`OverlayLookupItem` 用 `==` 比较。
   另外 `OverlayConfiguredItems()` 会给 `case = true` 的面板**追加大写变体**（`StrUpper` 标签与动作，与 `KeypadKeysFor` 生成大写键的方式一致），这样"说出大写字母"时模型才能引用到 `A` 这一项。
-  提示语 `RunBoxBuildPrompt` 同步改成"只允许执行已配置动作表里的动作、不允许自由文字，做不到就输出 ERROR 行"。
-  **不要**为了让模型"更聪明"而放宽这里的校验 —— 这是用户明确要求的红线。
+  提示语 `RunBoxBuildPrompt` 同步写成"两种情况"：要输出文字就用 `paste:`（推荐）/ `send:` 直接给出、必须与用户原话一致；要执行动作就只能用表里的动作，做不到就输出 ERROR 行。
+  **不要**为了让模型"更聪明"而放宽**动作**的校验 —— 动作只认配置里已有的，这是用户的红线；"输出文字"这一类是用户单独放行的，不要把它又收回去。
 - 等待**不让模型输出**：动作间 `step_delay_ms`、`run:` 后 `run_wait_ms` 由程序插；`wait:` 动作只留给配置层用（面板/菜单做宏）。
 - `AIRequest` 第 5 个参数 `systemPrompt` 为空时沿用 `[ai] system_prompt`，非空时覆盖 —— 运行框靠它换提示语，其它调用点不受影响。
 - 运行框**要抢焦点**（要打字、要输入法），这与五块浮层的 `WS_EX_NOACTIVATE` 相反；因此必须跟踪"最近一个活动窗口"并在提交/执行时把焦点还给它。
-- **目标窗口用 `RunBoxTrackTarget()` 持续跟踪**（运行框打开期间 `SetTimer(..., 400)`，跳过运行框自己的 hwnd）：只看弹出那一刻的前台窗口是不够的——用户可能在运行框开着时切到别的程序，之后连续下需求时目标就该是那个程序。用户明确要求"动作针对最近一个活动的窗口，且不包括运行框本身"。
-- **执行完毕回到可编辑状态**（`RunBoxFinish` 把状态置回 `"input"`、清空输入框）：焦点去向见下一条（正常执行完是还给目标窗口，不是拉回运行框）。
+- **目标窗口用 `RunBoxTrackTarget()` 持续跟踪**（打开期间 `SetTimer(..., 400)`，跳过 `RunBoxIsSelfWin()` 认出的自家窗口）：只看弹出那一刻不够 —— 用户中途切到别的程序后，之后的目标就该是那个程序（用户要求：最近一个活动的窗口，排除运行框本身）。
+- **执行完毕回到可编辑状态**（`RunBoxFinish` 置回 `"input"`、清空输入框）：焦点去向见下一条。
 - **展开 / 收起：确定性高度 + 默认收起 + 把手永不消失**（2026-09-15 用户连报三次后定稿）：
   · 高度只用两个值：`runboxHSmall`（收起态）与 `runboxExtraDetail`（过程面板额外高度 = 面板自身高度 + 间距）。
-  · 只在**弹窗时**量一次：`Show("AutoSize Hide")`（窗口隐藏 + 两个可选项都隐藏）量出收起高度；过程面板额外高度直接取 `ControlGetPos` 的面板高度（**隐藏状态下也能取到真实尺寸**，已验证）——**不要**再靠"切成可见→Show→量→切回"那套，它一旦中途抛异常就会把过程面板留在可见状态，表现是"默认打开就是展开的"（用户实测）。量高度整体用 `try/finally`，finally 里强制把两个可选项恢复为隐藏。
+  · 只在**弹窗时**量一次：`Show("AutoSize Hide")` 量出收起高度，过程面板额外高度取 `ControlGetPos` 的面板高度（隐藏时也能取到真值）；**不要**用"切成可见→Show→量→切回"，中途抛异常会把面板留在可见态（用户实测"默认就是展开的"）。整体 `try/finally` 恢复隐藏。
   · `RunBoxApplyHeight()` 只做：`高 = runboxHSmall + (展开 ? runboxExtraDetail : 0)`，然后 `Move()` 并夹取屏幕；**收起高度还要与"把手底边 + 客户区偏移"取大值**（保险），否则收起后把手会被挤出窗口，用户看到的是"把手没了"（用户实测）。
   · **默认必须是收起态**：弹出流程结尾显式 `runboxExpanded := false` + 两个可选项隐藏 + `RunBoxApplyHeight()`。
   · **收起时不渲染执行过程**（用户明确要求）：`RunBoxLogAdd` 只把行压进 `runboxLog`，只有展开时才 `RunBoxRenderLog()` 写进面板；展开时补渲染一次，保证打开就看到完整过程。
-  · 实测数据（12pt 字体、两块界面）：收起 135 / 展开 379（额外 244）；此前带中间清单框时是 492 / 806 —— 去掉清单框后窗口明显瘦了。
+  · 实测（12pt、两块界面）：收起 135 / 展开 379。
 - **运行框下方的热键键帽（2026-09-15 新增）**：实现方式是把它做成**第 5 个小键盘面板** `runkeys`（`KeypadDefaultDefs()` 里一排 7 键：回车 `{Enter}` / Tab `{Tab}` / 空格 `{Space}` / 删除 `{Del}` / 退格 `{BS}` / 取消 `{Esc}` / 触发 `self:trigger`，`cols: 7, rows: 1`），于是布局、圆角窗口、悬停高亮、**文字层（彩色字身 + 黑边，字号取 `[keypad] font_size`）**全部与小键盘 / 圆盘一致 —— 用户要的"字符款式、大小、黑边、颜色一致"就是这样零成本满足的。
   · `KeypadShow(kind, pushEscape := true)` 新增了开关：键帽排传 `false`，**不登记浮层栈**（Esc 仍归运行框管）。这样也不会因为弹一次键帽排就去注册 / 注销全局 Escape 热键。
   · `OverlayOwnerHwnd("runkeys")` 返回**运行框的 hwnd**：键帽不抢焦点，点它时前台是运行框，必须当成"自家窗口"才会退回跟踪到的目标窗口。
   · 位置由 `RunKeysAnchor()` 吸附在运行框正下方（水平居中 + 夹取虚拟屏幕）；运行框拖动靠 `WM_MOVE(0x0003)` 钩子跟随，展开 / 收起靠 `RunBoxApplyHeight()` 里再调一次；发送目标随 `RunBoxTrackTarget()` 一起更新（`RunKeysSyncTarget()`）。
   · **键帽排的配置在 `[runbox.runkeys]` 子节**（用户要求放在 runbox 名下），**语义与 `[keypad.<kind>]` 完全一致**：`RunBoxLoadKeycaps()` 用 `IniRead(configFile, "runbox.runkeys", …)` 读 `name` / `cols` / `rows` / `square` / `case` 与编号项；写了编号就整体替换键帽（缺号 = 空位，越界忽略），一条都没写就沿用 `KeypadDefaultDefs()` 里的内置 7 键；**`cols` / `rows` 不写就用内置默认值，不做任何自动排布**。
-    这次改造的硬要求是 2026-09-15 用户明确说的"仅仅是把写死的改成配置、功能与效果完全不变"：因此**不要**顺手改行为（例如不要加"按配了几个键自动排布"、不要把键帽排塞进 `OverlayConfiguredItems()` —— 那会让运行框的动作表多出条目）。已验证：不配置时与内置默认逐字段一致；把内置默认原样写成配置后结果也逐字段一致。
+    硬要求：只把写死的换成可配置，行为 / 效果完全不变 —— **不要**顺手改行为（不加"按配了几个键自动排布"、不把键帽排塞进 `OverlayConfiguredItems()`）；不配置时与内置默认逐字段一致。
     键帽排的按键定义由 `KeypadParseItem` / `KeypadRoleFor` 解析，所以 `run:` / `self:` / `case` / `close` / `paste:` 都可用。
     加载顺序：`KeypadLoadConfig()` 先跑、`RunBoxLoadConfig()` 后跑（`[keypad.runkeys]` 依旧不生效，段头白名单仍是四块小键盘）。
   · 生命周期跟着运行框：`RunBoxShow()` 里 `RunKeysShow()`、`RunBoxClose()` 里 `RunKeysHide()`。
@@ -551,7 +551,11 @@ case = true
   漏写时那行赋值会变成**函数局部变量**，全局仍是空串 —— 表现是 `runboxDetail.Visible` 报 `This value of type "String" has no property named "Visible"`（一次触发就崩）。
   自查办法（可重复跑）：把每个 `^RunBox[A-Za-z]*\(.*\) \{` 函数体抓出来，比对"函数体内出现的 `runbox*` 变量"与"该函数 global 行里声明的名字"，差集必须为空。
   同一轮还修了：`ControlGetPos` 等**输出参数失败时会被置回"未赋值"**，所以 `if (dh <= 0)` 这类比较会抛 `This local variable has not been assigned a value` —— 输出参数一律先 `IsSet()` 判断再比较。
-- **执行完焦点还给"最近一次活动的窗口"**（用户要求）：`RunBoxFinish(msg, focusTarget := true)` —— 正常执行完时调 `RadialActivateFocusWin(runboxPrevWin)` 把焦点还给目标窗口，**不要再** `WinActivate` + `runboxEdit.Focus()` 把焦点抢回运行框；只有被 Esc 中止（`focusTarget := false`）或目标窗口已不存在时才把焦点留在运行框。
+- **执行完的焦点归属按"有没有打开新窗口"决定**（2026-09-16 用户明确）：`RunBoxExecute` 里先快照 `runboxExecBaseWin := runboxPrevWin`（在激活目标窗口之前），`RunBoxFinish` 收尾时取 `fg := WinExist("A")`：
+  · `fg` 不是运行框自己、且 ≠ `runboxExecBaseWin` → 动作打开了新窗口 → **什么都不做**（不 `WinActivate` 回运行框，也不还给旧窗口）；
+  · 否则（前台是运行框 / 无前台 / 还是执行前那个窗口）→ `RadialActivateFocusWin(runboxPrevWin)`；Esc 中止（`focusTarget := false`）或无可用目标才留在运行框。
+  · "自己"一律用 `RunBoxIsSelfWin(hwnd)` 判（运行框主窗口 + `runkeys` 键帽排；读 `P.gui.Hwnd` 要包 `try`）：**运行框可以有焦点，但永远不算动作目标，也不算"要回退到的上一个窗口"**。
+  · 坑：`keepNew` 为真时绝不能落进原来那个 `else`（会 `WinActivate` + `runboxEdit.Focus()` 抢回焦点）——结构必须是 `if (keepNew) {…} else { 还给目标窗口 / 退回运行框 }`。
   配套：触发键 `RunBoxShow` 在"窗口已打开"时——**焦点已在运行框里才关闭**，否则只把焦点拿回来（`WinActivate` + `runboxEdit.Focus()`），这样"执行完在目标窗口干活 → 按触发键回来下一条"才顺。
 - **`Hotkey("Escape","Off")` 必须包 try**：Escape 当时没注册时会抛 `Nonexistent hotkey`。`RunBoxEscOff` 原先漏了 `try`，在"打开运行框但没执行过动作就关闭"的路径上会直接抛错（2026-09-15 在无桌面自测里复现并修掉；`OverlayUnregisterEscape` 早就包了 try，照它办）。
 - **关闭窗口的竞态**：`RunBoxClose` 必须"先停跟踪定时器 → 清空全局引用 → 最后 `Destroy()`"，句柄读取一律走 `RunBoxHwnd()`（`try` 包住并失败返回 0）。原先顺序写反了，Esc 关闭时定时器插进来读 `.Hwnd`，抛 `Gui has no window`（用户实测崩溃，已修）。
