@@ -3579,6 +3579,9 @@ RunBoxBuildPrompt() {
     p .= "【第一步：判断这条需求是“要输出文字”还是“要执行某种操作”】`n"
     p .= "  一、要输出文字（要网址、要答案、要一段内容、翻译、解释、名称…）：`n"
     p .= "      用 paste: 原文 或 send: 原文 直接输出，不需要预先配置；内容必须与用户要的完全一致。`n"
+    p .= "      · 要输出**多行文字**（写诗、写一段带换行的文字）：**只写一行** paste:，`n"
+    p .= "        行内换行写成字面的 \n（反斜杠 + n）。例如：`n"
+    p .= "        paste: 《山居》\n空山新雨后，天气晚来秋。\n明月松间照，清泉石上流。`n"
     p .= "      这类需求**不要**用 ERROR 推脱。`n"
     p .= "  二、要执行某种操作（打开 / 启动程序、按键、切换、保存、删除、复制…要改变电脑状态）：`n"
     p .= "      · 已配置动作表里有能完成它的动作 → 用 item: 名称（首选），或把表里那个动作原样照抄一行；`n"
@@ -3588,7 +3591,7 @@ RunBoxBuildPrompt() {
     p .= "只允许下面几种写法：`n"
     p .= "  item: 名称      执行表里某个功能（按名称，首选）`n"
     p .= "  动作原文         把表里某个动作原样照抄一行（例如 ^c、hotkey: ^c、{Enter}、run: xxx、self: xxx）`n"
-    p .= "  paste: 文本     要输出的纯文本（推荐：任何符号都会被原样粘贴，最可靠）`n"
+    p .= "  paste: 文本     要输出的纯文本（推荐：任何符号都会被原样粘贴，最可靠）；多行时换行写成字面的 \n，仍只占一行`n"
     p .= "  send: 文本      要输出的纯文本；只有文本里不含 ^ ! + # { } 这些按键语法字符时才可用`n"
     p .= "  ERROR: NOACTION  操作类需求、表里没有对应动作时（只输出这一行）`n"
     p .= "  ERROR: 原因      其它确实做不了的情况（只输出这一行）`n`n"
@@ -3596,7 +3599,7 @@ RunBoxBuildPrompt() {
     p .= "1. 先按【第一步】判断类别。网址 / 链接属于“文字”：直接把网址给出来，不要当成“打开网址”的操作。`n"
     p .= "2. 信息类：有把握就给准确内容；不确定的不要编造（例如记不准的网址），那时输出 ERROR: 不确定…。`n"
     p .= "3. 操作类：优先 item: 名称；热键 / run: / self: 必须与表里某个动作**逐字一致**。`n"
-    p .= "4. 要输入文字时用 paste: 原文照抄；文字里含 ^ ! + # { } 等符号时必须用 paste:。`n"
+    p .= "4. 要输入文字时用 paste: 原文照抄；含 ^ ! + # { } 等符号时必须用 paste:；多行文字写成一行 paste: + 字面的 \n（不要拆成多行写，拆行只有第一行会生效）。`n"
     p .= "5. 启动程序后不用写等待，程序会自动等待。`n"
     p .= "6. 最多输出 40 行，且只输出动作行。`n`n"
     p .= "【已配置动作表】（名称=动作；动作只能用这里的）`n" . RunBoxCatalogText() . "`n"
@@ -3612,7 +3615,7 @@ RunBoxBuildFallbackPrompt() {
     p := '用户刚才提了一条需求，但程序在「已配置动作表」里没有找到能完成它的动作，所以现在请你**回头重新审视这条需求本身**。' . "`n`n"
     p .= "请判断：这条需求是不是**也可以理解成“要一段文字 / 一个信息”**？`n"
     p .= "  · 可以（例如要某个网址、某个答案、某段内容、翻译、解释）→ 只输出一行：`n"
-    p .= "      paste: <满足这条需求的内容>`n"
+    p .= "      paste: <满足这条需求的内容>（多行时换行写成字面的 \n，仍然只写这一行）`n"
     p .= "    内容必须照用户要的给（例如问网址就给准确的网址），不要解释、不要道歉、不要加引号。`n"
     p .= "  · 不可以（这条需求本质上是要操作电脑，例如打开程序、按键、切换、保存）→ 只输出一行：`n"
     p .= "      ERROR: 没有对应的操作`n"
@@ -3625,9 +3628,13 @@ RunBoxBuildFallbackPrompt() {
 ; ---- 动作 → 一行可读描述（确认清单 / 进度提示用）----
 RunBoxActionLine(act) {
     if (act.type = "send")
-        return "按键/文本：" . act.value
-    if (act.type = "paste")
-        return "粘贴文本：" . (StrLen(act.value) > 40 ? SubStr(act.value, 1, 40) . "…" : act.value)
+        return "按键/文本：" . RunBoxBrief(act.value, 60)
+    if (act.type = "paste") {
+        ; 多行文字：把换行显示成 " ⏎ "，保证清单 / 状态行只占一行
+        v := StrReplace(act.value, "`r`n", " ⏎ ")
+        v := StrReplace(v, "`n", " ⏎ ")
+        return "粘贴文本：" . (StrLen(v) > 60 ? SubStr(v, 1, 60) . "…" : v)
+    }
     if (act.type = "run")
         return "启动程序：" . act.value
     if (act.type = "self")
@@ -3715,6 +3722,7 @@ RunBoxParseReply(reply) {
     actions := []
     dropped := []
     errText := ""
+    contIdx := 0                     ; > 0 表示"上一行是输出文字"，随后的裸行按续行处理（见 ②-2）
 
     ; ---------- 白名单：只承认"配置里已有的动作"（圆盘菜单 + 四块小键盘）----------
     ; allowedAct ："类型|归一化内容" → 配置里的原始写法（执行时用配置的写法，保证执行的就是配置里的动作）
@@ -3764,6 +3772,7 @@ RunBoxParseReply(reply) {
                     actions.Push({type: "item", value: allowedName[nm]})
                 else
                     dropped.Push(line . "   ← 配置里没有这个名称（名称区分大小写）")
+                contIdx := 0
                 continue
             }
 
@@ -3774,50 +3783,71 @@ RunBoxParseReply(reply) {
             ;    · paste: 是文本通道：内容一律原样粘贴，含 ^ ! + # { } 等符号也安全；
             ;    · send: / hotkey: 只放行"不含按键语法（^ ! + # { }）"的纯文本；
             ;      含按键语法的（如 send: ^c）算按键操作，仍须与配置里某个动作逐字一致。
+            ;    · 多行文字：按提示语约定，换行写成**字面的 \n**（仍是同一行），这里还原成真换行，
+            ;      于是整段文字只占一条动作、一次粘贴就输出完整内容。
             if RegExMatch(line, "i)^(?:send|hotkey|paste)\s*:(.*)$", &fm) {
                 fv := Trim(fm[1])
+                fv := StrReplace(fv, "\n", "`n")        ; 还原转义换行（AHK 里 "\n" 就是反斜杠 + n）
+                fv := Trim(fv, " `t`r`n")               ; 还原后可能多出首尾空行，去掉
                 if (fv = "") {
                     dropped.Push(line . "   ← 内容是空的")
+                    contIdx := 0
                     continue
                 }
                 if RegExMatch(line, "i)^paste\s*:") {
                     actions.Push({type: "paste", value: fv})
+                    contIdx := actions.Length           ; 后续紧跟的裸行按续行拼进来
                     continue
                 }
                 if (!RegExMatch(fv, "[\^!+#{}]")) {
                     actions.Push({type: "send", value: fv})
+                    contIdx := actions.Length
                     continue
                 }
             }
 
+            ; ②-2 续行（多行文字的第二条通路）：紧跟在"输出文字"那一条之后、
+            ;      既不是动作（没有前缀）、又不命中配置里的动作 / 名称、也不含按键语法的裸行，
+            ;      当作上一段文字的续行，用换行拼进同一条 paste，保证一次粘贴、换行不丢。
+            isBare := !RegExMatch(line, "i)^(?:item|paste|send|hotkey|run|self|wait)\s*:")
+            if (isBare && contIdx > 0 && !RegExMatch(line, "[\^!+#{}]")
+                && !allowedName.Has(line) && !allowedAct.Has("send|" . line)) {
+                actions[contIdx].value .= "`n" . line
+                continue
+            }
+
             ; ③ 其余行：动作必须"逐字"等于配置里的某个动作
             act := OverlayActionParse(line)
+            ; 裸写一个配置里的名称，也当 item: 处理（宽容但同样安全）
+            if (isBare && allowedName.Has(line)) {
+                actions.Push({type: "item", value: allowedName[line]})
+                contIdx := 0
+                continue
+            }
             if (act.type = "none") {
-                ; 退一步：整行正好是配置里的某个名称，也当 item: 处理（宽容但同样安全）
-                if (allowedName.Has(line)) {
-                    actions.Push({type: "item", value: allowedName[line]})
-                } else {
-                    low := StrLower(line)
-                    if (low = "close" || low = "case")
-                        dropped.Push(line . "   ← 本场景不使用 close / case")
-                    else
-                        dropped.Push(line . "   ← 不在「已配置动作」中，未执行")
-                }
+                low := StrLower(line)
+                if (low = "close" || low = "case")
+                    dropped.Push(line . "   ← 本场景不使用 close / case")
+                else
+                    dropped.Push(line . "   ← 不在「已配置动作」中，未执行")
+                contIdx := 0
                 continue
             }
             k := act.type . "|" . act.value        ; 精确匹配（区分大小写）
             if (allowedAct.Has(k)) {
                 actions.Push(OverlayActionParse(allowedAct[k]))    ; 用配置里的原始写法执行
+                contIdx := 0
                 continue
             }
             if (act.type = "run" || act.type = "self")
                 dropped.Push(line . "   ← 不在「已配置命令表」中")
             else if (act.type = "wait")
                 dropped.Push(line . "   ← 等待由程序自动插入，不需要写 wait:（它也不在配置的动作里）")
-            else if (RegExMatch(line, "i)^(?:send|hotkey)\s*:"))
+            else if (RegExMatch(line, "[\^!+#{}]"))
                 dropped.Push(line . "   ← 含按键语法、且不在「已配置动作」中，未执行（纯文本请用 paste:）")
             else
-                dropped.Push(line . "   ← 不在「已配置动作」中，未执行")
+                dropped.Push(line . "   ← 不在「已配置动作」中，未执行（如果是想输出的文字，请写成 paste:，或紧跟在 paste: 行后面）")
+            contIdx := 0
         }
     }
 

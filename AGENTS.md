@@ -516,7 +516,7 @@ case = true
 
 - **界面只有两块**（用户明确要求，2026-09-15 从三块改为两块）：① 输入框（`runboxEdit`）；② 可展开 / 收起的"动作执行过程"（`runboxDetail`）。**没有**独立的"计划清单"控件 —— 清单明细、丢弃原因都只写在过程日志里，状态行只给一行摘要（"将执行 N 条，丢弃 M 行：回车执行…"）。自查：`WinGetControls` 应只看到 2 个 `Edit`（输入框 + 过程面板）。
 - **模型输出=不可信输入；判定顺序（2026-09-17 用户定稿）**：`RunBoxParseReply` 把 `OverlayConfiguredItems()` 压成白名单（`"类型|内容"→配置原写法`、`名称→配置名称`），`RunBoxSubmit` 分两步走：
-  · **第一步 判类别**（`RunBoxBuildPrompt`）：要文字（网址 / 答案 / 内容 / 翻译…）→ 直接 `paste:`（推荐）/ `send:` / `hotkey:`，**无需先配置**、必须照原样输出，`send:` / `hotkey:` 只在不含 `^ ! + # { }` 时当纯文本；要操作 → 只能用表里的动作（`item:` 首选或逐字一致的动作），表里没有则按约定输出 `ERROR: NOACTION`。
+  · **第一步 判类别**（`RunBoxBuildPrompt`）：要文字（网址 / 答案 / 内容 / 翻译…）→ 直接 `paste:`（推荐）/ `send:` / `hotkey:`，**无需先配置**、必须照原样输出，`send:` / `hotkey:` 只在不含 `^ ! + # { }` 时当纯文本；要操作 → 只能用表里的动作（`item:` 首选或逐字一致的动作），表里没有则按约定输出 `ERROR: NOACTION`；**多行文字**（写诗等）写成一行 `paste:` + 字面 `\n`（解析时还原成真换行），另把 `paste:` 后紧跟的裸行当**续行**拼进同一条（`contIdx`）——两条路都保证一次粘贴、换行不丢。
   · **第二步 兜底重问**：第一阶段 `parsed.error != "" || actions.Length = 0` 时用 `RunBoxBuildFallbackPrompt()` **再问一次**"这条需求能不能也理解成要文字？" → 能就 `paste:` 输出，不能就 `ERROR: 没有对应的操作`；程序用 `RunBoxFallbackPick()` **只接受文字**（`paste:` 或漏写前缀的纯文本；按键 / `item:` / `run:` / `self:` 全丢弃，兜底路径不可能执行动作），最终只提示"没有对应的操作"、不往编辑器打字。`RunBoxParseReply` 返回 `noAction`（宽松匹配 `no[\s_-]*action`）。
   · **没前缀的裸文字不执行**（防解释被打进编辑器）；`wait:` 丢弃；丢弃原因写进"执行过程"。
   · **日志**：`RunBoxAskModel()` 统一套用 / 恢复 `[runbox] model`、`timeout_ms`；`RunBoxLogModelReply()` + `RunBoxBrief()` 把两次请求的**模型原文（600 字）与思考（300 字）**压成一行记进 debug.log。
@@ -538,11 +538,10 @@ case = true
 - **运行框下方的热键键帽（2026-09-15 新增）**：实现方式是把它做成**第 5 个小键盘面板** `runkeys`（`KeypadDefaultDefs()` 里一排 7 键：回车 `{Enter}` / Tab `{Tab}` / 空格 `{Space}` / 删除 `{Del}` / 退格 `{BS}` / 取消 `{Esc}` / 触发 `self:trigger`，`cols: 7, rows: 1`），于是布局、圆角窗口、悬停高亮、**文字层（彩色字身 + 黑边，字号取 `[keypad] font_size`）**全部与小键盘 / 圆盘一致 —— 用户要的"字符款式、大小、黑边、颜色一致"就是这样零成本满足的。
   · `KeypadShow(kind, pushEscape := true)` 新增了开关：键帽排传 `false`，**不登记浮层栈**（Esc 仍归运行框管）。这样也不会因为弹一次键帽排就去注册 / 注销全局 Escape 热键。
   · `OverlayOwnerHwnd("runkeys")` 返回**运行框的 hwnd**：键帽不抢焦点，点它时前台是运行框，必须当成"自家窗口"才会退回跟踪到的目标窗口。
-  · 位置由 `RunKeysAnchor()` 吸附在运行框正下方（水平居中 + 夹取虚拟屏幕）；运行框拖动靠 `WM_MOVE(0x0003)` 钩子跟随，展开 / 收起靠 `RunBoxApplyHeight()` 里再调一次；发送目标随 `RunBoxTrackTarget()` 一起更新（`RunKeysSyncTarget()`）。
+  · 位置由 `RunKeysAnchor()` 吸在运行框正下方；拖动 / 展开收起都跟随（`WM_MOVE`、`RunBoxApplyHeight`），发送目标随 `RunBoxTrackTarget()` 更新。
   · **键帽排的配置在 `[runbox.runkeys]` 子节**（用户要求放在 runbox 名下），**语义与 `[keypad.<kind>]` 完全一致**：`RunBoxLoadKeycaps()` 用 `IniRead(configFile, "runbox.runkeys", …)` 读 `name` / `cols` / `rows` / `square` / `case` 与编号项；写了编号就整体替换键帽（缺号 = 空位，越界忽略），一条都没写就沿用 `KeypadDefaultDefs()` 里的内置 7 键；**`cols` / `rows` 不写就用内置默认值，不做任何自动排布**。
     硬要求：只把写死的换成可配置，行为 / 效果完全不变 —— **不要**顺手改行为（不加"按配了几个键自动排布"、不把键帽排塞进 `OverlayConfiguredItems()`）；不配置时与内置默认逐字段一致。
     键帽定义由 `KeypadParseItem` / `KeypadRoleFor` 解析（`run:` / `self:` / `case` / `close` / `paste:` 都可用）。
-  · 生命周期跟着运行框：`RunBoxShow()` 里 `RunKeysShow()`、`RunBoxClose()` 里 `RunKeysHide()`。
   · 键帽排**自己**不进 `OverlayRects()`，而是与运行框合并成一个整体矩形参与避让（见 §6.3 的避让说明）：两者一起被推开、一起被推开后仍严格保持"下方居中、间隔 6px"的吸附关系。
 - **`RunBox*` 函数改完必须核对 `global` 声明**（2026-09-15 已犯两次，都是"新增全局变量后忘了把它加进某个函数的 global 行"）：
   漏写时那行赋值会变成**函数局部变量**，全局仍是空串 —— 表现是 `runboxDetail.Visible` 报 `This value of type "String" has no property named "Visible"`（一次触发就崩）。
