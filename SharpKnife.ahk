@@ -3576,27 +3576,49 @@ RunBoxBuildPrompt() {
     global runboxPromptExtra
     ; 注意：AHK v2 字符串里的双引号要用单引号字符串或 `" 转义，不能写 ""（那是 v1 的写法）
     p := '你是把中文操作需求翻译成"动作序列"的翻译器。你的输出会被程序逐行执行，必须严格遵守格式。' . "`n`n"
-    p .= "【需求分两种情况，先分清是哪一种】`n"
-    p .= "  一、要输出文字（纯文本）：用 paste: 原文 或 send: 原文 直接输出，不需要预先配置；`n"
-    p .= "      文字必须与用户要的完全一致——照抄原话，不要改写、不要翻译、不要加引号或解释。`n"
-    p .= "  二、要执行动作（按键 / 热键组合 / 键盘操作 / 启动某个程序 / 本脚本功能）：`n"
-    p .= "      只能使用下面「已配置动作表」里已有的动作，表里没有的一律不许用；做不到就输出 ERROR。`n`n"
+    p .= "【第一步：判断这条需求是“要输出文字”还是“要执行某种操作”】`n"
+    p .= "  一、要输出文字（要网址、要答案、要一段内容、翻译、解释、名称…）：`n"
+    p .= "      用 paste: 原文 或 send: 原文 直接输出，不需要预先配置；内容必须与用户要的完全一致。`n"
+    p .= "      这类需求**不要**用 ERROR 推脱。`n"
+    p .= "  二、要执行某种操作（打开 / 启动程序、按键、切换、保存、删除、复制…要改变电脑状态）：`n"
+    p .= "      · 已配置动作表里有能完成它的动作 → 用 item: 名称（首选），或把表里那个动作原样照抄一行；`n"
+    p .= "      · 表里没有能完成它的动作 → 只输出一行：ERROR: NOACTION`n"
+    p .= "        （不要自己编动作，也不要用表里其它动作凑数）`n`n"
     p .= "【输出格式】一行一个动作；不要编号、不要解释、不要 markdown 代码块、不要空行。`n"
     p .= "只允许下面几种写法：`n"
-    p .= "  item: 名称      首选：执行表里某个功能（按名称）`n"
-    p .= "  动作原文         次选：把表里某个动作原样照抄一行（例如 ^c 或 hotkey: ^c、{Enter}、run: xxx、self: xxx）`n"
+    p .= "  item: 名称      执行表里某个功能（按名称，首选）`n"
+    p .= "  动作原文         把表里某个动作原样照抄一行（例如 ^c、hotkey: ^c、{Enter}、run: xxx、self: xxx）`n"
     p .= "  paste: 文本     要输出的纯文本（推荐：任何符号都会被原样粘贴，最可靠）`n"
     p .= "  send: 文本      要输出的纯文本；只有文本里不含 ^ ! + # { } 这些按键语法字符时才可用`n"
-    p .= "  ERROR: 原因      需求无法完成时（只输出这一行）`n`n"
+    p .= "  ERROR: NOACTION  操作类需求、表里没有对应动作时（只输出这一行）`n"
+    p .= "  ERROR: 原因      其它确实做不了的情况（只输出这一行）`n`n"
     p .= "【规则】`n"
-    p .= "1. 动作优先用 item: 名称 —— 能对上名称就用它，这是最稳的方式。`n"
-    p .= "2. 要按快捷键 / 组合键时，它必须与表里某个动作**逐字一致**（表里有 ^c 才能写 ^c 或 hotkey: ^c）。`n"
-    p .= "3. 要输入文字时，直接把用户要的文字放进 paste: 里原文照抄；文字里含 ^ ! + # { } 等符号时必须用 paste:。`n"
-    p .= "4. 启动程序后不用写等待，程序会自动等待。`n"
-    p .= "5. 最多输出 40 行，且只输出动作行。`n`n"
+    p .= "1. 先按【第一步】判断类别。网址 / 链接属于“文字”：直接把网址给出来，不要当成“打开网址”的操作。`n"
+    p .= "2. 信息类：有把握就给准确内容；不确定的不要编造（例如记不准的网址），那时输出 ERROR: 不确定…。`n"
+    p .= "3. 操作类：优先 item: 名称；热键 / run: / self: 必须与表里某个动作**逐字一致**。`n"
+    p .= "4. 要输入文字时用 paste: 原文照抄；文字里含 ^ ! + # { } 等符号时必须用 paste:。`n"
+    p .= "5. 启动程序后不用写等待，程序会自动等待。`n"
+    p .= "6. 最多输出 40 行，且只输出动作行。`n`n"
     p .= "【已配置动作表】（名称=动作；动作只能用这里的）`n" . RunBoxCatalogText() . "`n"
     if (runboxPromptExtra != "")
         p .= "`n【补充要求】`n" . runboxPromptExtra . "`n"
+    return p
+}
+
+; ---- 兜底提示语（第二阶段）：操作类需求在动作表里找不到对应动作时，回头重新审视能不能当成"要文字" ----
+; 用户要求的判定顺序：① 先判"要文字"还是"要操作"；② 操作类 → 表里有就执行；
+;   表里没有则**回头再看这条需求本身**是否也能理解成"要输出文字"：能 → 走文字通道；不能 → 只报"没有对应的操作"。
+RunBoxBuildFallbackPrompt() {
+    p := '用户刚才提了一条需求，但程序在「已配置动作表」里没有找到能完成它的动作，所以现在请你**回头重新审视这条需求本身**。' . "`n`n"
+    p .= "请判断：这条需求是不是**也可以理解成“要一段文字 / 一个信息”**？`n"
+    p .= "  · 可以（例如要某个网址、某个答案、某段内容、翻译、解释）→ 只输出一行：`n"
+    p .= "      paste: <满足这条需求的内容>`n"
+    p .= "    内容必须照用户要的给（例如问网址就给准确的网址），不要解释、不要道歉、不要加引号。`n"
+    p .= "  · 不可以（这条需求本质上是要操作电脑，例如打开程序、按键、切换、保存）→ 只输出一行：`n"
+    p .= "      ERROR: 没有对应的操作`n"
+    p .= "  · 内容没有把握、不想编造 → 只输出一行：`n"
+    p .= "      ERROR: 不确定…`n`n"
+    p .= "【输出格式】只输出一行；不要编号、不要解释、不要 markdown 代码块；不允许 item: / run: / self: / 按键。`n"
     return p
 }
 
@@ -3719,6 +3741,9 @@ RunBoxParseReply(reply) {
     txt := StrReplace(reply, fence, "")      ; 容忍模型套代码块
     if RegExMatch(txt, "i)ERROR\s*[:：]\s*([^\r\n]*)", &em)
         errText := Trim(em[1])
+    ; NOACTION：模型按约定表示"这是操作类需求，但动作表里没有对应动作" → 调用方转入兜底文字判定
+    ; （写宽松些：NOACTION / NO ACTION / NO-ACTION 都认）
+    noAction := (errText != "" && RegExMatch(errText, "i)^\s*no[\s_-]*action"))
 
     if (errText = "") {
         if (allowedAct.Count = 0 && allowedName.Count = 0)
@@ -3803,7 +3828,7 @@ RunBoxParseReply(reply) {
             trimmed.Push(actions[A_Index])
         actions := trimmed
     }
-    return {actions: actions, dropped: dropped, error: errText}
+    return {actions: actions, dropped: dropped, error: errText, noAction: noAction}
 }
 
 ; ---- 弹出 / 关闭运行框（再按一次触发键 = 关闭）----
@@ -4266,11 +4291,68 @@ RunBoxEsc() {
     RunBoxClose()
 }
 
+; ---- 发一次模型请求（临时套用 [runbox] 的 model / timeout 覆盖，结束后恢复）----
+RunBoxAskModel(userPrompt, sysPrompt, &result, &reasoning, &errMsg) {
+    global ai_model, ai_timeout, runboxModel, runboxTimeout
+    savedModel := ai_model
+    savedTimeout := ai_timeout
+    if (runboxModel != "")
+        ai_model := runboxModel
+    if (runboxTimeout > 0)
+        ai_timeout := runboxTimeout
+    result := "", reasoning := "", errMsg := ""
+    ok := false
+    try {
+        ok := AIRequest(userPrompt, &result, &reasoning, &errMsg, sysPrompt)
+    } catch Error as e {
+        ok := false
+        errMsg := "请求异常：" . e.Message
+    }
+    ai_model := savedModel
+    ai_timeout := savedTimeout
+    return ok
+}
+
+; ---- 把模型回复原文 / 思考过程写进 debug.log（压成一行、截断）----
+; 排查"它为什么这么判"时最有用：能看到模型到底回了什么，而不是只看解析结果。
+RunBoxLogModelReply(tag, result, reasoning) {
+    DebugLog("[runbox] 模型原文（" . tag . "）：" . RunBoxBrief(result, 600))
+    if (reasoning != "")
+        DebugLog("[runbox] 模型思考（" . tag . "）：" . RunBoxBrief(reasoning, 300))
+}
+
+RunBoxBrief(text, maxLen := 600) {
+    t := text
+    if (t = "")
+        return "（空）"
+    t := StrReplace(t, "`r`n", " ⏎ ")
+    t := StrReplace(t, "`n", " ⏎ ")
+    t := StrReplace(t, "`r", " ⏎ ")
+    if (StrLen(t) > maxLen)
+        t := SubStr(t, 1, maxLen) . "…（已截断）"
+    return t
+}
+
+; ---- 兜底阶段只认"纯文本输出"，动作一律丢弃（白名单一分不松）----
+; 接受 paste:（任何内容）与"不含按键语法的 send:"（模型有时会漏写 paste: 前缀，直接给出网址/一段文字）；
+; item: / run: / self: / 含 ^ ! + # { } 的按键一律不认 —— 兜底路径不可能执行动作。
+RunBoxFallbackPick(acts) {
+    out := []
+    for a in acts {
+        if (a.type = "paste") {
+            out.Push(a)
+        } else if (a.type = "send" && !RegExMatch(a.value, "[\^!+#{}]")) {
+            out.Push({type: "paste", value: a.value})     ; 按文本粘贴，最稳妥
+        }
+    }
+    return out
+}
+
 ; ---- 提交需求 → 请求模型 → 解析 → 确认清单 ----
 RunBoxSubmit() {
     global runboxGui, runboxEdit, runboxStatus, runboxState, runboxBusy
     global runboxPrevWin, runboxPrevTitle, runboxActions, runboxDropped, runboxConfirm
-    global runboxModel, runboxTimeout, runboxLog, ai_model, ai_timeout
+    global runboxModel, runboxTimeout, runboxLog
     if (runboxState != "input" || runboxBusy || !runboxGui)
         return
     req := Trim(runboxEdit.Value)
@@ -4289,54 +4371,70 @@ RunBoxSubmit() {
 
     sysPrompt := RunBoxBuildPrompt()
     userPrompt := "当前前台窗口：" . (runboxPrevTitle != "" ? runboxPrevTitle : "（未知）") . "`n操作需求：" . req
+    hintText := "如果你要的是文字 / 信息，可改说“请输出…”"
 
-    savedModel := ai_model
-    savedTimeout := ai_timeout
-    if (runboxModel != "")
-        ai_model := runboxModel
-    if (runboxTimeout > 0)
-        ai_timeout := runboxTimeout
+    ; ---------- 第一阶段：判类别 + 翻译成动作（要文字的需求也会在这一步直接给 paste:）----------
     result := "", reasoning := "", errMsg := ""
-    ok := false
-    try {
-        ok := AIRequest(userPrompt, &result, &reasoning, &errMsg, sysPrompt)
-    } catch Error as e {
-        ok := false
-        errMsg := "请求异常：" . e.Message
-    }
-    ai_model := savedModel
-    ai_timeout := savedTimeout
-
-    if (!ok) {
+    if (!RunBoxAskModel(userPrompt, sysPrompt, &result, &reasoning, &errMsg)) {
         DebugLog("[runbox] 解析失败：" . errMsg)
         RunBoxBackToInput("解析失败：" . errMsg)
         return
     }
+    RunBoxLogModelReply("动作", result, reasoning)
     parsed := RunBoxParseReply(result)
-    if (parsed.error != "") {
-        DebugLog("[runbox] 模型表示做不到：" . parsed.error)
-        RunBoxBackToInput("模型认为无法完成：" . parsed.error)
-        return
-    }
     runboxActions := parsed.actions
     runboxDropped := parsed.dropped
+    DebugLog("[runbox] 第一阶段：解析出 " . runboxActions.Length . " 条动作，丢弃 " . runboxDropped.Length . " 行"
+        . (parsed.error != "" ? "，ERROR：" . parsed.error : ""))
+
+    ; ---------- 第二阶段（兜底）：操作类但没有对应动作 → 回头审视能否当成"要文字" ----------
+    ; 用户要求的判定顺序：动作表里有对应动作就执行；没有则重新看这条需求是不是也能理解成"要输出文字"。
+    if (parsed.error != "" || runboxActions.Length = 0) {
+        DebugLog("[runbox] 第一阶段没有可用动作，转入兜底文字判定")
+        RunBoxLogAdd("[模型] 动作表里没有可用的动作，正在重新判断这条需求能否按文字输出…")
+        try runboxStatus.Text := "动作表里没有对应动作，正在重新判断能否按文字输出…（最长 "
+            . Round(runboxTimeout / 1000) . " 秒）"
+        result2 := "", reasoning2 := "", errMsg2 := ""
+        ok2 := RunBoxAskModel(userPrompt, RunBoxBuildFallbackPrompt(), &result2, &reasoning2, &errMsg2)
+        reason := ""
+        if (ok2) {
+            RunBoxLogModelReply("兜底文字", result2, reasoning2)
+            fb := RunBoxParseReply(result2)
+            fbActs := RunBoxFallbackPick(fb.actions)
+            if (fbActs.Length > 0) {
+                runboxActions := fbActs
+                runboxDropped := fb.dropped
+                DebugLog("[runbox] 兜底文字判定：按文字输出 " . fbActs.Length . " 条")
+            } else {
+                reason := (fb.error != "" ? fb.error : "没有对应的操作")
+                DebugLog("[runbox] 兜底文字判定：不改文字输出（" . reason . "）")
+            }
+        } else {
+            DebugLog("[runbox] 兜底请求失败：" . errMsg2)
+            reason := (parsed.error != "" && !parsed.noAction) ? parsed.error : "没有对应的操作"
+        }
+        if (reason != "") {
+            if (reason != "没有对应的操作")
+                reason := "模型认为无法完成：" . reason
+            RunBoxBackToInput(reason, hintText)
+            return
+        }
+    }
+
     DebugLog("[runbox] 解析出 " . runboxActions.Length . " 条动作，丢弃 " . runboxDropped.Length . " 行")
     RunBoxLogAdd("[模型] 解析出 " . runboxActions.Length . " 条动作，丢弃 " . runboxDropped.Length . " 行")
-    if (runboxActions.Length = 0) {
-        RunBoxBackToInput("没有可执行的动作（模型输出见 debug.log）")
-        return
-    }
     RunBoxShowConfirm()
 }
 
 ; ---- 解析失败 / 无动作：回到输入态并把提示写在状态栏 ----
-RunBoxBackToInput(msg) {
+; hint：可选的第二句出路提示（例如"如果你要的是文字 / 信息，可改说…"）
+RunBoxBackToInput(msg, hint := "") {
     global runboxEdit, runboxStatus, runboxState, runboxBusy
     runboxBusy := false
     runboxState := "input"
     try runboxEdit.Visible := true
     RunBoxApplyHeight()
-    try runboxStatus.Text := msg . "（可修改需求后重试）"
+    try runboxStatus.Text := msg . (hint != "" ? "；" . hint : "") . "（可修改需求后重试）"
     try runboxEdit.Focus()
 }
 
