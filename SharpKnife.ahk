@@ -279,7 +279,7 @@ global overlayCaseState := Map()  ; 各浮层的大小写状态（按浮层名�
 global keypadFontSize := 0       ; 小键盘字体大小（磅；[keypad] font_size，缺省=全局 ui_font_size）
 global keypadOpacity := 1.0      ; 小键盘透明度（[keypad] opacity，默认 1 = 不透明）
 ; 自然语言运行框（[runbox] 段）：中文需求 → 模型解析成动作序列 → 确认后执行
-global runboxHotkey := "^+i"     ; 触发键（[runbox] hotkey，默认 Ctrl+Shift+I）
+global runboxHotkey := "F6"      ; 触发键（[runbox] hotkey，默认 F6）
 global runboxConfirm := true     ; true = 先列出动作清单、确认后执行
 global runboxModel := ""         ; 覆盖 [ai] model（空 = 沿用）
 global runboxTimeout := 0        ; 覆盖 [ai] timeout_ms（0 = 沿用）
@@ -5901,7 +5901,7 @@ if (keypadSymbolHotkey != "")
 if (keypadLetterHotkey != "")
     Hotkey(keypadLetterHotkey, (*) => KeypadToggle("letter"))
 
-; 自然语言运行框触发键（[runbox] hotkey，默认 Ctrl+Shift+I）：只负责打开 / 把光标拿回输入框，
+; 自然语言运行框触发键（[runbox] hotkey，默认 F6）：只负责打开 / 把光标拿回输入框，
 ; 已打开时再按**不关闭**（关闭请在运行框上按 Esc，见 RunBoxShow / RunBoxEsc）
 if (runboxHotkey != "")
     Hotkey(runboxHotkey, (*) => RunBoxShow())

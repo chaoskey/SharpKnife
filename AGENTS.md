@@ -119,6 +119,7 @@ git config --global --unset https.proxy
 | 需求层面的增删改 | `Requirements.md` |
 | 新增/修改配置项 | `config.ini.example` + `README.md` 的「配置说明」 |
 | 新增运行时文件 | `.gitignore`（若非必要入库） |
+| **默认热键 / 配置默认值**变更 | 源码默认值 + 注释、`config.ini.example`、`README.md`、`Requirements.md`、本文件的功能地图与示例、`articles/` 下相关文章 |
 
 `README.md` 是**用户文档**（面向使用），`Requirements.md` 是**需求文档**（纯文字、不写实现细节）——不要把实现方案塞进需求文档。
 
@@ -286,7 +287,7 @@ AHK v2 的**加载期弹框**（`#Warn` 警告、调用了不存在的函数等�
 | 循环提醒 | `HealthToggle()` ← `Ctrl+Alt+H` | 阶段循环 + 声音 + 右上角提示 + 托盘状态 |
 | 径向菜单 | `RadialShow()` ← `Ctrl+Shift+M` | 三层圆盘菜单（见 6.2） |
 | 屏幕小键盘 | `KeypadToggle("arrow"/"numpad"/"symbol"/"letter")` ← `Ctrl+Shift+K` / `Ctrl+Shift+N` / `Ctrl+Shift+Y` / `Ctrl+Shift+E` | 方向 / 数字 / 符号 / 字母屏幕按键面板（见 6.3） |
-| 自然语言运行框 | `RunBoxShow()` ← `Ctrl+Shift+I` | 中文需求 → 模型解析成动作序列 → 确认后自动执行（见 6.5） |
+| 自然语言运行框 | `RunBoxShow()` ← `F6` | 中文需求 → 模型解析成动作序列 → 确认后自动执行（见 6.5） |
 
 ### 6.2 径向菜单（Radial Menu）—— 最近改动最多的模块
 
@@ -464,7 +465,7 @@ square = true
 9 = 关闭 | close
 
 [runbox]                 ; 自然语言运行框（见 6.5）
-hotkey = ^+i
+hotkey = F6
 confirm = true           ; 先列清单、确认后执行
 step_delay_ms = 120
 run_wait_ms = 800
@@ -501,7 +502,7 @@ case = true
 
 ### 6.5 自然语言运行框（RunBox，2026-09-15 新增）
 
-**一句话**：`[runbox] hotkey`（默认 `Ctrl+Shift+I`）→ 单行输入框写中文需求 → 交给 `[ai]` 的模型解析成**动作序列** → 状态行给一行摘要、回车确认 → 逐条自动执行。
+**一句话**：`[runbox] hotkey`（默认 `F6`）→ 单行输入框写中文需求 → 交给 `[ai]` 的模型解析成**动作序列** → 状态行给一行摘要、回车确认 → 逐条自动执行。
 
 | 函数 | 职责 |
 |------|------|
@@ -544,6 +545,7 @@ case = true
   **大小写必须精确匹配**（2026-09-15 用户实测"要大写却打出小写"的根因）：`RunBoxParseReply` 的白名单键、`OverlayLookupItem` 的比较都**不能**用 `StrLower` 折叠或 AHK 的 `=`（`=` 大小写不敏感）—— 否则 `item: A` 会命中配置里先出现的 `a`（字母键盘的小写项），于是打出小写。现在名字用 `allowedName[原名]`、动作用 `type . "|" . 原样动作` 作键，`OverlayLookupItem` 用 `==` 比较。
   另外 `OverlayConfiguredItems()` 会给 `case = true` 的面板**追加大写变体**（`StrUpper` 标签与动作，与 `KeypadKeysFor` 生成大写键的方式一致），这样"说出大写字母"时模型才能引用到 `A` 这一项。
   两个提示语必须与上面的判定顺序一致：`RunBoxBuildPrompt`（判类别 + 动作）与 `RunBoxBuildFallbackPrompt`（兜底只问"能不能当文字"）；**不要**为了让模型"更聪明"放宽**动作**校验（动作只认配置里已有的），也不要把"输出文字"这类需求又收回去。
+- **触发键默认 F6（2026-09-18 起）**：单键触发比三键组合省事，且 F6 在常用软件里裸按冲突最小（老的 `^+i` 会顶掉浏览器 DevTools 的 `Ctrl+Shift+I`）。换默认键时必须按 §2.3 的表把源码默认值 + 注释、`config.ini.example`、`README.md`、`Requirements.md`、本文件与 `articles/` 文章一次同步干净（2026-09-18 就是这么从 `^+i` 换成 `F6` 的）。另注意笔记本顶排可能是媒体键（Fn-Lock），单键能否生效要用户桌面手测。
 - 等待**不让模型输出**：动作间 `step_delay_ms`、`run:` 后 `run_wait_ms` 由程序插；`wait:` 动作只留给配置层用（面板/菜单做宏）。
 - `AIRequest` 第 5 个参数 `systemPrompt` 为空时沿用 `[ai] system_prompt`，非空时覆盖 —— 运行框靠它换提示语，其它调用点不受影响。
 - 运行框**要抢焦点**（要打字、要输入法），与五块浮层的 `WS_EX_NOACTIVATE` 相反；执行完 `RunBoxFinish` 置回 `"input"`、清空输入框（焦点去向见下条）。
