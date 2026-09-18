@@ -3,7 +3,7 @@
 > **本文件的作用**：把本项目开发中形成的**约定、习惯、风格与踩过的坑**固化下来。
 > 即使历史会话被删除、或换到全新会话/新模型，只要读本文件，就应当能**按同样的方式接续开发**，不必重新摸索、也不该重复犯同样的错误。
 >
-> 最后更新：2026-09-15
+> 最后更新：2026-09-18
 
 ---
 
@@ -122,6 +122,11 @@ git config --global --unset https.proxy
 
 `README.md` 是**用户文档**（面向使用），`Requirements.md` 是**需求文档**（纯文字、不写实现细节）——不要把实现方案塞进需求文档。
 
+### 2.4 AGENTS.md 的层级
+
+- 子目录里**允许**有各自的 `AGENTS.md`（当前还没有）：改某个路径下的文件时，仓库根到该文件所在目录**每一层**的 `AGENTS.md` 都要遵守，**越靠近文件越优先**；但都不得推翻本文件 §2 与开发/用户的直接指令。
+- 子目录 `AGENTS.md` 由 **AI 自动维护**：动手前先确认目标目录有没有它；只对该目录成立的约定/坑写在那里，仓库级共识才写回本文件。
+
 ---
 
 ## 3. 代码风格与习惯
@@ -201,9 +206,8 @@ git config --global --unset https.proxy
   1. 若任务栏开启自动隐藏，则**先唤出任务栏**；
   2. 若任务栏本就显示，则**直接点击触摸键盘图标**；
   3. 点击后恢复原光标位置。
-- **自动隐藏任务栏**是可靠性分水岭：不自动隐藏时，该 helper 对鼠标点击非常可靠；自动隐藏时，必须先唤出任务栏再点击，否则常见现象是**任务栏闪一下但触摸键盘不弹出**。
-- **数位板笔的核心限制在驱动层**：笔尖靠近板面时，驱动会持续接管/吸附光标，导致 helper 的 `SetCursorPos` 后续点击可能落不到目标位置。已验证的可用工作流是：**点击圆盘菜单中的“触摸键盘”后，立刻将笔远离数位板**。
-- 这类问题的最终判定标准应以**用户桌面手测**为准；WSL/自动化侧无法真实复现“笔悬停接管光标”的驱动行为。若用户已确认“笔点后迅速抬离”可稳定使用，就应停止继续把复杂度堆回主脚本。
+- **自动隐藏任务栏**是可靠性分水岭：不隐藏时点击很可靠；隐藏时必须先唤出任务栏，否则常见**任务栏闪一下但键盘不弹出**。
+- **数位板笔的限制在驱动层**：笔尖靠近板面时驱动会持续接管/吸附光标，helper 的 `SetCursorPos` 可能落不到目标。可用工作流是**点完“触摸键盘”立刻把笔抬离**；这类问题以**用户桌面手测**为准，笔能稳定用了就不要再往主脚本堆复杂度。
 - 配置样例已加入入口：`[radial.Input]` 下 `6 = 触摸键盘 | run: apps\TouchKeyboardToggle.exe`。若未来路径调整，优先改 helper 与样例配置，不改主逻辑。
 
 **COM 方式（2026-09-13 新增，独立文件 `apps/TouchKeyboardToggleCom.ahk`）**：
@@ -213,7 +217,6 @@ git config --global --unset https.proxy
 - CLSID 有讲究：**本机（Win10 19045）真正能用的是 `{054AAE20-4BEA-4347-8A35-64A533254A9D}`（“UIHost Class”，注册了 `LocalServer32` → `TabTip.exe`）**；网上最常见的 `{4ce576fa-83dc-4F88-951c-9d0782b4e376}`（“UIHostNoLaunch Class”）本机**没有** `LocalServer32`，只有 `TabTip.exe` 已在运行时才可用，否则报 `0x80040154`。helper 因此**两个都试**。
 - `TabTip.exe` 未运行时必然失败（`0x80040154`）；helper 策略：先启动 `TabTip.exe`（起进程本身就是“显示”），1.5s 内可见就不再 Toggle（避免“已弹出又被关掉”），仍不可见才补一次 Toggle。
 - WSL（Session 0）下 `{054AAE20}` 返回 `0x800702E4`（ERROR_ELEVATION_REQUIRED）——说明**类已注册、SCM 确实去拉起了 TabTip**，只是非交互会话起不来；**不能**据此判定方案不可用。
-- 成败最终仍以**用户桌面手测**为准。
 
 ---
 
@@ -261,9 +264,8 @@ AHK v2 的**加载期弹框**（`#Warn` 警告、调用了不存在的函数等�
 读法：让脚本在后台跑起来，再用 **UI Automation** 读对话框里的 `RichEdit` 正文（`class=#32770` → `ControlType.Document` → `TextPattern.DocumentRange.GetText(-1)`）。
 用 `GetWindowText` 读不到跨进程控件文字，必须走 `SendMessage(WM_GETTEXT)` 或 UIA。
 
-**WSL interop 的进程运行在 Session 0（Services），不是用户的交互桌面**：`tasklist` 里自己起的进程显示 `Services 0`，用户的是 `Console 1`。
-因此 `WinExist("A")` 返回 0、COM 本地服务器（如 `TabTip.exe`）拉不起来、GUI 无法附着桌面。
-**结论**：从这里只能得出“WSL 里测不了”，**不能**得出“该 GUI/COM 方案不可行”。
+**WSL interop 的进程在 Session 0（Services），不在交互桌面**（`tasklist` 里自己起的显示 `Services 0`，用户的是 `Console 1`）：因此 `WinExist("A")` 返回 0、COM 本地服务器拉不起来、GUI 无法附着桌面。
+**结论**：这里只能得出“WSL 里测不了”，**不能**得出“该 GUI/COM 方案不可行”。
 
 **收尾务必清进程**：卡在弹框里的僵尸 AHK 会让后续带 `#SingleInstance Force` 的**同名**脚本一直等待；
 `taskkill` 要**32 位与 64 位都杀**——Ahk2Exe 编译时会拉起 `AutoHotkey32.exe` 做校验，它卡住会让编译“无输出挂住”。
@@ -483,7 +485,7 @@ case = true
 > ① sed 提取函数要用 `^函数名(参数) {` **带上 ` {`** 锚定：只写 `^KeypadLoadConfig()` 会同时匹配 auto-execute 段里的**裸调用**，把中间的其它函数一起卷进来、导致"无输出卡死"；
 > ② 被测函数用到的**全局变量必须在测试脚本里也赋值**（哪怕赋空串）：AHK v2 对"从未被赋值的全局变量"会弹**加载期警告框**阻塞脚本，症状同样是"毫无输出"（与 §4.1 #15 同类）；
 > ③ 测试脚本里的变量名别撞内置函数：`Ln`（自然对数）当变量名会报错，`log` 同理（§4.1 #3）——本例中 `Ln` 就白折腾了一轮。
-> ④ 提取出来的测试脚本顶部要写 `#Warn All, Off`：AHK 的**加载期 `#Warn` 警告框会阻塞脚本**，而 `/ErrorStdOut` 抓不到，症状是"日志一个字都没写、进程一直挂着"（2026-09-15 加了这行才跑起来）。
+> ④ 提取出来的测试脚本顶部要写 `#Warn All, Off`（加载期 `#Warn` 弹框会阻塞、`/ErrorStdOut` 抓不到，见 §5.1）。
 > ⑤ 测试脚本里的全局变量要**按类型**赋初值：`keypadPanels` / `keypadDefs` 之类必须是 `Map()`，`overlayStack` 是 `[]`，计数器是 `0`；赋成空串会在 `.Has()` / `++` 上直接报错。另外**块外被调用的 GDI 辅助函数（`BrushSolid` / `RectStruct` / `BrushColorVal` / `RadialMeasureText` / `RadialCreateFont`）要抽真实实现**，打成返回空串的桩会在 `.w` / `FillRect` 上炸。
 > ⑥ **不要在无桌面测试里走到 `Hotkey(...)` 注册**（例如 `OverlayPush` → `OverlayRegisterEscape`）：Session 0 下会直接阻塞。
 > 另注意 `SharpKnifeCore.ahk` 里有单字母函数 `J()` / `K()`，**顶层**变量不能叫 `j` / `k`（函数内的局部变量没问题）。
@@ -514,7 +516,7 @@ case = true
 
 **设计要点 / 坑**：
 
-- **界面只有两块**（用户明确要求，2026-09-15 从三块改为两块）：① 输入框（`runboxEdit`）；② 可展开 / 收起的"动作执行过程"（`runboxDetail`）。**没有**独立的"计划清单"控件 —— 清单明细、丢弃原因都只写在过程日志里，状态行只给一行摘要（"将执行 N 条，丢弃 M 行：回车执行…"）。自查：`WinGetControls` 应只看到 2 个 `Edit`（输入框 + 过程面板）。
+- **界面只有两块**（用户明确要求，2026-09-15 从三块改为两块）：① 输入框 `runboxEdit`；② 可展开 / 收起的"动作执行过程" `runboxDetail`。**没有**独立的"计划清单"控件——清单明细与丢弃原因只写进过程日志，状态行只给一行摘要。自查：`WinGetControls` 只应有 2 个 `Edit`。
 - **模型输出=不可信输入；判定顺序（2026-09-17 用户定稿）**：`RunBoxParseReply` 把 `OverlayConfiguredItems()` 压成白名单（`"类型|内容"→配置原写法`、`名称→配置名称`），`RunBoxSubmit` 分两步走：
   · **第一步 判类别**（`RunBoxBuildPrompt`）：要文字（网址 / 答案 / 内容 / 翻译…）→ 直接 `paste:`（推荐）/ `send:` / `hotkey:`，**无需先配置**、必须照原样输出，`send:` / `hotkey:` 只在不含 `^ ! + # { }` 时当纯文本；要操作 → 只能用表里的动作（`item:` 首选或逐字一致的动作），表里没有则按约定输出 `ERROR: NOACTION`；**多行文字**（写诗等）写成一行 `paste:` + 字面 `\n`（解析时还原成真换行），另把 `paste:` 后紧跟的裸行当**续行**拼进同一条（`contIdx`）——两条路都保证一次粘贴、换行不丢。
   · **第二步 兜底重问**：第一阶段 `parsed.error != "" || actions.Length = 0` 时用 `RunBoxBuildFallbackPrompt()` **再问一次**"这条需求能不能也理解成要文字？" → 能就 `paste:` 输出，不能就 `ERROR: 没有对应的操作`；程序用 `RunBoxFallbackPick()` **只接受文字**（`paste:` 或漏写前缀的纯文本；按键 / `item:` / `run:` / `self:` 全丢弃，兜底路径不可能执行动作），最终只提示"没有对应的操作"、不往编辑器打字。`RunBoxParseReply` 返回 `noAction`（宽松匹配 `no[\s_-]*action`）。
@@ -526,23 +528,22 @@ case = true
   两个提示语必须与上面的判定顺序一致：`RunBoxBuildPrompt`（判类别 + 动作）与 `RunBoxBuildFallbackPrompt`（兜底只问"能不能当文字"）；**不要**为了让模型"更聪明"放宽**动作**校验（动作只认配置里已有的），也不要把"输出文字"这类需求又收回去。
 - 等待**不让模型输出**：动作间 `step_delay_ms`、`run:` 后 `run_wait_ms` 由程序插；`wait:` 动作只留给配置层用（面板/菜单做宏）。
 - `AIRequest` 第 5 个参数 `systemPrompt` 为空时沿用 `[ai] system_prompt`，非空时覆盖 —— 运行框靠它换提示语，其它调用点不受影响。
-- 运行框**要抢焦点**（要打字、要输入法），这与五块浮层的 `WS_EX_NOACTIVATE` 相反；因此必须跟踪"最近一个活动窗口"并在提交/执行时把焦点还给它。
+- 运行框**要抢焦点**（要打字、要输入法），与五块浮层的 `WS_EX_NOACTIVATE` 相反；执行完 `RunBoxFinish` 置回 `"input"`、清空输入框（焦点去向见下条）。
 - **目标窗口用 `RunBoxTrackTarget()` 持续跟踪**（打开期间 `SetTimer(..., 400)`，跳过 `RunBoxIsSelfWin()` 认出的自家窗口）：只看弹出那一刻不够 —— 用户中途切到别的程序后，之后的目标就该是那个程序（用户要求：最近一个活动的窗口，排除运行框本身）。
-- **执行完毕回到可编辑状态**（`RunBoxFinish` 置回 `"input"`、清空输入框）：焦点去向见下一条。
 - **展开 / 收起：确定性高度 + 默认收起 + 把手永不消失**（2026-09-15 用户连报三次后定稿）：
   · 高度只用两个值：`runboxHSmall`（收起态）与 `runboxExtraDetail`（过程面板额外高度 = 面板自身高度 + 间距）。
   · 只在**弹窗时**量一次：`Show("AutoSize Hide")` 量出收起高度，过程面板额外高度取 `ControlGetPos` 的面板高度（隐藏时也能取到真值）；**不要**用"切成可见→Show→量→切回"，中途抛异常会把面板留在可见态（用户实测"默认就是展开的"）。整体 `try/finally` 恢复隐藏。
   · `RunBoxApplyHeight()` 只做：`高 = runboxHSmall + (展开 ? runboxExtraDetail : 0)`，然后 `Move()` 并夹取屏幕；**收起高度还要与"把手底边 + 客户区偏移"取大值**（保险），否则收起后把手会被挤出窗口，用户看到的是"把手没了"（用户实测）。
   · **默认必须是收起态**：弹出流程结尾显式 `runboxExpanded := false` + 两个可选项隐藏 + `RunBoxApplyHeight()`。
   · **收起时不渲染执行过程**（用户明确要求）：`RunBoxLogAdd` 只把行压进 `runboxLog`，只有展开时才 `RunBoxRenderLog()` 写进面板；展开时补渲染一次，保证打开就看到完整过程。
-- **运行框下方的热键键帽（2026-09-15 新增）**：实现方式是把它做成**第 5 个小键盘面板** `runkeys`（`KeypadDefaultDefs()` 里一排 7 键：回车 `{Enter}` / Tab `{Tab}` / 空格 `{Space}` / 删除 `{Del}` / 退格 `{BS}` / 取消 `{Esc}` / 触发 `self:trigger`，`cols: 7, rows: 1`），于是布局、圆角窗口、悬停高亮、**文字层（彩色字身 + 黑边，字号取 `[keypad] font_size`）**全部与小键盘 / 圆盘一致 —— 用户要的"字符款式、大小、黑边、颜色一致"就是这样零成本满足的。
+- **运行框下方的热键键帽（2026-09-15 新增）**：就是**第 5 个小键盘面板** `runkeys`（一排 7 键：回车 `{Enter}` / Tab / 空格 / 删除 / 退格 / 取消 `{Esc}` / 触发 `self:trigger`，`cols: 7, rows: 1`），布局、圆角、悬停高亮、**文字层**（字身 + 黑边，字号取 `[keypad] font_size`）都与小键盘 / 圆盘一致。
   · `KeypadShow(kind, pushEscape := true)` 新增了开关：键帽排传 `false`，**不登记浮层栈**（Esc 仍归运行框管）。这样也不会因为弹一次键帽排就去注册 / 注销全局 Escape 热键。
   · `OverlayOwnerHwnd("runkeys")` 返回**运行框的 hwnd**：键帽不抢焦点，点它时前台是运行框，必须当成"自家窗口"才会退回跟踪到的目标窗口。
   · 位置由 `RunKeysAnchor()` 吸在运行框正下方；拖动 / 展开收起都跟随（`WM_MOVE`、`RunBoxApplyHeight`），发送目标随 `RunBoxTrackTarget()` 更新。
   · **键帽排的配置在 `[runbox.runkeys]` 子节**（用户要求放在 runbox 名下），**语义与 `[keypad.<kind>]` 完全一致**：`RunBoxLoadKeycaps()` 用 `IniRead(configFile, "runbox.runkeys", …)` 读 `name` / `cols` / `rows` / `square` / `case` 与编号项；写了编号就整体替换键帽（缺号 = 空位，越界忽略），一条都没写就沿用 `KeypadDefaultDefs()` 里的内置 7 键；**`cols` / `rows` 不写就用内置默认值，不做任何自动排布**。
-    硬要求：只把写死的换成可配置，行为 / 效果完全不变 —— **不要**顺手改行为（不加"按配了几个键自动排布"、不把键帽排塞进 `OverlayConfiguredItems()`）；不配置时与内置默认逐字段一致。
+    硬要求：只把写死的换成可配置（不自动排布、不塞进 `OverlayConfiguredItems()`），行为 / 效果完全不变。
     键帽定义由 `KeypadParseItem` / `KeypadRoleFor` 解析（`run:` / `self:` / `case` / `close` / `paste:` 都可用）。
-  · 键帽排**自己**不进 `OverlayRects()`，而是与运行框合并成一个整体矩形参与避让（见 §6.3 的避让说明）：两者一起被推开、一起被推开后仍严格保持"下方居中、间隔 6px"的吸附关系。
+  · 键帽排**自己**不进 `OverlayRects()`，与运行框合并成一个整体矩形参与避让（见 §6.3），严格保持"下方居中、间隔 6px"。
 - **`RunBox*` 函数改完必须核对 `global` 声明**（2026-09-15 已犯两次，都是"新增全局变量后忘了把它加进某个函数的 global 行"）：
   漏写时那行赋值会变成**函数局部变量**，全局仍是空串 —— 表现是 `runboxDetail.Visible` 报 `This value of type "String" has no property named "Visible"`（一次触发就崩）。
   自查办法（可重复跑）：把每个 `^RunBox[A-Za-z]*\(.*\) \{` 函数体抓出来，比对"函数体内出现的 `runbox*` 变量"与"该函数 global 行里声明的名字"，差集必须为空。
@@ -553,7 +554,7 @@ case = true
   · "自己"一律用 `RunBoxIsSelfWin(hwnd)` 判（运行框主窗口 + `runkeys` 键帽排；读 `P.gui.Hwnd` 要包 `try`）：**运行框可以有焦点，但永远不算动作目标，也不算"要回退到的上一个窗口"**。
   · 坑：`keepNew` 为真时绝不能落进原来那个 `else`（会 `WinActivate` + `runboxEdit.Focus()` 抢回焦点）——结构必须是 `if (keepNew) {…} else { 还给目标窗口 / 退回运行框 }`。
   配套：触发键 `RunBoxShow` 在"窗口已打开"时——**焦点已在运行框里才关闭**，否则只把焦点拿回来（`WinActivate` + `runboxEdit.Focus()`），这样"执行完在目标窗口干活 → 按触发键回来下一条"才顺。
-- **`Hotkey("Escape","Off")` 必须包 try**：Escape 当时没注册时会抛 `Nonexistent hotkey`。`RunBoxEscOff` 原先漏了 `try`，在"打开运行框但没执行过动作就关闭"的路径上会直接抛错（2026-09-15 在无桌面自测里复现并修掉；`OverlayUnregisterEscape` 早就包了 try，照它办）。
+- **`Hotkey("Escape","Off")` 必须包 `try`**：未注册时抛 `Nonexistent hotkey`（`RunBoxEscOff` 漏过，2026-09-15 在"开了运行框但没执行动作就关闭"路径上复现并修掉；`OverlayUnregisterEscape` 早就包了 try）。
 - **关闭窗口的竞态**：`RunBoxClose` 必须"先停跟踪定时器 → 清空全局引用 → 最后 `Destroy()`"，句柄读取一律走 `RunBoxHwnd()`（`try` 包住并失败返回 0）。原先顺序写反了，Esc 关闭时定时器插进来读 `.Hwnd`，抛 `Gui has no window`（用户实测崩溃，已修）。
 - 底部把手是 `Text` 控件 + `+0x100`（SS_NOTIFY）才能收到 `Click`；**它和过程面板必须在 `RunBoxHitTest` 里放行**，否则点击会被 `HTCAPTION` 当成拖标题栏，把手就"点不动"（2026-09-15 一并处理）。展开 / 收起后按上面那条"显式改窗口高度"的做法处理，再把焦点还给输入框。
 - **运行框的拖动用 `WM_NCHITTEST(0x0084)`**（`RunBoxHitTest` 里对运行框及其子控件返回 `HTCAPTION(2)`，输入框单独放行），并用 `WM_NCLBUTTONDBLCLK(0x00A3)` 吞掉"双击最大化"。**不要**照抄思考窗口那套 `WM_LBUTTONDOWN(0x0201)`：0x0201 同一时刻只能挂一个回调，径向菜单 / 小键盘 / 思考窗口已经各自在抢，运行框再抢会把它们顶掉（2026-09-15 特意避开）。

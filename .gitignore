@@ -5,3 +5,4 @@ config.ini
 audio/
 menu_stats.ini
 tmp/
+articles/
