@@ -3861,20 +3861,26 @@ RunBoxParseReply(reply) {
     return {actions: actions, dropped: dropped, error: errText, noAction: noAction}
 }
 
-; ---- 弹出 / 关闭运行框（再按一次触发键 = 关闭）----
+; ---- 弹出运行框（触发键只负责"打开 / 聚焦"，**永不关闭**）----
+; 用户要求（2026-09-18）：触发键不再是开 / 关切换。
+;   · 第一次按 → 一定弹出运行框，且光标自动落在输入框里；
+;   · 已经打开时再按 → **不关闭**，只把焦点（光标）拿回输入框；
+;   · 要关闭运行框只有一条路：焦点在运行框上时按 **Esc**（见 RunBoxEsc）。
+; 务必区分两种"取消"（本次一并写实）：
+;   ① 运行框上的 Esc 键 = 对**当前窗口**（= 运行框自己）的取消 → 关闭运行框；
+;   ② 正下方键帽排的【取消】键 = 对**"排除运行框之外的最近活动窗口"**的取消
+;      → 把 Esc 发给目标窗口（走 OverlaySendKey，见 KeypadOnKeyPress），运行框保持打开。
 RunBoxShow() {
     global runboxGui, runboxEdit, runboxStatus, runboxHandle, runboxDetail
     global runboxPrevWin, runboxPrevTitle, runboxState, runboxBusy, runboxLog
     global runboxExpanded, runboxHSmall, ui_font_size
     if (runboxGui) {
-        ; 已经打开：若焦点就在运行框里 → 关掉（开 / 关切换）；否则把焦点拿回运行框
+        ; 已经打开：触发键**只把焦点（光标）拿回输入框**，绝不关闭（关闭请按 Esc）
         hwCur := RunBoxHwnd()
-        if (hwCur && WinExist("A") = hwCur) {
-            RunBoxClose()
-        } else if (hwCur) {
+        if (hwCur) {
             try WinActivate("ahk_id " . hwCur)
             try runboxEdit.Focus()
-            DebugLog("[runbox] 焦点已回到运行框")
+            DebugLog("[runbox] 触发键：只把焦点拿回运行框（关闭请按 Esc）")
         }
         return
     }
@@ -3947,14 +3953,27 @@ RunBoxShow() {
     OnMessage(0x0232, RunBoxExitSizeMove)
     RunKeysShow()                                 ; 底部热键键帽（回车 / Tab / 空格 / 删除 / 退格 / 取消 / 触发）
     OverlayAvoid("runbox")                        ; 运行框也算浮层：把它压住的菜单 / 小键盘推开
+    ; 最后再确认一次光标在输入框里：键帽排等窗口刚创建完，仍要把光标留在对话框中（用户要求）
+    try {
+        WinActivate("ahk_id " . RunBoxHwnd())
+        edit.Focus()
+    } catch {
+    }
     DebugLog("[runbox] 已弹出运行框，目标窗口=" . runboxPrevWin . "「" . runboxPrevTitle . "」")
 }
 
 ; ============ 运行框下方的热键键帽（复用第 5 个小键盘面板 runkeys）============
 ; 做法：直接调 KeypadShow 创建"第 5 个面板"，因此布局 / 圆角窗口 / 悬停高亮 /
 ; 文字层（彩色字身 + 黑边，字号取 [keypad] font_size）与小键盘、圆盘完全一致。
-; 区别只有三点：① 不登记浮层栈（Esc 仍归运行框管）；② 目标窗口取运行框跟踪到的
-; "最近一次活动的窗口"；③ 位置永远吸附在运行框正下方（运行框一动就跟着走）。
+; 区别只有三点：
+;   ① 不登记浮层栈：运行框的关闭归它自己（Gui 的 Escape 事件）管；键帽排上的【取消】
+;      是"发给目标窗口的 Esc"，**不是**关闭运行框 —— 两者语义不同，别混用；
+;   ② **所有键帽**（回车 / Tab / 空格 / 删除 / 退格 / 取消 / 触发）都以"排除运行框之外的
+;      最近活动窗口"为目标（用户 2026-09-18 明确）：KeypadOnKeyPress 一律把动作交给
+;      OverlayActionExecute(..., "runkeys", focusWin)，动作层先 OverlayPrepareInject 把前台
+;      切到 keypadPanels["runkeys"].focusWin（= runboxPrevWin），再发送 / 执行；
+;      所以点键帽绝不会把按键打到运行框自己身上，运行框也不会因此关闭；
+;   ③ 位置永远吸附在运行框正下方（运行框一动就跟着走）。
 RunKeysShow() {
     global keypadPanels, runboxPrevWin
     KeypadShow("runkeys", false)                    ; 不登记浮层栈：Esc 仍归运行框管
@@ -4313,7 +4332,10 @@ RunBoxDefault() {
         RunBoxExecute()
 }
 
-; ---- Esc：输入 / 确认 / 结果态 = 关闭窗口；执行态交给全局 Esc 处理 ----
+; ---- Esc = 对**当前窗口**（运行框自己）的取消 → 关闭运行框 ----
+; 触发键不再关闭运行框（见 RunBoxShow），所以这里是关闭运行框的**唯一**入口。
+; 输入 / 确认 / 结果态 → 直接关闭；执行态（busy）交给全局 Esc 热键 RunBoxEscHandler 中止。
+; 注意：与正下方键帽排的【取消】键语义不同 —— 那个是把 Esc 发给"目标窗口"，不关运行框。
 RunBoxEsc() {
     global runboxBusy
     if (runboxBusy)
@@ -5485,7 +5507,8 @@ if (keypadSymbolHotkey != "")
 if (keypadLetterHotkey != "")
     Hotkey(keypadLetterHotkey, (*) => KeypadToggle("letter"))
 
-; 自然语言运行框触发键（[runbox] hotkey，默认 Ctrl+Shift+I）：再按一次 = 关闭运行框
+; 自然语言运行框触发键（[runbox] hotkey，默认 Ctrl+Shift+I）：只负责打开 / 把光标拿回输入框，
+; 已打开时再按**不关闭**（关闭请在运行框上按 Esc，见 RunBoxShow / RunBoxEsc）
 if (runboxHotkey != "")
     Hotkey(runboxHotkey, (*) => RunBoxShow())
 

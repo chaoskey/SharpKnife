@@ -553,7 +553,8 @@ case = true
   · 否则（前台是运行框 / 无前台 / 还是执行前那个窗口）→ `RadialActivateFocusWin(runboxPrevWin)`；Esc 中止（`focusTarget := false`）或无可用目标才留在运行框。
   · "自己"一律用 `RunBoxIsSelfWin(hwnd)` 判（运行框主窗口 + `runkeys` 键帽排；读 `P.gui.Hwnd` 要包 `try`）：**运行框可以有焦点，但永远不算动作目标，也不算"要回退到的上一个窗口"**。
   · 坑：`keepNew` 为真时绝不能落进原来那个 `else`（会 `WinActivate` + `runboxEdit.Focus()` 抢回焦点）——结构必须是 `if (keepNew) {…} else { 还给目标窗口 / 退回运行框 }`。
-  配套：触发键 `RunBoxShow` 在"窗口已打开"时——**焦点已在运行框里才关闭**，否则只把焦点拿回来（`WinActivate` + `runboxEdit.Focus()`），这样"执行完在目标窗口干活 → 按触发键回来下一条"才顺。
+  配套：触发键 `RunBoxShow` 在"窗口已打开"时——**只把焦点拿回来、永不关闭**（`WinActivate` + `runboxEdit.Focus()`），这样"执行完在目标窗口干活 → 按触发键回来下一条"才顺（2026-09-18 用户把触发键从"开/关切换"改成"只打开 / 聚焦"）。关闭运行框只有一条路：**在运行框上按 `Esc`**（Gui 的 Escape 事件 → `RunBoxEsc` → `RunBoxClose`）。
+- **两种"取消"必须区分（2026-09-18 用户强调）**：在运行框上按 `Esc` = 对**当前窗口**（运行框自己）的取消 → 关闭运行框；键帽排 `runkeys` 的【取消】= 对**"除运行框之外最近活动的那个窗口"**的取消 → 把 `Esc` 发给该目标窗口，运行框照旧开着。**键帽排上的所有键**（回车 / Tab / 空格 / 删除 / 退格 / 取消 / 触发）都以"排除运行框之外的最近活动窗口"（`keypadPanels["runkeys"].focusWin` = `runboxPrevWin`）为作用对象，走 `OverlayActionExecute(..., "runkeys", focusWin)` → `OverlayPrepareInject` 先把前台切到目标窗口再发送，**绝不会打到运行框自己身上**（此机制改造前就有，用户只是强调）。
 - **`Hotkey("Escape","Off")` 必须包 `try`**：未注册时抛 `Nonexistent hotkey`（`RunBoxEscOff` 漏过，2026-09-15 在"开了运行框但没执行动作就关闭"路径上复现并修掉；`OverlayUnregisterEscape` 早就包了 try）。
 - **关闭窗口的竞态**：`RunBoxClose` 必须"先停跟踪定时器 → 清空全局引用 → 最后 `Destroy()`"，句柄读取一律走 `RunBoxHwnd()`（`try` 包住并失败返回 0）。原先顺序写反了，Esc 关闭时定时器插进来读 `.Hwnd`，抛 `Gui has no window`（用户实测崩溃，已修）。
 - 底部把手是 `Text` 控件 + `+0x100`（SS_NOTIFY）才能收到 `Click`；**它和过程面板必须在 `RunBoxHitTest` 里放行**，否则点击会被 `HTCAPTION` 当成拖标题栏，把手就"点不动"（2026-09-15 一并处理）。展开 / 收起后按上面那条"显式改窗口高度"的做法处理，再把焦点还给输入框。
