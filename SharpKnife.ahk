@@ -287,18 +287,34 @@ global runboxStepDelay := 120    ; 动作之间的间隔（ms）
 global runboxRunWait := 800      ; run: 之后自动等待（ms）
 global runboxMaxActions := 40    ; 单次最多执行多少条动作（防呆）
 global runboxPromptExtra := ""   ; 追加到内置系统提示语之后（可选）
-global runboxGui := ""           ; 运行框窗口 / 控件（"" = 未打开）
-global runboxEdit := ""
-global runboxStatus := ""
-global runboxHandle := ""        ; 底部"执行过程"小把手（点击展开 / 收起）
-global runboxDetail := ""        ; 展开后的执行过程面板（只读多行 Edit）
+global runboxOpacity := 1.0      ; 运行框（含下方键帽排）透明度（[runbox] opacity，默认 1 = 不透明）
+global runboxGui := ""           ; 运行框**面板窗口**（GDI 自绘的半透明底 + 圆角；"" = 未打开）
+global runboxTextGui := ""       ; 运行框**文字层**（UpdateLayeredWindow：提示/状态/把手/日志，文字与黑边恒不透明）
+global runboxInputGui := ""      ; 运行框**输入框窗口**（独立顶层窗口，整块不透明）
+global runboxEdit := ""          ; 输入框 Edit（挂在 runboxInputGui 上）
+global runboxLogGui := ""        ; 运行框**执行过程窗口**（独立顶层窗口、整块不透明）
+global runboxLogEdit := ""       ; 执行过程的只读多行 Edit（可滚动 / 选中 / 复制）
+global runboxLogOffX := 0        ; 日志窗口客户区偏移（同输入框窗口的换算）
+global runboxLogOffY := 0
+global runboxStatusText := ""    ; 状态行文字（画在文字层，已不是 Text 控件）
+global runboxHandleText := ""    ; 底部"执行过程"小把手文字（画在文字层）
+global runboxLayout := ""        ; 布局：面板 / 输入框 / 状态 / 把手 / 日志的矩形（见 RunBoxComputeLayout）
+global runboxInOffX := 0         ; 输入框窗口客户区左上角相对窗口左上角的偏移（无边框时通常为 0）
+global runboxInOffY := 0
 global runboxExpanded := false   ; 执行过程面板是否已展开
 global runboxLog := []           ; 本次需求的执行全过程日志（逐行）
 global runboxStartTick := 0      ; 本次执行的起始时刻（算总耗时）
-global runboxToggleTick := 0     ; 上一次展开/收起的时间（两条点击路径去抖）
+global runboxToggleTick := 0     ; 上一次展开/收起的时间（去抖）
 global runboxAvoidTick := 0      ; 运行框上一次"被别人避让挪动"的时刻（防互相顶）
-global runboxHSmall := 0         ; 收起态窗口高度（弹出时量好，之后只做 Move 改高度）
-global runboxExtraDetail := 0    ; 展开过程面板额外需要的高度（= 面板自身高度 + 间距）
+global runboxTextPending := false ; 文字层是否有待重绘的内容
+global runboxTextTimerOn := false ; 文字层节流定时器是否已挂
+global runboxTextLastTick := 0   ; 上一次文字层重绘时刻（节流用）
+global runboxDragActive := false ; 面板拖动中（自实现拖动：定时器轮询光标，不依赖系统移动循环）
+global runboxDragMoved := false  ; 本次按下是否真的拖动过（没拖过 = 单击，要把光标还给输入框）
+global runboxDragX0 := 0         ; 拖动起点（屏幕坐标）
+global runboxDragY0 := 0
+global runboxDragWinX := 0       ; 拖动开始时窗口左上角
+global runboxDragWinY := 0
 global runboxPrevWin := 0        ; 跟踪到的"最近一次活动的窗口"（动作最终打到它上面）
 global runboxPrevTitle := ""     ; 该窗口标题（喂给模型当上下文）
 global runboxExecBaseWin := 0    ; 开始执行动作那一刻的目标窗口（收尾判"有没有打开新窗口"用）
@@ -2781,7 +2797,9 @@ OverlayRects() {
         if (w > 0 && h > 0)
             rects.Push({name: name, x: x, y: y, w: w, h: h})
     }
-    ; 运行框 + 它下面的键帽排：视为**一个整体**参与避让（两者必须一起移动）
+    ; 运行框（面板 + 文字层 + 输入框窗口 + 下面那排键帽）：视为**一个整体**参与避让
+    ; （它们必须一起移动；文字层与面板完全重合，可以不重复计入，但面板是半透明的，
+    ;   真正"占地方"的是面板窗口本身）
     if (hw := RunBoxHwnd()) {
         WinGetPos(&x, &y, &w, &h, "ahk_id " . hw)
         if (w > 0 && h > 0) {
@@ -2828,7 +2846,7 @@ OverlayMoveTo(name, x, y) {
             return
         runboxAvoidTick := A_TickCount             ; 记下"是我们自己挪的"，避免马上反推别人
         try WinMove(x, y, , , "ahk_id " . hw)      ; 只挪位置，不改大小
-        RunKeysAnchor()                            ; 键帽排跟着重新吸附到运行框下方
+        RunBoxSyncWindows()                        ; 输入框窗口 / 文字层 / 键帽排一起跟着走
         return
     }
     if (keypadPanels.Has(name) && keypadPanels[name].gui) {
@@ -3370,14 +3388,20 @@ OverlaySendKey(raw, owner, fallbackWin) {
 }
 
 ; ---- 浮层自己的窗口句柄（用于判断"前台窗口是不是被浮层自己占了"）----
+; 运行框：面板窗口是 WS_EX_NOACTIVATE（永远不是前台），真正可能拿到前台的是**输入框窗口**，
+; 所以 "runbox" / "runkeys" 都返回输入框窗口的句柄。
 OverlayOwnerHwnd(owner) {
-    global radialGui, keypadPanels, runboxGui
+    global radialGui, keypadPanels, runboxInputGui
     if (owner = "radial")
         return (radialGui ? radialGui.Hwnd : 0)
-    if (owner = "runbox")
-        return (runboxGui ? runboxGui.Hwnd : 0)
-    if (owner = "runkeys")
-        return (runboxGui ? runboxGui.Hwnd : 0)   ; 键帽不抢焦点，前台会是运行框 → 同样视为"自家窗口"
+    if (owner = "runbox" || owner = "runkeys") {
+        if (runboxInputGui) {
+            h := 0
+            try h := runboxInputGui.Hwnd
+            return h
+        }
+        return 0
+    }
     if (keypadPanels.Has(owner) && keypadPanels[owner].gui)
         return keypadPanels[owner].gui.Hwnd
     return 0
@@ -3385,9 +3409,16 @@ OverlayOwnerHwnd(owner) {
 
 OverlayPrepareInject(owner, fallbackWin, what) {
     target := WinExist("A")
-    ownHwnd := OverlayOwnerHwnd(owner)
-    ; 防御：万一把浮层自己当成了前台窗口，就退回弹出浮层前记录的前台窗口
-    if (ownHwnd && target = ownHwnd)
+    ; 防御：万一把浮层自己当成了前台窗口，就退回弹出浮层前记录的前台窗口。
+    ; 运行框自己有**三个**顶层窗口（面板 / 输入框 / 执行过程），必须整组判，不能只比一个句柄。
+    ownSelf := false
+    if (owner = "runbox" || owner = "runkeys") {
+        ownSelf := RunBoxIsSelfWin(target)
+    } else {
+        ownHwnd := OverlayOwnerHwnd(owner)
+        ownSelf := (ownHwnd && target = ownHwnd)
+    }
+    if (ownSelf)
         target := fallbackWin
     if (!target) {
         DebugLog("[overlay] 已取消：" . what . " —— 当前前台窗口不可用（" . owner . "）")
@@ -3526,12 +3557,17 @@ RunBoxCfg(key, def, section := "runbox") {
 RunBoxLoadConfig() {
     global configFile, runboxHotkey, runboxConfirm, runboxModel, runboxTimeout
     global runboxStepDelay, runboxRunWait, runboxMaxActions, runboxPromptExtra
+    global runboxOpacity
     if !FileExist(configFile)
         return
     v := RunBoxCfg("hotkey", "")
     if (v != "")
         runboxHotkey := v
     runboxConfirm := (StrLower(RunBoxCfg("confirm", "true")) = "true")
+    ; 面板本体透明度（0.0~1.0）；文字与黑边不受它影响（恒不透明）。非法值沿用默认 1.0
+    v := RunBoxCfg("opacity", "")
+    if RegExMatch(v, "^\d*\.?\d+$")
+        runboxOpacity := Max(0.0, Min(v + 0, 1.0))
     runboxModel := RunBoxCfg("model", "")
     v := RunBoxCfg("timeout_ms", "")
     if RegExMatch(v, "^\d+$")
@@ -3551,7 +3587,7 @@ RunBoxLoadConfig() {
     RunBoxLoadKeycaps()
     DebugLog("[runbox] 配置：hotkey=" . runboxHotkey . " confirm=" . runboxConfirm . " model=" . runboxModel
         . " timeout=" . runboxTimeout . " step=" . runboxStepDelay . " run_wait=" . runboxRunWait
-        . " max=" . runboxMaxActions)
+        . " max=" . runboxMaxActions . " opacity=" . runboxOpacity)
 }
 
 ; ---- 已配置命令表 → 紧凑文本（喂给模型；解析时另用它做白名单）----
@@ -3861,6 +3897,351 @@ RunBoxParseReply(reply) {
     return {actions: actions, dropped: dropped, error: errText, noAction: noAction}
 }
 
+; ============================================================================
+; 运行框的窗口层（2026-09-18 改造）
+; ----------------------------------------------------------------------------
+; 目标：除了**输入框本身**，运行框其余部分都跟小键盘 / 圆盘 / 键帽排一样 ——
+;   面板底受 [runbox] opacity 控制；面板上的文字（提示行 / 状态行 / 把手 / 执行过程日志）
+;   一律"彩色字身 + 黑边"且**恒不透明**。
+;
+; 为什么必须拆成三个窗口（Windows 的硬约束）：
+;   LWA_ALPHA 是按**整个顶层窗口**（含其所有子控件）施加的，子控件没法单独豁免。所以：
+;     ① runboxGui     面板：GDI 自绘底色 + 1px 边框 + 圆角，整窗 LWA_ALPHA = opacity，**不画文字**；
+;     ② runboxTextGui 文字层：UpdateLayeredWindow（与径向菜单 / 小键盘文字层同一套），
+;                      逐像素 alpha：文字与黑边 255、其余 0 → 完全不受 opacity 影响；
+;     ③ runboxInputGui 输入框窗口：独立顶层窗口、不带 layered → **整块不透明**（白底黑字）。
+;     ④ runboxLogGui   执行过程窗口：同样独立、不透明，里面是只读多行 Edit
+;                      （用户实测要求：能选中 / Ctrl+C 复制 / 滚动条翻阅）。
+;   四者始终一起移动（RunBoxSyncWindows），并作为整体参与浮层避让（OverlayRects 里的 "runbox"）。
+; ============================================================================
+
+; ---- 布局：面板 / 输入框 / 状态 / 把手 / 日志的矩形（客户区坐标）----
+; 只在窗口创建时算一次（缓存到 runboxLayout），后续都复用它。
+; 注意函数名不能叫 RunBoxLayout —— AHK v2 变量名大小写不敏感，会和全局 runboxLayout 冲突。
+RunBoxComputeLayout() {
+    global runboxLayout, ui_font_size
+    if (runboxLayout)
+        return runboxLayout
+    pad := 10
+    w := 580                                  ; 与改造前一致（560 控件宽 + 两侧各 10 边距）
+    innerW := w - 2 * pad
+    sub := Max(ui_font_size - 2, 8)           ; 状态行字号（2026-09-18 用户反馈"看着费劲"：11pt → 13pt）
+    hintH := RadialMeasureText("用中文描述你要做的操作（回车交给模型解析，Esc 取消）：", ui_font_size).h
+    inputH := Max(RadialMeasureText("Ag", ui_font_size).h + 10, 24)
+    statusH := RadialMeasureText("可用动作：send: / hotkey: / paste: / item: / run: / self:", sub).h
+    handleH := RadialMeasureText("▼ 执行过程（点击展开）", ui_font_size).h
+    lineH := RadialMeasureText("Ag", sub).h + 1
+    logH := lineH * 14                        ; 与改造前 r14 的过程面板相当
+    gap := 8
+    y := pad
+    hint := {x: pad, y: y, w: innerW, h: hintH}
+    y += hintH + gap
+    input := {x: pad, y: y, w: innerW, h: inputH}
+    y += inputH + gap
+    status := {x: pad, y: y, w: innerW, h: statusH}
+    y += statusH + gap
+    handle := {x: pad, y: y, w: innerW, h: handleH}
+    y += handleH
+    hSmall := y + pad
+    y += gap
+    log := {x: pad, y: y, w: innerW, h: logH}
+    hBig := y + logH + pad
+    runboxLayout := {w: w, hSmall: hSmall, hBig: hBig, pad: pad, gap: gap, sub: sub
+        , hint: hint, input: input, status: status, handle: handle, log: log}
+    return runboxLayout
+}
+
+; ---- 面板窗口当前应有的高度 ----
+RunBoxPanelHeight() {
+    global runboxLayout, runboxExpanded
+    if (!runboxLayout)
+        return 0
+    return runboxExpanded ? runboxLayout.hBig : runboxLayout.hSmall
+}
+
+; ---- 面板透明度：整窗 LWA_ALPHA（文字不在这个窗口上，所以只影响底色 / 边框）----
+RunBoxApplyOpacity(hwnd) {
+    global runboxOpacity
+    if (!hwnd)
+        return
+    if ((runboxOpacity + 0) >= 1.0)
+        return
+    GWL_EXSTYLE := -20
+    WS_EX_LAYERED := 0x00080000
+    getWindowLongFn := (A_PtrSize = 8) ? "GetWindowLongPtrW" : "GetWindowLongW"
+    setWindowLongFn := (A_PtrSize = 8) ? "SetWindowLongPtrW" : "SetWindowLongW"
+    ex := DllCall(getWindowLongFn, "Ptr", hwnd, "Int", GWL_EXSTYLE, "Ptr")
+    DllCall(setWindowLongFn, "Ptr", hwnd, "Int", GWL_EXSTYLE, "Ptr", ex | WS_EX_LAYERED, "Ptr")
+    alpha := Max(0, Min(Round(runboxOpacity * 255), 255))
+    DllCall("SetLayeredWindowAttributes", "Ptr", hwnd, "UInt", 0, "UChar", alpha, "UInt", 0x2)
+}
+
+; ---- 把焦点（光标）交给输入框窗口 ----
+RunBoxFocusInput() {
+    global runboxInputGui, runboxEdit
+    hw := 0
+    if (runboxInputGui) {
+        try hw := runboxInputGui.Hwnd
+    }
+    if (hw) {
+        try WinActivate("ahk_id " . hw)
+    }
+    try runboxEdit.Focus()
+}
+
+; ---- 显示 / 隐藏整块输入框窗口 ----
+; 解析期间原来是把 Edit 隐藏、露出深色面板底；现在输入框是白底黑字，
+; 只藏 Edit 会留下一条白条，所以改成整块输入窗口一起隐藏 / 恢复。
+RunBoxInputVisible(show) {
+    global runboxInputGui, runboxEdit
+    if (!runboxInputGui)
+        return
+    if (show) {
+        try runboxInputGui.Show("NoActivate")      ; 恢复时不要抢焦点
+        try runboxEdit.Visible := true
+        RunBoxTextBoxes()                          ; 重新贴回输入框矩形
+    } else {
+        try runboxInputGui.Hide()
+    }
+}
+
+; ---- 输入框窗口贴到面板上的"输入框矩形"（用客户区偏移换算，兼容有边框 / 阴影的情况）----
+RunBoxTextBoxes() {
+    global runboxGui, runboxInputGui, runboxLayout, runboxInOffX, runboxInOffY
+    if (!runboxGui || !runboxInputGui || !runboxLayout)
+        return
+    L := runboxLayout
+    runboxGui.GetPos(&wx, &wy)
+    try runboxInputGui.Move(wx + L.input.x - runboxInOffX, wy + L.input.y - runboxInOffY)
+}
+
+; ---- 执行过程窗口贴到面板上的"日志矩形"（只在展开时有效）----
+RunBoxLogBoxes() {
+    global runboxGui, runboxLogGui, runboxLayout, runboxExpanded, runboxLogOffX, runboxLogOffY
+    if (!runboxGui || !runboxLogGui || !runboxLayout || !runboxExpanded)
+        return
+    L := runboxLayout
+    runboxGui.GetPos(&wx, &wy)
+    try runboxLogGui.Move(wx + L.log.x - runboxLogOffX, wy + L.log.y - runboxLogOffY)
+}
+
+; ---- 执行过程窗口：展开就显示并贴到日志矩形，收起就隐藏 ----
+RunBoxLogVisible() {
+    global runboxLogGui, runboxExpanded
+    if (!runboxLogGui)
+        return
+    if (runboxExpanded) {
+        try runboxLogGui.Show("NoActivate")        ; 显示时不要抢输入框的焦点
+        RunBoxLogBoxes()
+    } else {
+        try runboxLogGui.Hide()
+    }
+}
+
+; ---- 四个窗口 + 键帽排一起对齐（面板移动 / 改高后必须调）----
+RunBoxSyncWindows() {
+    global runboxGui, runboxTextGui
+    hw := RunBoxHwnd()
+    if (!hw)
+        return
+    WinGetPos(&wx, &wy, , , "ahk_id " . hw)      ; 必须是面板窗口自己，不能用省略标题的写法
+    RunBoxTextBoxes()
+    RunBoxLogBoxes()
+    OverlayTextLayerMove(runboxTextGui, wx, wy)
+    RunKeysAnchor()
+}
+
+; ---- 重画文字层（文字内容 / 展开状态变化时调）----
+RunBoxTextLayerPresent() {
+    global runboxGui, runboxTextGui, runboxLayout
+    if (!runboxGui || !runboxTextGui || !runboxLayout)
+        return
+    L := runboxLayout
+    ; 文字层**固定只盖面板上半部分**（提示 / 状态 / 把手）：执行过程已经改回独立的不透明 Edit 窗口，
+    ; 这样状态行高频刷新时不必再为整块展开区做逐像素合成。
+    WinGetPos(&tx, &ty, , , "ahk_id " . runboxGui.Hwnd)
+    OverlayTextLayerPresent(runboxTextGui, tx, ty, L.w, L.hSmall
+        , (maskDC, colorDC, w, hh) => RunBoxPaintTexts(maskDC, colorDC))
+}
+
+; ---- 文字层"节流重绘"：状态行在执行期间更新频繁，而文字层是逐像素合成的，
+;      所以做「首个请求立即重绘 + 250ms 内的后续请求合并成一次」----
+RunBoxTextsChanged() {
+    global runboxGui, runboxTextPending, runboxTextLastTick, runboxTextTimerOn
+    if (!runboxGui)
+        return
+    runboxTextPending := true
+    if (A_TickCount - runboxTextLastTick >= 250) {
+        RunBoxTextsFlush()
+    } else if (!runboxTextTimerOn) {
+        runboxTextTimerOn := true
+        SetTimer(RunBoxTextsFlush, -250)
+    }
+}
+
+RunBoxTextsFlush() {
+    global runboxGui, runboxTextPending, runboxTextLastTick, runboxTextTimerOn
+    SetTimer(RunBoxTextsFlush, 0)
+    runboxTextTimerOn := false
+    if (!runboxGui || !runboxTextPending)
+        return
+    runboxTextPending := false
+    runboxTextLastTick := A_TickCount
+    RunBoxTextLayerPresent()
+}
+
+; ---- 状态行 / 把手文字的更新入口（原来的 Text 控件已取消）----
+RunBoxSetStatus(text) {
+    global runboxStatusText
+    runboxStatusText := text
+    RunBoxTextsChanged()
+}
+
+RunBoxSetHandle(text) {
+    global runboxHandleText
+    runboxHandleText := text
+    RunBoxTextsChanged()
+}
+
+; ---- 画面板本体：底色 2D2D2D + 1px 浅灰边框（GDI 双缓冲；不画文字）----
+RunBoxPanelDraw() {
+    global runboxGui, runboxLayout
+    if (!runboxGui || !runboxLayout)
+        return
+    hwnd := runboxGui.Hwnd
+    L := runboxLayout
+    h := RunBoxPanelHeight()
+    if (h <= 0)
+        return
+    hdc := DllCall("GetDC", "Ptr", hwnd, "Ptr")
+    if (!hdc)
+        return
+    memDC := DllCall("CreateCompatibleDC", "Ptr", hdc, "Ptr")
+    hbm := DllCall("CreateCompatibleBitmap", "Ptr", hdc, "Int", L.w, "Int", h, "Ptr")
+    oldBmp := DllCall("SelectObject", "Ptr", memDC, "Ptr", hbm, "Ptr")
+    bgBrush := BrushSolid("2D2D2D")
+    DllCall("FillRect", "Ptr", memDC, "Ptr", RectStruct(0, 0, L.w, h), "Ptr", bgBrush)
+    DllCall("DeleteObject", "Ptr", bgBrush)
+    bdBrush := BrushSolid("808080")
+    DllCall("FrameRect", "Ptr", memDC, "Ptr", RectStruct(0, 0, L.w, h), "Ptr", bdBrush)
+    DllCall("DeleteObject", "Ptr", bdBrush)
+    DllCall("BitBlt", "Ptr", hdc, "Int", 0, "Int", 0, "Int", L.w, "Int", h
+        , "Ptr", memDC, "Int", 0, "Int", 0, "UInt", 0x00CC0020)
+    DllCall("SelectObject", "Ptr", memDC, "Ptr", oldBmp, "Ptr")
+    DllCall("DeleteObject", "Ptr", hbm)
+    DllCall("DeleteDC", "Ptr", memDC)
+    DllCall("ReleaseDC", "Ptr", hwnd, "Ptr", hdc)
+}
+
+; ---- 文字层内容：提示行 / 状态行 / 把手（执行过程在独立 Edit 窗口里，不在这里画）----
+; 配色 2026-09-18 按用户反馈整体提亮：提示 FFCB66→FFD98A、状态行 888888→E6E6E6、把手 88AADD→9EC8FF
+RunBoxPaintTexts(maskDC, colorDC) {
+    global runboxLayout, runboxStatusText, runboxHandleText, ui_font_size
+    L := runboxLayout
+    if (!L)
+        return
+    RunBoxDrawText(maskDC, colorDC, "用中文描述你要做的操作（回车交给模型解析，Esc 取消）："
+        , L.hint, ui_font_size, "FFD98A", "left")
+    RunBoxDrawText(maskDC, colorDC, runboxStatusText, L.status, L.sub, "E6E6E6", "left")
+    RunBoxDrawText(maskDC, colorDC, runboxHandleText, L.handle, ui_font_size, "9EC8FF", "center")
+}
+
+; ---- 在 rect 内画一行文字：colorDC 画彩色字身，maskDC 画白色"字身 + 黑边" ----
+RunBoxDrawText(maskDC, colorDC, text, R, sizePt, colorHex, align) {
+    if (text = "")
+        return
+    font := RadialCreateFont(sizePt, "Microsoft YaHei")
+    flags := 0x0004 | 0x0020 | 0x0800           ; DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
+    if (align = "center")
+        flags |= 0x0001                         ; DT_CENTER
+    ; 彩色层：字身
+    old := DllCall("SelectObject", "Ptr", colorDC, "Ptr", font, "Ptr")
+    DllCall("SetBkMode", "Ptr", colorDC, "Int", 1)
+    DllCall("SetTextColor", "Ptr", colorDC, "UInt", BrushColorVal(colorHex))
+    DllCall("DrawTextW", "Ptr", colorDC, "Str", text, "Int", -1
+        , "Ptr", RectStruct(R.x, R.y, R.x + R.w, R.y + R.h), "UInt", flags)
+    DllCall("SelectObject", "Ptr", colorDC, "Ptr", old, "Ptr")
+    ; 掩码层：先画黑边偏移、最后画字身（保证字身覆盖度不被偏移的低覆盖盖掉）
+    old := DllCall("SelectObject", "Ptr", maskDC, "Ptr", font, "Ptr")
+    DllCall("SetBkMode", "Ptr", maskDC, "Int", 1)
+    DllCall("SetTextColor", "Ptr", maskDC, "UInt", 0xFFFFFF)
+    for off in OverlayTextOffsets(OverlayTextOutlineWidth())
+        DllCall("DrawTextW", "Ptr", maskDC, "Str", text, "Int", -1
+            , "Ptr", RectStruct(R.x + off.x, R.y + off.y, R.x + R.w + off.x, R.y + R.h + off.y), "UInt", flags)
+    DllCall("DrawTextW", "Ptr", maskDC, "Str", text, "Int", -1
+        , "Ptr", RectStruct(R.x, R.y, R.x + R.w, R.y + R.h), "UInt", flags)
+    DllCall("SelectObject", "Ptr", maskDC, "Ptr", old, "Ptr")
+    DllCall("DeleteObject", "Ptr", font)
+}
+
+; 执行过程从 2026-09-18 起改回**独立的不透明只读 Edit 窗口**（RunBoxLogGui / RunBoxLogEdit），
+; 因为用户实测要求"能选中、能 Ctrl+C 复制、能滚动翻阅"——自绘文字做不到这些。
+; 相应的自绘日志函数（RunBoxDrawLog / RunBoxDrawLogBlock / RunBoxLogTailText）已删除。
+
+; ---- 面板拖动：自己实现（面板是 WS_EX_NOACTIVATE，交给系统 HTCAPTION 移动循环不可靠），
+;      用定时器轮询光标与左键状态，不额外占用 WM_MOUSEMOVE 等公共消息 ----
+RunBoxDragStart() {
+    global runboxGui, runboxDragActive, runboxDragMoved, runboxDragX0, runboxDragY0
+    global runboxDragWinX, runboxDragWinY
+    hw := RunBoxHwnd()
+    if (!hw)
+        return
+    pt := Buffer(8, 0)
+    DllCall("GetCursorPos", "Ptr", pt)
+    runboxDragX0 := NumGet(pt, 0, "Int")
+    runboxDragY0 := NumGet(pt, 4, "Int")
+    runboxGui.GetPos(&wx, &wy)
+    runboxDragWinX := wx
+    runboxDragWinY := wy
+    runboxDragMoved := false
+    runboxDragActive := true
+    DllCall("SetCapture", "Ptr", hw, "Ptr")
+    SetTimer(RunBoxDragTick, 20)
+}
+
+RunBoxDragTick() {
+    global runboxDragActive, runboxDragMoved, runboxDragX0, runboxDragY0, runboxDragWinX, runboxDragWinY
+    if (!runboxDragActive) {
+        SetTimer(RunBoxDragTick, 0)
+        return
+    }
+    ; 左键已松开 → 结束拖动（GetAsyncKeyState 最高位 = 当前按下）
+    if (!(DllCall("GetAsyncKeyState", "Int", 0x01, "Short") & 0x8000)) {
+        RunBoxDragEnd()
+        return
+    }
+    hw := RunBoxHwnd()
+    if (!hw) {
+        RunBoxDragEnd()
+        return
+    }
+    pt := Buffer(8, 0)
+    DllCall("GetCursorPos", "Ptr", pt)
+    dx := NumGet(pt, 0, "Int") - runboxDragX0
+    dy := NumGet(pt, 4, "Int") - runboxDragY0
+    if (Abs(dx) > 3 || Abs(dy) > 3)
+        runboxDragMoved := true
+    WinGetPos(, , &ww, &wh, "ahk_id " . hw)
+    vb := RadialVirtualBounds()
+    nx := Max(vb.x, Min(runboxDragWinX + dx, vb.x + vb.w - ww))
+    ny := Max(vb.y, Min(runboxDragWinY + dy, vb.y + vb.h - wh))
+    try WinMove(nx, ny, , , "ahk_id " . hw)     ; 触发 WM_MOVE → RunBoxMoveHandler 同步其它窗口
+}
+
+RunBoxDragEnd() {
+    global runboxDragActive, runboxDragMoved, runboxBusy
+    moved := runboxDragMoved
+    runboxDragActive := false
+    runboxDragMoved := false
+    SetTimer(RunBoxDragTick, 0)
+    DllCall("ReleaseCapture")
+    OverlayAvoid("runbox")
+    ; 面板带 WS_EX_NOACTIVATE（点它不抢焦点），所以"单击面板"要主动把光标还给输入框 ——
+    ; 这样"点一下运行框再按 Esc 关闭"才成立。真拖动时不动焦点；解析 / 执行中（busy）也绝不抢焦点。
+    if (!moved && !runboxBusy)
+        RunBoxFocusInput()
+}
+
 ; ---- 弹出运行框（触发键只负责"打开 / 聚焦"，**永不关闭**）----
 ; 用户要求（2026-09-18）：触发键不再是开 / 关切换。
 ;   · 第一次按 → 一定弹出运行框，且光标自动落在输入框里；
@@ -3871,17 +4252,15 @@ RunBoxParseReply(reply) {
 ;   ② 正下方键帽排的【取消】键 = 对**"排除运行框之外的最近活动窗口"**的取消
 ;      → 把 Esc 发给目标窗口（走 OverlaySendKey，见 KeypadOnKeyPress），运行框保持打开。
 RunBoxShow() {
-    global runboxGui, runboxEdit, runboxStatus, runboxHandle, runboxDetail
+    global runboxGui, runboxTextGui, runboxInputGui, runboxEdit, runboxLayout
     global runboxPrevWin, runboxPrevTitle, runboxState, runboxBusy, runboxLog
-    global runboxExpanded, runboxHSmall, ui_font_size
+    global runboxExpanded, runboxStatusText, runboxHandleText, runboxOpacity
+    global runboxInOffX, runboxInOffY, ui_font_size
+    global runboxLogGui, runboxLogEdit, runboxLogOffX, runboxLogOffY
     if (runboxGui) {
         ; 已经打开：触发键**只把焦点（光标）拿回输入框**，绝不关闭（关闭请按 Esc）
-        hwCur := RunBoxHwnd()
-        if (hwCur) {
-            try WinActivate("ahk_id " . hwCur)
-            try runboxEdit.Focus()
-            DebugLog("[runbox] 触发键：只把焦点拿回运行框（关闭请按 Esc）")
-        }
+        RunBoxFocusInput()
+        DebugLog("[runbox] 触发键：只把焦点拿回运行框（关闭请按 Esc）")
         return
     }
     if (runboxBusy)
@@ -3896,70 +4275,117 @@ RunBoxShow() {
     runboxState := "input"
     runboxBusy := false
 
-    g := Gui()
-    g.Opt("-Caption +AlwaysOnTop +Border")
-    g.Title := "SharpKnife 运行框"
-    g.BackColor := "2D2D2D"
-    g.SetFont("s" . ui_font_size, "Microsoft YaHei")
-    g.Add("Text", "cFFCB66 w560", "用中文描述你要做的操作（回车交给模型解析，Esc 取消）：")
-    g.SetFont("s" . ui_font_size, "Consolas")
-    edit := g.Add("Edit", "cFFFFFF Background2D2D2D w560")
-    g.SetFont("s" . Max(ui_font_size - 4, 7), "Microsoft YaHei")
-    status := g.Add("Text", "c888888 w560", "可用动作：send: / hotkey: / paste: / item: / run: / self:")
-    ; 界面只有两块：上面输入框，下面可展开 / 收起的"动作执行过程"
-    ; （原先中间那块"计划清单"展示框已按要求去掉；清单与丢弃信息都记在过程面板里）
-    ; 底部小把手：点它展开 / 收起"执行全过程"面板（+0x100 = SS_NOTIFY，静态控件才会响应点击）
-    handle := g.Add("Text", "+0x100 c88AADD w560 Center", "▼ 执行过程（点击展开）")
-    detail := g.Add("Edit", "ReadOnly +Multi +VScroll cCCCCCC Background1F1F1F w560 r14 Hidden")
-    okBtn := g.Add("Button", "Hidden Default", "OK")   ; 隐藏的默认按钮：Edit 里按回车即触发它
-    okBtn.OnEvent("Click", (*) => RunBoxDefault())
-    handle.OnEvent("Click", (*) => RunBoxToggleDetail())
-    g.OnEvent("Escape", (*) => RunBoxEsc())
-    runboxGui := g
-    runboxEdit := edit
-    runboxStatus := status
-    runboxHandle := handle
-    runboxDetail := detail
-    runboxExpanded := false                     ; 每次打开都先收起
-    runboxLog := []                             ; 过程日志也从空白开始
-    try handle.Text := "▼ 执行过程（点击展开）"
-
-    g.Show("AutoSize Hide")
-    RunBoxMeasureHeights()                     ; 量好"收起高度"与"过程面板额外高度"
-    runboxExpanded := false                    ; 默认一定是收起态（只有点把手才展开）
-    try detail.Visible := false
-    g.GetPos(&gx, &gy, &gw, &gh)
+    L := RunBoxComputeLayout()                   ; 布局：面板 / 输入框 / 状态 / 把手 / 日志的矩形
     vb := RadialVirtualBounds()
-    newX := vb.x + (vb.w - gw) // 2
-    newY := vb.y + vb.h // 5
-    g.Move(Max(vb.x, newX), Max(vb.y, newY), gw, runboxHSmall)
-    g.Show()
-    RunBoxApplyHeight()                        ; 再按收起高度套一次（双保险）
+    px := Max(vb.x, vb.x + (vb.w - L.w) // 2)
+    py := Max(vb.y, vb.y + vb.h // 5)
+    if (py + L.hSmall > vb.y + vb.h)
+        py := Max(vb.y, vb.y + vb.h - L.hSmall)
+
+    ; ---- ① 面板窗口：GDI 自绘的半透明底（整窗 LWA_ALPHA），**不画任何文字** ----
+    ; +E0x08000000 = WS_EX_NOACTIVATE：点面板 / 拖面板都不抢输入框的焦点。
+    ; 文字不能画在这里：整窗 alpha 会把它一起变淡（见 10c-3 的同一道理）。
+    g := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x08000000")
+    g.BackColor := "2D2D2D"
+    g.MarginX := 0
+    g.MarginY := 0
+    g.Show("x" . px . " y" . py . " w" . L.w . " h" . L.hSmall . " NoActivate")
+    runboxGui := g
+    RunBoxApplyOpacity(g.Hwnd)
+    ; 圆角窗口（SetWindowRgn 后系统接管该区域，勿 DeleteObject）
+    hRgn := DllCall("CreateRoundRectRgn", "Int", 0, "Int", 0, "Int", L.w + 1, "Int", L.hSmall + 1
+        , "Int", 14, "Int", 14, "Ptr")
+    DllCall("SetWindowRgn", "Ptr", g.Hwnd, "Ptr", hRgn, "Int", 1)
+
+    ; ---- ② 文字层：提示行 / 状态行 / 把手 / 执行过程日志（彩色字身 + 黑边，恒不透明）----
+    runboxTextGui := OverlayTextLayerNew(px, py, L.w, L.hSmall)
+
+    ; ---- ③ 输入框窗口：独立顶层窗口，**整块不透明**（不受 [runbox] opacity 影响）----
+    ; 为什么必须独立成窗：LWA_ALPHA 是按整个顶层窗口（含其所有子控件）施加的，
+    ; 输入框若挂在上面的半透明面板上，就会跟着一起变淡。用户要求"编辑框本身不透明"。
+    gIn := Gui("-Caption +AlwaysOnTop +ToolWindow")
+    gIn.MarginX := 0
+    gIn.MarginY := 0
+    gIn.BackColor := "FFFFFF"        ; 用户要求：输入框白底黑字
+    gIn.SetFont("s" . ui_font_size, "Consolas")
+    edit := gIn.Add("Edit", "c000000 BackgroundFFFFFF w" . L.input.w . " h" . L.input.h)
+    okBtn := gIn.Add("Button", "Hidden Default", "OK")   ; 隐藏的默认按钮：Edit 里按回车即触发它
+    okBtn.OnEvent("Click", (*) => RunBoxDefault())
+    gIn.OnEvent("Escape", (*) => RunBoxEsc())            ; Esc 关闭运行框（面板不持焦点，挂这里最可靠）
+    gIn.Show("x" . px . " y" . py . " w" . L.input.w . " h" . L.input.h . " NoActivate")
+    runboxInputGui := gIn
+    runboxEdit := edit
+    ; 输入框窗口客户区左上角相对窗口左上角的偏移（有边框 / 阴影时非 0，定位要用它换算）
+    runboxInOffX := 0
+    runboxInOffY := 0
+    try {
+        icx := 0, icy := 0, iwx := 0, iwy := 0
+        WinGetClientPos(&icx, &icy, , , "ahk_id " . gIn.Hwnd)
+        gIn.GetPos(&iwx, &iwy)
+        if (IsSet(icx) && IsSet(iwx))
+            runboxInOffX := icx - iwx
+        if (IsSet(icy) && IsSet(iwy))
+            runboxInOffY := icy - iwy
+    } catch {
+    }
+
+    ; ---- ④ 执行过程窗口：独立顶层窗口里的**只读多行 Edit**（整块不透明）----
+    ; 用户实测要求（2026-09-18）：执行过程必须能用鼠标选中、Ctrl+C 复制、滚动条翻阅，
+    ; 所以它不能再画在文字层上，而是像输入框一样单独成窗（代价：这块区域不参与 [runbox] opacity）。
+    gLog := Gui("-Caption +AlwaysOnTop +ToolWindow")
+    gLog.MarginX := 0
+    gLog.MarginY := 0
+    gLog.BackColor := "1F1F1F"
+    gLog.SetFont("s" . L.sub, "Microsoft YaHei")
+    logEdit := gLog.Add("Edit", "ReadOnly +Multi +VScroll cD8D8D8 Background1F1F1F w" . L.log.w . " h" . L.log.h)
+    gLog.OnEvent("Escape", (*) => RunBoxEsc())    ; 焦点在日志上时 Esc 也能关运行框
+    runboxLogGui := gLog                           ; 先不 Show：收起态由 RunBoxLogVisible 隐藏（默认隐藏）
+    runboxLogEdit := logEdit
+    runboxLogOffX := 0
+    runboxLogOffY := 0
+    try {
+        lcx := 0, lcy := 0, lwx := 0, lwy := 0
+        WinGetClientPos(&lcx, &lcy, , , "ahk_id " . gLog.Hwnd)
+        gLog.GetPos(&lwx, &lwy)
+        if (IsSet(lcx) && IsSet(lwx))
+            runboxLogOffX := lcx - lwx
+        if (IsSet(lcy) && IsSet(lwy))
+            runboxLogOffY := lcy - lwy
+    } catch {
+    }
+
+    runboxExpanded := false                      ; 每次打开都先收起
+    runboxLog := []                              ; 过程日志也从空白开始
+    runboxStatusText := "可用动作：send: / hotkey: / paste: / item: / run: / self:"
+    runboxHandleText := "▼ 执行过程（点击展开）"
+    RunBoxTextBoxes()                            ; 把输入框窗口贴到面板上的输入框矩形
+    RunBoxPanelDraw()                            ; 画面板（底色 + 1px 浅灰边框）
+    RunBoxTextLayerPresent()                     ; 画文字层
+
     ; 输入框自动获得焦点（运行框本来就是要抢焦点来打字的，提交后会还给原窗口）
-    try edit.Focus()
+    RunBoxFocusInput()
     ; 持续跟踪"最近一个活动窗口（排除运行框自己）"：每 400ms 看一眼，变了就记下来
     RunBoxTrackTarget()
     SetTimer(RunBoxTrackTarget, 400)
-    ; 无边框窗口的拖动：先注销可能残留的旧回调，再注册（WM_NCHITTEST + 吞双击最大化）
+    ; 面板拖动：WM_NCHITTEST 返回 HTCAPTION，真正的拖动在 RunBoxNcLButtonDown 里自己接管
     OnMessage(0x0084, RunBoxHitTest, 0)
     OnMessage(0x0084, RunBoxHitTest)
     OnMessage(0x00A3, RunBoxNoMaximize, 0)
     OnMessage(0x00A3, RunBoxNoMaximize)
-    OnMessage(0x00A1, RunBoxNcLButtonDown, 0)     ; 小把手的第二道点击入口
+    OnMessage(0x00A1, RunBoxNcLButtonDown, 0)     ; 面板拖动 / 小把手点击
     OnMessage(0x00A1, RunBoxNcLButtonDown)
-    OnMessage(0x0003, RunBoxMoveHandler, 0)       ; 运行框移动 → 键帽排跟着走
+    OnMessage(0x0003, RunBoxMoveHandler, 0)       ; 面板移动 → 输入框 / 文字层 / 键帽排跟着走
     OnMessage(0x0003, RunBoxMoveHandler)
-    OnMessage(0x0232, RunBoxExitSizeMove, 0)      ; 拖动结束 → 推开被压住的浮层
+    OnMessage(0x0232, RunBoxExitSizeMove, 0)      ; 兼容：系统移动循环结束（自实现拖动时基本用不到）
     OnMessage(0x0232, RunBoxExitSizeMove)
     RunKeysShow()                                 ; 底部热键键帽（回车 / Tab / 空格 / 删除 / 退格 / 取消 / 触发）
     OverlayAvoid("runbox")                        ; 运行框也算浮层：把它压住的菜单 / 小键盘推开
+    RunBoxSyncWindows()                           ; 避让之后所有窗口再对齐一次
+    RunBoxTextLayerPresent()
     ; 最后再确认一次光标在输入框里：键帽排等窗口刚创建完，仍要把光标留在对话框中（用户要求）
-    try {
-        WinActivate("ahk_id " . RunBoxHwnd())
-        edit.Focus()
-    } catch {
-    }
-    DebugLog("[runbox] 已弹出运行框，目标窗口=" . runboxPrevWin . "「" . runboxPrevTitle . "」")
+    RunBoxFocusInput()
+    DebugLog("[runbox] 已弹出运行框，目标窗口=" . runboxPrevWin . "「" . runboxPrevTitle . "」"
+        . "（opacity=" . runboxOpacity . "，面板=" . L.w . "x" . L.hSmall . "，输入框=" . L.input.w . "x" . L.input.h . "）")
 }
 
 ; ============ 运行框下方的热键键帽（复用第 5 个小键盘面板 runkeys）============
@@ -4029,7 +4455,7 @@ RunBoxMoveHandler(wParam, lParam, msg, hwnd) {
     ownHwnd := RunBoxHwnd()
     if (!ownHwnd || hwnd != ownHwnd)
         return
-    RunKeysAnchor()
+    RunBoxSyncWindows()
     if (A_TickCount - runboxAvoidTick > 250)
         OverlayAvoid("runbox")
 }
@@ -4055,187 +4481,117 @@ RunBoxHwnd() {
     return h
 }
 
-; ---- 弹出时量好"收起态高度"和"过程面板额外高度" ----
-; 设计要点（血泪教训）：
-;   · 只依赖**一次** AutoSize（在窗口隐藏、过程面板与清单都隐藏时量收起高度）；
-;     展开高度不再靠"切成可见再量"，而是直接 += 过程面板自身高度 + 间距。
-;   · 不再来回切可见性，并且在 finally 里强制把两个可选项恢复成"隐藏" ——
-;     否则中途抛异常会把过程面板留在可见状态，表现就是"默认打开就是展开的"。
-;   · 保险：收起高度必须容得下小把手（用控件在客户区的位置推算，隐藏状态也能取到），
-;     否则收起后把手会被挤到窗口外面，看起来像"把手消失了"。
-RunBoxMeasureHeights() {
-    global runboxGui, runboxDetail, runboxHandle, runboxHSmall, runboxExtraDetail
-    runboxHSmall := 0
-    runboxExtraDetail := 0
-    if (!runboxGui)
-        return
-    ; 控件没挂上就什么都不做（防御：曾因 global 声明漏写导致这里拿到空串并抛错）
-    if (!runboxDetail || !runboxHandle)
-        return
-    try {
-        runboxDetail.Visible := false
-        runboxGui.Show("AutoSize Hide")
-        h := 0
-        runboxGui.GetPos(, , , &h)
-        runboxHSmall := h
-    } catch Error as e {
-        DebugLog("[runbox] 量收起高度失败：" . e.Message)
-    } finally {
-        try runboxDetail.Visible := false
-    }
-
-    ; 过程面板自身高度（隐藏状态下 ControlGetPos 依然能取到真实尺寸）
-    ; 注意：ControlGetPos 失败时输出参数会被置回"未赋值"，所以一律用 IsSet 判断
-    dh := 0
-    try ControlGetPos(, , , &dh, runboxDetail)
-    if (!IsSet(dh) || dh <= 0)
-        dh := 260                                  ; 兜底：r14 的经验值
-    runboxExtraDetail := dh + 12
-
-    if (!IsSet(runboxHSmall) || runboxHSmall <= 0)
-        runboxHSmall := 200                        ; 量不到就保守给个高度，不让它变 0
-
-    ; 保险：收起高度至少要能看见小把手
-    try {
-        hx := 0, hy := 0, hw := 0, hh := 0
-        ControlGetPos(&hx, &hy, &hw, &hh, runboxHandle)
-        if (IsSet(hy) && IsSet(hh) && hh > 0) {
-            wx := 0, wy := 0
-            runboxGui.GetPos(&wx, &wy)
-            offY := 0
-            try WinGetClientPos(&cx, &cy, , , "ahk_id " . RunBoxHwnd())
-            if (IsSet(cy) && IsSet(wy))
-                offY := cy - wy                    ; 客户区顶边相对窗口顶边的偏移
-            need := offY + hy + hh + 6
-            if (need > runboxHSmall)
-                runboxHSmall := need
-        }
-    } catch {
-    }
-    DebugLog("[runbox] 高度：收起=" . runboxHSmall . "，过程面板额外=" . runboxExtraDetail)
-}
-
-; ---- 按当前展开状态调整窗口高度（收起 = runboxHSmall；展开 = 再加 runboxExtraDetail）----
+; ---- 按当前展开状态调整面板高度（收起 = hSmall；展开 = hBig），并重画 / 同步 ----
 RunBoxApplyHeight() {
-    global runboxGui, runboxExpanded, runboxHSmall, runboxExtraDetail
-    if (!runboxGui)
+    global runboxGui, runboxExpanded, runboxLayout
+    if (!runboxGui || !runboxLayout)
         return
-    base := (IsSet(runboxHSmall) && runboxHSmall > 0) ? runboxHSmall : 200
-    extra := (IsSet(runboxExtraDetail) && runboxExtraDetail > 0) ? runboxExtraDetail : 0
-    newH := Max(base, 120) + (runboxExpanded ? extra : 0)
+    L := runboxLayout
+    newH := runboxExpanded ? L.hBig : L.hSmall
     try {
-        runboxGui.GetPos(&gx, &gy, &gw)
+        runboxGui.GetPos(&gx, &gy)
         vb := RadialVirtualBounds()
         if (gy + newH > vb.y + vb.h)
             gy := Max(vb.y, vb.y + vb.h - newH)     ; 撑开后别跑到屏幕外面去
-        runboxGui.Move(gx, gy, gw, newH)
+        runboxGui.Move(gx, gy, L.w, newH)
     } catch Error as e {
         DebugLog("[runbox] 调整高度失败：" . e.Message . "（目标高度=" . newH . "）")
     }
-    RunKeysAnchor()                                ; 窗口变高 / 变矮后键帽排重新吸附
+    RunBoxPanelDraw()                              ; 高度变了要重画面板底色 / 边框
+    RunBoxLogVisible()                             ; 执行过程窗口：展开显示 / 收起隐藏，并贴到日志矩形
+    RunBoxSyncWindows()                            ; 四个窗口 + 键帽排重新对齐
+    RunBoxTextLayerPresent()                       ; 文字层（固定只盖提示 / 状态 / 把手）
     OverlayAvoid("runbox")                         ; 撑开后若压住别的浮层，把它们推开
 }
 
 ; ---- 底部小把手：展开 / 收起"执行全过程"面板 ----
 RunBoxToggleDetail() {
-    global runboxExpanded, runboxDetail, runboxHandle, runboxGui, runboxEdit, runboxToggleTick
-    global runboxExtraDetail
+    global runboxExpanded, runboxGui, runboxEdit, runboxToggleTick, runboxLog
     if (!runboxGui)
         return
-    ; 两条点击路径（静态控件 Click / WM_NCLBUTTONDOWN 拦截）去抖：300ms 内只认一次，
-    ; 避免万一两条都触发时"展开又立刻收起"=看起来没反应
+    ; 去抖：300ms 内只认一次，避免同一击被两条路径都算上
     now := A_TickCount
     if (now - runboxToggleTick < 300)
         return
     runboxToggleTick := now
     runboxExpanded := !runboxExpanded
-    try runboxDetail.Visible := runboxExpanded
-    try runboxHandle.Text := runboxExpanded ? "▲ 执行过程（点击收起）" : "▼ 执行过程（点击展开）"
-    ; 窗口高度要显式改：已显示的窗口再调 Show("AutoSize") 不保证重新收紧 / 撑开，
-    ; 之前就是"面板出来了但被窗口挡住"，看着像把手点了没反应。
+    RunBoxSetHandle(runboxExpanded ? "▲ 执行过程（点击收起）" : "▼ 执行过程（点击展开）")
+    RunBoxApplyHeight()                            ; 高度 / 面板 / 日志窗口 / 文字层 / 键帽排一起更新
     if (runboxExpanded)
-        RunBoxRenderLog()                          ; 只有展开了才渲染执行过程
-    RunBoxApplyHeight()
-    try runboxEdit.Focus()
-    ok := false
-    try ok := runboxDetail.Visible
+        RunBoxRenderLog()                          ; 展开时把日志灌进 Edit（收起时窗口已隐藏）
+    try runboxEdit.Focus()                         ; 点完把手把光标还给输入框
     DebugLog("[runbox] 执行过程面板：" . (runboxExpanded ? "展开" : "收起")
-        . "（面板可见=" . ok . "，额外高度=" . (IsSet(runboxExtraDetail) ? runboxExtraDetail : 0) . "）")
+        . "（日志行数=" . runboxLog.Length . "）")
 }
 
-; ---- 执行全过程日志：追加一行；面板开着就刷新并自动滚到底部 ----
+; ---- 执行全过程日志：追加一行；面板开着就写进 Edit（写 Edit 很便宜，不必节流）----
 RunBoxLogAdd(line) {
-    global runboxLog, runboxDetail, runboxExpanded
+    global runboxLog, runboxExpanded, runboxGui
     runboxLog.Push(line)
     ; 收起状态下**不渲染**（用户要求：只有打开扩展区域才显示执行过程）
-    if (!runboxDetail || !runboxExpanded)
+    if (!runboxGui || !runboxExpanded)
         return
     RunBoxRenderLog()
 }
 
-; ---- 把日志渲染进过程面板并滚到底（展开时调用；收起时不显示）----
+; ---- 展开时把日志灌进只读多行 Edit 并滚到底（与改造前一致，可滚动 / 选中 / Ctrl+C）----
 RunBoxRenderLog() {
-    global runboxLog, runboxDetail
-    if (!runboxDetail)
+    global runboxLog, runboxLogEdit, runboxExpanded
+    if (!runboxLogEdit || !runboxExpanded)
         return
     txt := ""
     for l in runboxLog
         txt .= l . "`n"
-    try runboxDetail.Value := RTrim(txt, "`n")
+    txt := RTrim(txt, "`n")
+    if (txt = "")
+        txt := "（还没有执行记录：写完需求回车后，这里会显示「解析 → 清单 → 每条成败与耗时 → 结果」的全过程）"
+    try runboxLogEdit.Value := txt
     try {
-        SendMessage(0x00B1, -1, -1, , "ahk_id " . runboxDetail.Hwnd)   ; EM_SETSEL：光标移到末尾
-        SendMessage(0x00B7, 0, 0, , "ahk_id " . runboxDetail.Hwnd)     ; EM_SCROLLCARET：滚到可见
+        SendMessage(0x00B1, -1, -1, , "ahk_id " . runboxLogEdit.Hwnd)   ; EM_SETSEL：光标移到末尾
+        SendMessage(0x00B7, 0, 0, , "ahk_id " . runboxLogEdit.Hwnd)     ; EM_SCROLLCARET：滚到可见
     }
 }
 
-; ---- 小把手的第二道点击入口：系统把"按在标题栏上"的消息拦下来当点击 ----
-; 为什么需要：Text 是静态控件，默认对鼠标"透明"（命中测试返回 HTTRANSPARENT），
-; 鼠标消息会落到父窗口；而父窗口已被我们改成 HTCAPTION（用来拖动窗口），
-; 于是系统直接进入"拖标题栏"流程，静态控件根本收不到 WM_LBUTTONDOWN，Click 事件自然不触发。
-; 这里拦 WM_NCLBUTTONDOWN(0x00A1)：wParam = HTCAPTION(2) 且落点在小把手矩形内 → 当作点击并吞掉，
-; 其余位置原样放行（继续拖窗口）。选 0x00A1 而不是 0x0201，同样是为了不与其它组件抢消息。
+; ---- 面板上的鼠标左键（非客户区消息 WM_NCLBUTTONDOWN 0x00A1）----
+; 为什么走 0x00A1：RunBoxHitTest 让整块面板按 HTCAPTION（可拖动）处理，点下去就会来这条消息；
+; 而 0x0201 被径向菜单 / 小键盘 / 思考窗口抢（每个消息只挂一个回调），运行框不能再用它。
+; 这里做两件事：
+;   ① 落点在"执行过程"把手上 → 展开 / 收起（吞掉，不进入拖动）；
+;   ② 其余位置 → **自己实现拖动**（面板是 WS_EX_NOACTIVATE，交给系统 HTCAPTION 移动循环不可靠）。
+; 典型做法：记录起点 + SetCapture + 定时器轮询光标与左键状态（见 RunBoxDragStart / RunBoxDragTick）。
 RunBoxNcLButtonDown(wParam, lParam, msg, hwnd) {
-    global runboxHandle
+    global runboxLayout
     if (wParam != 2)                      ; 2 = HTCAPTION
         return
     ownHwnd := RunBoxHwnd()
     if (!ownHwnd || hwnd != ownHwnd)
         return
-    if (!runboxHandle)
+    L := runboxLayout
+    if (!L)
         return
     pt := Buffer(8, 0)
     DllCall("GetCursorPos", "Ptr", pt)
     mx := NumGet(pt, 0, "Int")
     my := NumGet(pt, 4, "Int")
-    ControlGetPos(&hx, &hy, &hw, &hh, runboxHandle)
-    WinGetClientPos(&cx, &cy, , , "ahk_id " . ownHwnd)
-    if (mx >= cx + hx && mx <= cx + hx + hw && my >= cy + hy && my <= cy + hy + hh) {
+    WinGetPos(&wx, &wy, , , "ahk_id " . ownHwnd)
+    R := L.handle
+    if (mx >= wx + R.x && mx <= wx + R.x + R.w && my >= wy + R.y && my <= wy + R.y + R.h) {
         RunBoxToggleDetail()
         return 0                          ; 吞掉：不要进入窗口拖动
     }
-    return
+    RunBoxDragStart()
+    return 0                              ; 吞掉：拖动由我们自己的定时器接管
 }
 
-; ---- 无边框运行框的拖动：靠 WM_NCHITTEST 让系统按"标题栏"处理 ----
-; 返回 HTCAPTION(2) 后，按住窗口任意位置（标题行 / 状态行 / 结果清单 / 边框）即可拖动；
-; 输入框是真正的 Edit 控件，单独放行，保持点选、光标与输入法正常。
-; 注意：这里用 WM_NCHITTEST(0x0084) 而不是径向菜单 / 小键盘 / 思考窗口用的
-; WM_LBUTTONDOWN(0x0201) —— 后者每个消息只能挂一个回调，谁后注册谁覆盖（会互相抢）。
+; ---- 面板的命中测试：整块面板按"标题栏"处理 ----
+; 面板上只有自绘内容与文字层（文字层是 WS_EX_TRANSPARENT，点击穿透到面板），
+; 输入框在**另一个窗口**上，根本不会走到这里，所以这里可以统一返回 HTCAPTION(2)。
+; 真正的拖动由 RunBoxNcLButtonDown 自己接管（见上）。
 RunBoxHitTest(wParam, lParam, msg, hwnd) {
-    global runboxEdit, runboxHandle, runboxDetail
     ownHwnd := RunBoxHwnd()
-    if (!ownHwnd)
+    if (!ownHwnd || hwnd != ownHwnd)
         return
-    ; 只认运行框自己（含其子控件）的消息；GA_ROOT = 2
-    if (DllCall("GetAncestor", "Ptr", hwnd, "UInt", 2, "Ptr") != ownHwnd)
-        return
-    if (runboxEdit && hwnd = runboxEdit.Hwnd)
-        return                                     ; 输入框：正常编辑行为
-    if (runboxHandle && hwnd = runboxHandle.Hwnd)
-        return                                     ; 小把手：要能点击
-    if (runboxDetail && hwnd = runboxDetail.Hwnd)
-        return                                     ; 过程面板：要能滚动 / 选文字
-    return 2                                       ; HTCAPTION：交给系统拖动
+    return 2                                       ; HTCAPTION
 }
 
 ; 拖动时双击标题区会被系统当成"最大化"——这里吞掉它，运行框保持原尺寸
@@ -4256,12 +4612,21 @@ RunBoxNoMaximize(wParam, lParam, msg, hwnd) {
 ; 用户要求：自然语言运行框（含键帽排）既可以有焦点，但**永远不能**算作动作目标窗口，
 ; 也不能算作"要回退到的上一个窗口"。
 RunBoxIsSelfWin(hwnd) {
-    global keypadPanels
+    global keypadPanels, runboxInputGui, runboxLogGui
     if (!hwnd)
         return true                          ; 没有前台窗口：按"没有可留下的新窗口"处理
     own := RunBoxHwnd()
     if (own && hwnd = own)
         return true
+    ; 输入框 / 执行过程都是独立顶层窗口 —— 它们才是真正会拿到前台的那些"自己"
+    for g in [runboxInputGui, runboxLogGui] {
+        if (!g)
+            continue
+        gh := 0
+        try gh := g.Hwnd
+        if (gh && hwnd = gh)
+            return true
+    }
     if (keypadPanels.Has("runkeys")) {
         P := keypadPanels["runkeys"]
         if (P.gui) {
@@ -4294,12 +4659,17 @@ RunBoxTrackTarget() {
 }
 
 RunBoxClose() {
-    global runboxGui, runboxEdit, runboxStatus, runboxState, runboxBusy, runboxPrevWin
-    global runboxHandle, runboxDetail, runboxExpanded
+    global runboxGui, runboxTextGui, runboxInputGui, runboxEdit, runboxLogGui, runboxLogEdit
+    global runboxState, runboxBusy, runboxPrevWin, runboxLayout
+    global runboxExpanded, runboxDragActive, runboxTextTimerOn
     ; 顺序很重要：**先停表、先清空全局引用，最后才销毁窗口**。
-    ; 否则定时器（每 400ms）可能在 Destroy() 与清空之间插进来读 runboxGui.Hwnd，
+    ; 否则定时器（每 400ms / 拖动 20ms）可能在 Destroy() 与清空之间插进来读 runboxGui.Hwnd，
     ; 抛 "Gui has no window"（2026-09-15 用户实测踩到）。
     SetTimer(RunBoxTrackTarget, 0)
+    SetTimer(RunBoxDragTick, 0)
+    SetTimer(RunBoxTextsFlush, 0)
+    runboxDragActive := false
+    runboxTextTimerOn := false
     OnMessage(0x0084, RunBoxHitTest, 0)
     OnMessage(0x00A3, RunBoxNoMaximize, 0)
     OnMessage(0x00A1, RunBoxNcLButtonDown, 0)
@@ -4308,15 +4678,27 @@ RunBoxClose() {
     RunKeysHide()                                 ; 键帽排随运行框一起收掉
     runboxBusy := false
     runboxState := ""
-    g := runboxGui
+    gPanel := runboxGui
+    gText := runboxTextGui
+    gInput := runboxInputGui
+    gLog := runboxLogGui
     runboxGui := ""
+    runboxTextGui := ""
+    runboxInputGui := ""
+    runboxLogGui := ""
     runboxEdit := ""
-    runboxStatus := ""
-    runboxHandle := ""
-    runboxDetail := ""
+    runboxLogEdit := ""
+    runboxLayout := ""
     runboxExpanded := false
-    if (g) {
-        try g.Destroy()
+    OverlayTextLayerDestroy(gText)                ; 文字层
+    if (gLog) {
+        try gLog.Destroy()                        ; 执行过程窗口
+    }
+    if (gInput) {
+        try gInput.Destroy()                      ; 输入框窗口
+    }
+    if (gPanel) {
+        try gPanel.Destroy()                      ; 面板窗口
     }
     RunBoxEscOff()
     if (runboxPrevWin)
@@ -4402,7 +4784,7 @@ RunBoxFallbackPick(acts) {
 
 ; ---- 提交需求 → 请求模型 → 解析 → 确认清单 ----
 RunBoxSubmit() {
-    global runboxGui, runboxEdit, runboxStatus, runboxState, runboxBusy
+    global runboxGui, runboxEdit, runboxState, runboxBusy
     global runboxPrevWin, runboxPrevTitle, runboxActions, runboxDropped, runboxConfirm
     global runboxModel, runboxTimeout, runboxLog
     if (runboxState != "input" || runboxBusy || !runboxGui)
@@ -4415,8 +4797,8 @@ RunBoxSubmit() {
     RunBoxLogAdd("[需求] " . req)
     runboxBusy := true
     runboxState := "loading"
-    try runboxEdit.Visible := false
-    try runboxStatus.Text := "正在请模型把需求解析成动作…（最长 " . Round(runboxTimeout / 1000) . " 秒，这段不能中断）"
+    RunBoxInputVisible(false)
+    RunBoxSetStatus("正在请模型把需求解析成动作…（最长 " . Round(runboxTimeout / 1000) . " 秒，这段不能中断）")
     ; 请求期间把焦点还给原窗口，别占着用户的编辑器
     if (runboxPrevWin)
         RadialActivateFocusWin(runboxPrevWin)
@@ -4444,8 +4826,8 @@ RunBoxSubmit() {
     if (parsed.error != "" || runboxActions.Length = 0) {
         DebugLog("[runbox] 第一阶段没有可用动作，转入兜底文字判定")
         RunBoxLogAdd("[模型] 动作表里没有可用的动作，正在重新判断这条需求能否按文字输出…")
-        try runboxStatus.Text := "动作表里没有对应动作，正在重新判断能否按文字输出…（最长 "
-            . Round(runboxTimeout / 1000) . " 秒）"
+        RunBoxSetStatus("动作表里没有对应动作，正在重新判断能否按文字输出…（最长 "
+            . Round(runboxTimeout / 1000) . " 秒）")
         result2 := "", reasoning2 := "", errMsg2 := ""
         ok2 := RunBoxAskModel(userPrompt, RunBoxBuildFallbackPrompt(), &result2, &reasoning2, &errMsg2)
         reason := ""
@@ -4481,24 +4863,24 @@ RunBoxSubmit() {
 ; ---- 解析失败 / 无动作：回到输入态并把提示写在状态栏 ----
 ; hint：可选的第二句出路提示（例如"如果你要的是文字 / 信息，可改说…"）
 RunBoxBackToInput(msg, hint := "") {
-    global runboxEdit, runboxStatus, runboxState, runboxBusy
+    global runboxEdit, runboxState, runboxBusy
     runboxBusy := false
     runboxState := "input"
-    try runboxEdit.Visible := true
+    RunBoxInputVisible(true)
     RunBoxApplyHeight()
-    try runboxStatus.Text := msg . (hint != "" ? "；" . hint : "") . "（可修改需求后重试）"
+    RunBoxSetStatus(msg . (hint != "" ? "；" . hint : "") . "（可修改需求后重试）")
     try runboxEdit.Focus()
 }
 
 ; ---- 显示"将执行"清单；confirm = false 时直接执行 ----
 RunBoxShowConfirm() {
-    global runboxActions, runboxDropped, runboxStatus, runboxState, runboxBusy, runboxConfirm
+    global runboxActions, runboxDropped, runboxState, runboxBusy, runboxConfirm
     runboxBusy := false
     runboxState := "confirm"
     ; 界面只有"输入框 + 可展开的执行过程"两块：清单与丢弃明细记在过程面板里，
     ; 这里只在状态行给一行摘要（想看明细就点底部把手展开）
-    try runboxStatus.Text := "将执行 " . runboxActions.Length . " 条动作（丢弃 " . runboxDropped.Length
-        . " 行）：回车执行，Esc 取消；点下方把手可看明细"
+    RunBoxSetStatus("将执行 " . runboxActions.Length . " 条动作（丢弃 " . runboxDropped.Length
+        . " 行）：回车执行，Esc 取消；点下方把手可看明细")
     ; 全过程日志：把"将执行什么、丢弃了什么"也记下来
     RunBoxLogAdd("[清单] 将执行 " . runboxActions.Length . " 条：")
     for i, a in runboxActions
@@ -4514,7 +4896,7 @@ RunBoxShowConfirm() {
 
 ; ---- 开始执行（逐条、定时器推进、Esc 可中止）----
 RunBoxExecute() {
-    global runboxActions, runboxRunIdx, runboxPrevWin, runboxPrevTitle, runboxStatus, runboxState, runboxBusy
+    global runboxActions, runboxRunIdx, runboxPrevWin, runboxPrevTitle, runboxState, runboxBusy
     global runboxStartTick, runboxExecBaseWin
     if (runboxState = "running" || runboxActions.Length = 0)
         return
@@ -4527,12 +4909,12 @@ RunBoxExecute() {
         RadialActivateFocusWin(runboxPrevWin)      ; 动作要打到原来的前台窗口
     runboxStartTick := A_TickCount
     RunBoxLogAdd("[开始] 目标窗口：「" . (runboxPrevTitle != "" ? runboxPrevTitle : "未知") . "」")
-    try runboxStatus.Text := "开始执行…（Esc 可中止剩余动作）"
+    RunBoxSetStatus("开始执行…（Esc 可中止剩余动作）")
     SetTimer(RunBoxStep, -10)
 }
 
 RunBoxStep() {
-    global runboxActions, runboxRunIdx, runboxPrevWin, runboxStatus, runboxStepDelay, runboxRunWait
+    global runboxActions, runboxRunIdx, runboxPrevWin, runboxStepDelay, runboxRunWait
     runboxRunIdx++
     if (runboxRunIdx > runboxActions.Length) {
         RunBoxFinish("全部 " . runboxActions.Length . " 条动作已执行完毕")
@@ -4540,7 +4922,7 @@ RunBoxStep() {
     }
     act := runboxActions[runboxRunIdx]
     desc := RunBoxActionLine(act)
-    try runboxStatus.Text := "正在执行 " . runboxRunIdx . "/" . runboxActions.Length . "：" . desc
+    RunBoxSetStatus("正在执行 " . runboxRunIdx . "/" . runboxActions.Length . "：" . desc)
     ; 每条动作执行前，确保目标窗口是前台（run: 之后前台可能已经变成新程序，那时就发给新程序）
     cur := WinExist("A")
     if (!cur && runboxPrevWin)
@@ -4559,7 +4941,7 @@ RunBoxStep() {
 ; ---- 收尾：停掉定时器、交还 Esc、显示结果 ----
 ; 收尾：回到可编辑状态；focusTarget = true（正常执行完）时把焦点还给"最近一次活动的窗口"
 RunBoxFinish(msg, focusTarget := true) {
-    global runboxBusy, runboxState, runboxStatus, runboxGui, runboxEdit, runboxStartTick
+    global runboxBusy, runboxState, runboxGui, runboxEdit, runboxStartTick
     global runboxPrevWin, runboxPrevTitle, runboxExecBaseWin
     SetTimer(RunBoxStep, 0)
     runboxBusy := false
@@ -4572,7 +4954,7 @@ RunBoxFinish(msg, focusTarget := true) {
     if (!hw)
         return
     try runboxEdit.Value := ""
-    try runboxEdit.Visible := true
+    RunBoxInputVisible(true)
 
     ; 焦点去向（用户要求，"最近操作过的窗口"原则）：
     ;   · 正常执行完：
@@ -4598,7 +4980,7 @@ RunBoxFinish(msg, focusTarget := true) {
             t := SubStr(t, 1, 24) . "…"
         if (t = "")
             t := "新打开的程序"
-        try runboxStatus.Text := msg . " · 焦点留在新窗口「" . t . "」（点输入框或按触发键可回到这里）"
+        RunBoxSetStatus(msg . " · 焦点留在新窗口「" . t . "」（点输入框或按触发键可回到这里）")
         DebugLog("[runbox] 动作打开了新窗口，焦点留在 " . fg . "「" . t . "」")
     } else {
         ; ② 没打开新窗口 → 把焦点还给执行前那个"最近活动的窗口"；没有可用目标才留在运行框
@@ -4611,12 +4993,11 @@ RunBoxFinish(msg, focusTarget := true) {
                 t := SubStr(t, 1, 24) . "…"
             if (t = "")
                 t := "目标窗口"
-            try runboxStatus.Text := msg . " · 焦点已还给「" . t . "」（点输入框或按触发键可回到这里）"
+            RunBoxSetStatus(msg . " · 焦点已还给「" . t . "」（点输入框或按触发键可回到这里）")
             DebugLog("[runbox] 焦点已还给目标窗口 " . runboxPrevWin)
         } else {
-            try WinActivate("ahk_id " . hw)
-            try runboxEdit.Focus()
-            try runboxStatus.Text := msg . " · 可直接输入下一个需求（Esc 关闭）"
+            RunBoxFocusInput()                 ; 面板与输入框是两个窗口：激活 / 聚焦都要走这里
+            RunBoxSetStatus(msg . " · 可直接输入下一个需求（Esc 关闭）")
         }
     }
 }
@@ -4989,6 +5370,16 @@ KeypadToggle(kind) {
     KeypadShow(kind)
 }
 
+; ---- 某个面板该用的透明度 ----
+; 四块普通小键盘用 [keypad] opacity；键帽排 runkeys 属于运行框的一部分，
+; 用 [runbox] opacity（用户要求：运行框本体与它下方那排键帽共用一套透明度）。
+KeypadOpacityOf(kind) {
+    global keypadOpacity, runboxOpacity
+    if (kind = "runkeys")
+        return IsSet(runboxOpacity) ? runboxOpacity : 1.0
+    return IsSet(keypadOpacity) ? keypadOpacity : 1.0
+}
+
 ; ---- 弹出面板（在鼠标位置；限制在全部显示器合并区域内）----
 ; pushEscape = false：只建面板、不登记浮层栈（用于运行框下方的键帽排——它不接管 Esc）
 KeypadShow(kind, pushEscape := true) {
@@ -5026,15 +5417,18 @@ KeypadShow(kind, pushEscape := true) {
     g.Show("x" . guiX . " y" . guiY . " w" . L.winW . " h" . L.winH . " NoActivate")
     P.gui := g
 
-    ; 应用配置的透明度（keypadOpacity 取值 0.0~1.0）
-    if ((keypadOpacity + 0) < 1.0) {
+    ; 应用配置的透明度（取值 0.0~1.0）。
+    ; 键帽排 runkeys 属于运行框的一部分 —— 用户要求运行框整体一套透明度，所以它用 [runbox] opacity，
+    ; 其余四块面板用 [keypad] opacity。
+    op := KeypadOpacityOf(kind)
+    if ((op + 0) < 1.0) {
         GWL_EXSTYLE := -20
         WS_EX_LAYERED := 0x00080000
         getWindowLongFn := (A_PtrSize = 8) ? "GetWindowLongPtrW" : "GetWindowLongW"
         setWindowLongFn := (A_PtrSize = 8) ? "SetWindowLongPtrW" : "SetWindowLongW"
         ex := DllCall(getWindowLongFn, "Ptr", g.Hwnd, "Int", GWL_EXSTYLE, "Ptr")
         DllCall(setWindowLongFn, "Ptr", g.Hwnd, "Int", GWL_EXSTYLE, "Ptr", ex | WS_EX_LAYERED, "Ptr")
-        alpha := Round(keypadOpacity * 255)
+        alpha := Round(op * 255)
         if (alpha < 0)
             alpha := 0
         if (alpha > 255)
