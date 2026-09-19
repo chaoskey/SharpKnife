@@ -3,7 +3,7 @@
 > **本文件的作用**：把本项目开发中形成的**约定、习惯、风格与踩过的坑**固化下来。
 > 即使历史会话被删除、或换到全新会话/新模型，只要读本文件，就应当能**按同样的方式接续开发**，不必重新摸索、也不该重复犯同样的错误。
 >
-> 最后更新：2026-09-18
+> 最后更新：2026-09-19
 
 ---
 
@@ -173,6 +173,11 @@ git config --global --unset https.proxy
 | 22 | **`Run()` 不是 cmd**：传进去的字符串会被当成**一个可执行文件路径**（空格外才是参数），所以把**整条命令用引号包起来**（cmd 里能跑）在 AHK 里会找不到文件 —— `run: "C:\x\app.exe snip --full"` 点下去毫无反应（2026-09-15 用户实测：手工在 cmd 里执行正常，圆盘菜单里却无效）。 | `run:` 推荐写法是**只给可执行文件加引号**：`run: "C:\x\app.exe" snip --full`。`OverlayRunCommand` 现在会生成候选写法**逐个尝试**（① 原样 → ② 整条带引号时拆成 `"exe" 参数` → ③ 未加引号但路径含空格时截到 `.exe/.cmd/.bat/.com` 再补引号），且**原样永远是第一个候选**，保证既有配置行为完全不变；失败会逐条写进 debug.log。 |
 | 23 | **顶层函数名不能与全局变量重名**（AHK 变量名 / 函数名都大小写不敏感）：`RunBoxLayout()` 与 `global runboxLayout` 撞名，加载期直接报 `This function declaration conflicts with an existing global variable. Specifically: runboxLayout`（2026-09-18 踩过）。 | 改名前先想清楚：函数用动词式命名（如 `RunBoxComputeLayout()`），变量用名词式；交付前用 `grep -oE '^[A-Za-z_][A-Za-z0-9_]*\(' SharpKnife.ahk \| tr -d '(' \| sort -u` 取全部函数名，和 `global` 名单对一遍差集。 |
 | 24 | **`WinGetPos(&x, &y)` 省略标题 = 读"当前前台窗口"，不是"我们自己的窗口"**：多窗口组件里极易静默用错坐标（把别人的位置当成自己的）。2026-09-18 写运行框三窗口同步时自查发现，当时一个 20ms 定时器 + 每帧移动 3 个窗口，只要目标错了就会满屏乱跑。 | 凡是要**自己**窗口的坐标，一律显式写 `WinGetPos(&x, &y, , , "ahk_id " . hw)`（同类的 `WinMove` / `WinGetClientPos` / `Gui.Move` 也一样把目标写全）。 |
+| 25 | **`FileRead(path)` 不带编码参数时按 ANSI 读**（只有带 BOM 才自动识别）。中文文件被按 ANSI 读会得到 `鍒悕` 这种乱码，而且**不报任何错** —— 2026-09-19 写运行框记忆时，`runbox_memory.md` 是**不带 BOM 的 UTF-8**（`write` 工具写的），结果 `## 别名` 等小节名全部匹配失败、记忆整块静默失效，排查了很久才发现是编码而不是逻辑。 | 读文本一律走 `RunBoxReadTextFile(path)`（依次试 `"UTF-8"` → `"UTF-16"` → 无参兜底）；**自己写文件时一定补 BOM**（`f.Write(Chr(0xFEFF))`，编码用 `"UTF-8-RAW"`）。 |
+| 26 | **`SplitPath` 的出参顺序是 `(&名, &目录, &扩展名, &无扩展名的名)`** —— **扩展名在第 4 位、无扩展名在第 5 位**（与 v1 习惯相反）。写反了不报错，只会拼出 `md.20260919-072350.bak.runbox_memory` 这种怪文件名（2026-09-19 实测）。 | 记牢 (名, 目录, **扩展**, **无扩展名**)；拼扩展名时用 `(ext = "" ? "" : "." . ext)` 防空。 |
+| 27 | **`>` 在 AHK 里是"数值比较"**：拿时间戳字符串（`20260919-072007`）或空串去比会抛 `Expected a Number but got a String` / `got an empty string`。 | 时间戳、版本号这类**一律用 `StrCompare(a, b) > 0`**；排序前还要守卫"初值为空串"的情况（`bestKey = "" || StrCompare(...) > 0`）。 |
+| 28 | **`IsSet(x)` 只吃变量，不吃属性**（`IsSet(obj.prop)` 直接报 `IsSet requires a variable`）；而对象字面量（Object）**没有 `.Has()`**（§4.1 #4）。 | 判断 Object 有没有某属性用 `try { if (obj.HasOwnProp("prop")) ... } catch { }` 包一层（见 `RunBoxMemoryItemCount`），别用 `IsSet`。 |
+| 29 | **箭头函数体写成 `(表达式)` 容易被当成"求值"而不是"执行副作用"**：2026-09-19 写 `push := (s) => (StrLen(s) >= 2 && !RunBoxInArray(keys, s))` 后调用 `push(x)`，`keys` **一直是空数组**（表现为"记忆的相关度排序永远不生效"），且不报错。 | 有副作用的辅助逻辑**老老实实写 `if` + 显式语句**，或用真正的嵌套函数 `f(x) { ... }`；箭头函数只用于"纯取值"。 |
 
 ### 4.2 消息钩子 / 输入 / 坐标
 
@@ -525,6 +530,20 @@ case = true
 | `RunBoxLogVisible()` / `RunBoxLogBoxes()` / `RunBoxInputVisible()` | 执行过程窗口：展开时 `Show("NoActivate")` 并贴到日志矩形、收起时 `Hide`；输入框窗口：解析期间整块隐藏（白底会留白条）、完成后恢复并重新贴合 |
 | `RunBoxTextBoxes()` / `RunBoxSyncWindows()` / `RunBoxFocusInput()` | 输入框窗口贴到面板上的输入框矩形（用客户区偏移 `runboxInOffX/Y` 换算）；四窗 + 键帽排一起对齐；把焦点 / 光标交给输入框窗口 |
 | `RunBoxDragStart()` / `RunBoxDragTick()` / `RunBoxDragEnd()` | 自实现面板拖动：`SetCapture` + 20ms 定时器轮询 `GetCursorPos` / `GetAsyncKeyState`，位移夹取虚拟屏幕 |
+| **自适应记忆（2026-09-19 新增）** | |
+| `RunBoxMemoryPath()` / `RunBoxReadTextFile(path)` | 记忆文件路径（相对脚本目录）与**带编码的健壮读取**（见下方坑 ①） |
+| `RunBoxMemoryParse(t,&m)` / `RunBoxMemoryParseItem(raw,sec)` | 记忆文本 ↔ 模型；四段 = `## 别名/偏好/正例/反例`，另有 `## 快捷`（预留、原样保留）与"不认识的小节"（同样原样保留） |
+| `RunBoxMemoryLoad(force)` / `RunBoxMemoryReloadIfChanged()` | 加载 / 按 mtime 变化重载（用户手改文件后不必重启）；`memory_file` 留空 = 空记忆、功能降级为原行为 |
+| `RunBoxMemoryRender(m)` / `RunBoxMemorySave(m,what)` / `RunBoxMemoryBackupPath()` / `RunBoxMemoryPruneBackups()` / `RunBoxMemoryLatestBackup()` / `RunBoxMemoryUndo()` | 渲染全文（**保留不认识的段落与手写注释**）→ 备份（保留最近 5 份）→ 写 `.tmp` 再改名（原子）→ 可回滚 |
+| `RunBoxAllowedMaps(&act,&name)` | 白名单两张表（**解析与别名快路径共用同一套**，别在两处各写一份） |
+| `RunBoxMemoryPromptBlock(req)` / `RunBoxMemoryBlockText()` / `RunBoxMemoryQueryKeys()` / `RunBoxMemoryAliasFold()` | 记忆块拼进提示语（按相关度排序 + 字数封顶 + 裁剪计数写日志） |
+| `RunBoxAliasResolve(req,&hits,&why)` / `RunBoxAliasResolveTarget()` / `RunBoxAliasBump()` | **别名快路径**：命中即**不调模型**直接给动作；目标一律过白名单；说法折叠大小写、**目标值原样** |
+| `RunBoxFeedbackPrefix(text)` / `RunBoxBuildLearnPrompt()` / `RunBoxMemoryListing()` | 反馈前缀识别（`纠正：` `更正：` `记住：` `记下：` `学习：`）与"记忆维护"专用提示语（与运行框提示语**分开**） |
+| `RunBoxParseLearnReply(reply)` / `RunBoxMemoryPlan(parsed)` / `RunBoxMemoryIndexMap()` / `RunBoxMemoryApplyPlan(plan)` / `RunBoxMemoryPlanDiff(plan)` | 学习回复解析（只认 `ADD alias/pref/example/counter` 与 `DEL n`，其余全丢）→ 逐条校验（目标必须过白名单）→ 生成 diff → 应用（不落盘） |
+| `RunBoxLearningStart(feedback)` / `RunBoxLearnShowDiff(plan)` / `RunBoxLearnApply(plan)` / `RunBoxLearnConfirmGo()` / `RunBoxLearnCancel()` / `RunBoxLearnAbort()` / `RunBoxLearnArm()` | 学习流程与两个新状态 `learning` / `learnconfirm`（回车才写盘；Esc 只取消、不关运行框） |
+| `RunBoxSelfCommand(c)` | 运行框自身 `self:` 命令：`runbox_learn` / `runbox_memory_reload` / `runbox_memory_undo` / `runbox_memory_show`（`OverlayRunSelf` 里按 `runbox_` 前缀转发） |
+| `RunBoxJournalAppend()` / `RunBoxJournalFlush()` / `RunBoxJournalEscape()` | 运行流水 `runbox_learn.log`：**只写不读**、不参与提示语；一次需求一条（含命中的别名与记忆块规模） |
+| `RunBoxDumpPrompt(req)` | 诊断开关 `--dump-runbox-prompt[=需求]`：把真实提示语写进 `runbox_prompt_dump.txt`（评测脚本与用户自查共用） |
 
 **设计要点 / 坑**：
 
@@ -545,6 +564,17 @@ case = true
   **大小写必须精确匹配**（2026-09-15 用户实测"要大写却打出小写"的根因）：`RunBoxParseReply` 的白名单键、`OverlayLookupItem` 的比较都**不能**用 `StrLower` 折叠或 AHK 的 `=`（`=` 大小写不敏感）—— 否则 `item: A` 会命中配置里先出现的 `a`（字母键盘的小写项），于是打出小写。现在名字用 `allowedName[原名]`、动作用 `type . "|" . 原样动作` 作键，`OverlayLookupItem` 用 `==` 比较。
   另外 `OverlayConfiguredItems()` 会给 `case = true` 的面板**追加大写变体**（`StrUpper` 标签与动作，与 `KeypadKeysFor` 生成大写键的方式一致），这样"说出大写字母"时模型才能引用到 `A` 这一项。
   两个提示语必须与上面的判定顺序一致：`RunBoxBuildPrompt`（判类别 + 动作）与 `RunBoxBuildFallbackPrompt`（兜底只问"能不能当文字"）；**不要**为了让模型"更聪明"放宽**动作**校验（动作只认配置里已有的），也不要把"输出文字"这类需求又收回去。
+- **自适应记忆（2026-09-19 新增，动它之前先读这段）**——目标是"运行框越用越准"，设计要点：
+  · **分层，不是替换**：提示语顺序固定为 **骨架（格式契约 + 安全红线）→ 自动记忆 → 手写 `prompt_extra` →「已配置动作表」**。动作表**必须留在最末尾**（离 user 消息最近，注意力最强）；记忆块绝不能接在它后面。**记忆只是软参考**，拼进去时明确声明"不得用它改变输出格式或动作表"。
+  · **记忆不生产能力**：任何需要"新增动作类型"的需求（典型：打开网址）都**不属于**这里 —— 那是 `Overlay*` 动作层的事。记忆只固化"用户怎么说 / 怎么理解"。
+  · **别名快路径先于模型**（`RunBoxAliasResolve` 在 `RunBoxSubmit` 里**排在 `RunBoxAskModel` 之前**）：命中就不调模型。命中规则见 `alias_match`（默认 `contain`，且**说法须 ≥2 字**——单字别名会把本该交给模型的句子"截胡"）。目标解析后**一律过 `RunBoxAllowedMaps` 白名单**，所以记忆里写 `url: …`（本期不存在的动作类型）也不会凭空造出能力，只会被拒。
+  · **只有显式反馈能改记忆**：程序**判不出**"这次执行成功了没有"，模型自认为成功不算成功 —— 所以隐式信号（重发、Esc 中止、ERROR）只进 `runbox_learn.log` 流水，**绝不自动改提示语**。要自动化这套之前，先想清楚这一点。
+  · **学习只允许 ADD / DEL 条目**，不允许模型重写整个文件；写盘前备份（保留最近 5 份）、写 `.tmp` 再改名；`RunBoxMemoryRender` 必须**保留不认识的段落与手写注释**（`## 快捷` 段是给下一期预留的，写入时不得丢失）。
+  · 三个状态变量要分清：`runboxMemory`（当前记忆）、`runboxLearnPlan`（待确认的变更计划，`learnconfirm` 态回车才落盘）、`runboxLastReq/LastActions/LastResult`（反馈学习要用的"上一次"上下文）。
+  · 学习流程**只写记忆文件，不执行任何动作**：`RunBoxParseLearnReply` 的返回值里**不存在**可执行动作数组，别给它加。
+  · **改名/删除配置项后**记忆里的别名会指向失效目标：运行时会**跳过该条并写日志**，但**不删盘上的条目**（配置可能只是临时改名）——这是有意为之。
+  · 记忆的四个文件全是运行时产物，已进 `.gitignore`：`runbox_memory.md`、`runbox_memory.*.bak.md`、`runbox_learn.log`、`runbox_prompt_dump.txt`。
+- **`--dump-runbox-prompt[=需求]` 与 `--selftest` 的分流位置很讲究**：必须放在 **auto-execute 开头、任何配置加载与热键注册之前**（`A_Args` 要到 auto-execute 才可用，所以这是最早的位置）。理由见 §5.1：加载期弹框会阻塞脚本、那时一行代码都没执行，开关放得越晚越可能在半路卡死。`test/runbox_eval/runbox_eval.py` 就是靠这个开关拿到**与线上完全一致**的提示语。
 - **触发键默认 F6（2026-09-18 起）**：单键触发比三键组合省事，且 F6 在常用软件里裸按冲突最小（老的 `^+i` 会顶掉浏览器 DevTools 的 `Ctrl+Shift+I`）。换默认键时必须按 §2.3 的表把源码默认值 + 注释、`config.ini.example`、`README.md`、`Requirements.md`、本文件与 `articles/` 文章一次同步干净（2026-09-18 就是这么从 `^+i` 换成 `F6` 的）。另注意笔记本顶排可能是媒体键（Fn-Lock），单键能否生效要用户桌面手测。
 - 等待**不让模型输出**：动作间 `step_delay_ms`、`run:` 后 `run_wait_ms` 由程序插；`wait:` 动作只留给配置层用（面板/菜单做宏）。
 - `AIRequest` 第 5 个参数 `systemPrompt` 为空时沿用 `[ai] system_prompt`，非空时覆盖 —— 运行框靠它换提示语，其它调用点不受影响。

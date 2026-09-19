@@ -6,3 +6,10 @@ audio/
 menu_stats.ini
 tmp/
 articles/
+
+# 运行框自适应记忆的运行时产物（含个人说法/习惯，不入库）
+# 注意：runbox_memory.md 本身是本地记忆，也不入库；想备份就自己复制一份
+runbox_memory.md
+runbox_memory.*.bak.md
+runbox_learn.log
+runbox_prompt_dump.txt

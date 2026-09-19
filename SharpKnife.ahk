@@ -1,4 +1,4 @@
-; ==============================================================================
+﻿; ==============================================================================
 ; SharpKnife —— LaTeX / Unicode / AI / TikZ 四模式补全工具
 ; 作者：Andrew（经 Hermes Agent 协作）
 ; 环境要求：AutoHotkey v2.0+（Windows 10）
@@ -12,13 +12,8 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 
-; 测试钩子：以 `--selftest` 参数启动时仅验证脚本可完整解析（含 #Include 的 SharpKnifeCore.ahk），
-; 不做任何初始化与副作用，随即退出（退出码 0 = 解析通过）。
-; 注意：AHK v2 中 A_Args 为空时索引 [1] 会抛"越界"错误，必须先用 Length 守卫。
-if (A_Args.Length >= 1 && A_Args[1] = "--selftest") {
-    ExitApp(0)
-}
-
+; 测试钩子 `--selftest` 与诊断开关 `--dump-runbox-prompt` 见文件下方 auto-execute 区的
+; 「命令行分流」（那里全局变量已声明，A_Args 也已可用）。
 ; 编译时把托盘图标嵌入 exe 作为资源 ID 1（Ahk2Exe 编译指令，运行 .ahk 时忽略）
 ;@Ahk2Exe-AddResource images\SharpKnife.ico, 1
 
@@ -323,6 +318,27 @@ global runboxDropped := []       ; 被丢弃的行（展示给用户）
 global runboxRunIdx := 0         ; 执行进度
 global runboxBusy := false       ; 正在解析 / 执行
 global runboxState := ""         ; "" / "input" / "loading" / "confirm" / "running" / "done"
+                                 ;   自适应记忆新增两态：learning（正在整理记忆）/ learnconfirm（待确认记忆变更）
+; —— 自适应记忆（runbox_memory.md）：别名快路径 + 偏好/正例/反例 + 学习流水（见 11d-2 节）——
+global runboxMemoryFile := "runbox_memory.md"    ; 记忆文件（相对脚本目录；**显式留空 = 关闭本功能**）
+global runboxLearnConfirm := true                ; true = 记忆写盘前先看 diff、回车才落盘
+global runboxMemoryMaxChars := 1600              ; 记忆块拼进提示语的字数上限（超出按优先级裁剪）
+global runboxAliasMatch := "contain"             ; 别名匹配力度：exact（完全相等）/ contain（含 ≥2 字说法）
+global runboxLearnModel := ""                    ; 学习用模型（空 = 沿用 [ai] model）
+global runboxLearnJournal := "runbox_learn.log"  ; 运行流水（相对脚本目录；空 = 不写）
+global runboxMemory := {loaded: false, path: "", mtime: "", head: [], order: [], secs: Map(), aliasIdx: Map()}
+global runboxMemoryDirty := false                ; 别名命中次数有变化、待落盘
+global runboxLastReq := ""                       ; 上一次需求（反馈学习时当上下文）
+global runboxLastActions := []                   ; 上一次解析出的动作
+global runboxLastDropped := []                   ; 上一次被丢弃的行
+global runboxLastResult := ""                    ; 上一次的结局文字（成功 / 失败原因）
+global runboxLastAliasHit := ""                  ; 上一次是否由别名直接命中（写流水用）
+global runboxLastJournaled := false              ; 本次需求是否已写过流水（防重复）
+global runboxLastErrText := ""                   ; 上一次的 ERROR 文本（写流水用，无则空）
+global runboxLearnArmed := false                 ; 键帽【纠正】(self:runbox_learn) 按下后：下一次输入按反馈处理
+global runboxLearnPlan := 0                      ; 待确认的记忆变更计划（"learnconfirm" 态回车才落盘）
+global runboxLearnBusy := false                  ; 正在请求"记忆维护"模型
+global runboxLastMemoryNote := ""                ; 上一次运行用到的记忆（流水里记下来，便于事后归因）
 
 global keypadMsgCount := 0       ; 已打开面板数：鼠标消息钩子按引用计数注册 / 注销
 global keypadMsgMove := 0        ; OnMessage 注册句柄（WM_MOUSEMOVE）
@@ -343,8 +359,37 @@ RadialStatsInit()
 ; 屏幕小键盘配置加载（同样必须在全局变量声明之后）
 KeypadLoadConfig()
 
+; ============================================================================
+; 命令行分流（**必须尽早**：放在任何配置加载 / 热键注册之前）
+;   为什么这么早：脚本里一旦有 #Warn 或非法语句，AHK 在*加载期*就弹框阻塞，
+;   那时脚本一行都没执行、更谈不上 ExitApp —— 从 WSL 看就是"毫无输出地卡死"（AGENTS.md §5.1）。
+;   而 A_Args 要等到 auto-execute 才可用，所以这里已经是"全局变量已声明、还没干任何事"的最早位置。
+;   --selftest          ：只验证脚本可完整解析（含 #Include），随即 ExitApp(0)
+;   --dump-runbox-prompt[=需求] ：把"模型会收到的提示语"写进 runbox_prompt_dump.txt 后退出
+;                         （供 test/runbox_eval 评测与用户自查；配置/记忆尚未加载，故延后处理）
+; ============================================================================
+if (A_Args.Length >= 1 && A_Args[1] = "--selftest")
+    ExitApp(0)
+
 ; 自然语言运行框配置加载（同样必须在全局变量声明之后）
 RunBoxLoadConfig()
+
+; ============================================================================
+; 诊断开关：--dump-runbox-prompt[=需求] 或 --dump-runbox-prompt "需求"
+;   只把"模型会收到的提示语 + 别名命中情况"写进 runbox_prompt_dump.txt 然后退出。
+;   放在这里是为了：配置（radial / keypad / runbox / 记忆）都已加载，但**任何 GUI / 热键都还没注册**，
+;   因此可以在无桌面的 WSL 里直接跑（供 test/runbox_eval 评测与用户自查）。
+; ============================================================================
+if (A_Args.Length >= 1 && SubStr(A_Args[1], 1, 21) = "--dump-runbox-prompt=") {
+    ; 写法一：--dump-runbox-prompt=打开知乎网址（"需求"接在等号后面；引号由命令行处理）
+    RunBoxDumpPrompt(SubStr(A_Args[1], 22))
+    ExitApp(0)
+}
+if (A_Args.Length >= 1 && A_Args[1] = "--dump-runbox-prompt") {
+    ; 写法二：--dump-runbox-prompt "打开知乎网址"（需求作为独立的第二个参数）
+    RunBoxDumpPrompt(A_Args.Length >= 2 ? A_Args[2] : "")
+    ExitApp(0)
+}
 
 RefreshTrayMenu() {
     global mode, healthTrayStateText
@@ -3527,6 +3572,10 @@ OverlayRunSelf(cmd, owner, fallbackWin) {
         KeypadToggle("symbol")
     } else if (c = "keypad_letter") {
         KeypadToggle("letter")
+    } else if (SubStr(c, 1, 7) = "runbox_") {
+        ; 运行框自身的命令（反馈模式 / 记忆重载 / 记忆回滚 / 查看记忆）：见 RunBoxSelfCommand
+        if (!RunBoxSelfCommand(c))
+            return false
     } else {
         DebugLog("[overlay] 未知的 self: 命令：" . cmd . "（owner=" . owner . "）")
         return false
@@ -3557,9 +3606,12 @@ RunBoxCfg(key, def, section := "runbox") {
 RunBoxLoadConfig() {
     global configFile, runboxHotkey, runboxConfirm, runboxModel, runboxTimeout
     global runboxStepDelay, runboxRunWait, runboxMaxActions, runboxPromptExtra
-    global runboxOpacity
-    if !FileExist(configFile)
+    global runboxOpacity, runboxMemoryFile, runboxLearnConfirm, runboxMemoryMaxChars
+    global runboxAliasMatch, runboxLearnModel
+    if !FileExist(configFile) {
+        RunBoxMemoryLoad(false)          ; 配置缺失也要能加载记忆（用内置默认路径）
         return
+    }
     v := RunBoxCfg("hotkey", "")
     if (v != "")
         runboxHotkey := v
@@ -3583,11 +3635,33 @@ RunBoxLoadConfig() {
         runboxMaxActions := Max(1, Min(Integer(v), 200))
     ; prompt_extra 是自由文本，不做注释剥离（里面可能有分号）
     runboxPromptExtra := Trim(IniRead(configFile, "runbox", "prompt_extra", ""))
+
+    ; —— 自适应记忆（[runbox] 的 5 个新键，见 11d-2 节）——
+    ; memory_file 有"显式留空 = 关闭本功能"的语义，不能走 RunBoxCfg（它会把空值当缺省）。
+    ; 这里用哨兵值区分"键不存在"与"键存在但为空"，并照样剥掉行内注释。
+    rawMem := IniRead(configFile, "runbox", "memory_file", "@absent@")
+    if (rawMem != "@absent@") {
+        if RegExMatch(rawMem, "\s;", &mm)
+            rawMem := SubStr(rawMem, 1, mm.Pos - 1)
+        runboxMemoryFile := Trim(rawMem)
+    }
+    runboxLearnConfirm := (StrLower(RunBoxCfg("learn_confirm", (runboxLearnConfirm ? "true" : "false"))) = "true")
+    v := RunBoxCfg("memory_max_chars", "")
+    if RegExMatch(v, "^\d+$")
+        runboxMemoryMaxChars := Max(0, Min(Integer(v), 20000))   ; 0 = 不拼记忆块（只留别名快路径）
+    v := StrLower(RunBoxCfg("alias_match", ""))
+    if (v = "exact" || v = "contain")
+        runboxAliasMatch := v
+    runboxLearnModel := RunBoxCfg("learn_model", "")
+
     ; 底部热键键帽排：独立子节 [runbox.runkeys]（键帽排在后面加载，优先于 [keypad.runkeys]）
     RunBoxLoadKeycaps()
+    RunBoxMemoryLoad(false)              ; 记忆文件加载（不存在 = 空记忆，功能自然降级为原行为）
     DebugLog("[runbox] 配置：hotkey=" . runboxHotkey . " confirm=" . runboxConfirm . " model=" . runboxModel
         . " timeout=" . runboxTimeout . " step=" . runboxStepDelay . " run_wait=" . runboxRunWait
-        . " max=" . runboxMaxActions . " opacity=" . runboxOpacity)
+        . " max=" . runboxMaxActions . " opacity=" . runboxOpacity
+        . " memory=" . (runboxMemoryFile = "" ? "(关闭)" : runboxMemoryFile)
+        . " learn_confirm=" . runboxLearnConfirm . " alias_match=" . runboxAliasMatch)
 }
 
 ; ---- 已配置命令表 → 紧凑文本（喂给模型；解析时另用它做白名单）----
@@ -3608,7 +3682,9 @@ RunBoxCatalogText() {
 }
 
 ; ---- 系统提示语：把中文需求翻译成动作序列 ----
-RunBoxBuildPrompt() {
+; req：当前需求（可选）——只用于"记忆块"的相关度筛选（把与这条需求有关的别名排在前面），
+;      不影响固定骨架的任何一行。
+RunBoxBuildPrompt(req := "") {
     global runboxPromptExtra
     ; 注意：AHK v2 字符串里的双引号要用单引号字符串或 `" 转义，不能写 ""（那是 v1 的写法）
     p := '你是把中文操作需求翻译成"动作序列"的翻译器。你的输出会被程序逐行执行，必须严格遵守格式。' . "`n`n"
@@ -3637,10 +3713,18 @@ RunBoxBuildPrompt() {
     p .= "3. 操作类：优先 item: 名称；热键 / run: / self: 必须与表里某个动作**逐字一致**。`n"
     p .= "4. 要输入文字时用 paste: 原文照抄；含 ^ ! + # { } 等符号时必须用 paste:；多行文字写成一行 paste: + 字面的 \n（不要拆成多行写，拆行只有第一行会生效）。`n"
     p .= "5. 启动程序后不用写等待，程序会自动等待。`n"
-    p .= "6. 最多输出 40 行，且只输出动作行。`n`n"
-    p .= "【已配置动作表】（名称=动作；动作只能用这里的）`n" . RunBoxCatalogText() . "`n"
+    p .= "6. 最多输出 40 行，且只输出动作行。`n"
+
+    ; ---------- 分层（2026-09-19 定稿）：骨架 → 自动记忆 → 手写补充要求 → 已配置动作表（最后）----------
+    ; 优先级：骨架 < 自动记忆（软参考）< 手写 prompt_extra < 格式契约与动作白名单（不可违背）。
+    ; 动作表必须留在**最末尾**：它是唯一的权威事实，离 user 消息最近时注意力最强；
+    ; 记忆块绝不能接在它后面，否则会把动作表挤远。
+    memBlock := RunBoxMemoryPromptBlock(req)
+    if (memBlock != "")
+        p .= "`n" . memBlock . "`n"
     if (runboxPromptExtra != "")
         p .= "`n【补充要求】`n" . runboxPromptExtra . "`n"
+    p .= "`n【已配置动作表】（名称=动作；动作只能用这里的）`n" . RunBoxCatalogText() . "`n"
     return p
 }
 
@@ -3749,20 +3833,1280 @@ RunBoxLoadKeycaps() {
     DebugLog("[runbox] 键帽排已配置：" . n . " 个键，" . def.cols . "×" . def.rows . "，名称=" . def.name)
 }
 
-; ---- 解析模型回复：纯文本放行 + 动作严格白名单 ----
-; 需求分两种情况：① 要输出文字（显式 send: / paste:）→ 直接执行、照原样输出，不需要先配置；
-;                 ② 要执行动作（按键 / 热键 / 键盘操作 / 程序 / 自身功能）→ 必须命中"配置里已有的动作"。
-; 返回 {actions: [...], dropped: [...], error: ""}；error 非空表示模型明确说做不到
-RunBoxParseReply(reply) {
-    global runboxMaxActions
-    actions := []
-    dropped := []
-    errText := ""
-    contIdx := 0                     ; > 0 表示"上一行是输出文字"，随后的裸行按续行处理（见 ②-2）
+; ============================================================================
+; 运行框的「自适应记忆」（2026-09-19 新增）——让运行框越用越准
+; ----------------------------------------------------------------------------
+; 设计要点（与用户逐条定稿，务必按此维护）：
+;   ① **分层，不是替换**：固定骨架（格式契约 + 安全红线）永远在代码里、不可被记忆覆盖；
+;      记忆只是"软参考"，拼在骨架之后、手写 prompt_extra 之前、**动作表之前**。
+;   ② **记忆不生产能力**：凡是需要新增动作类型（如"打开网址"）的都不属于这里。
+;   ③ **别名快路径**先于模型：命中即不调模型 —— 0 延迟、0 token、0 幻觉。
+;   ④ **只有用户显式反馈**才会改记忆；隐式信号只进流水，绝不自动改提示语
+;      （程序判不出"这次到底成功了没有"，模型自认为成功不算成功）。
+;   ⑤ 学习只允许 ADD / DEL **条目**，不允许模型重写整个文件；写盘前先备份，保留最近 5 份。
+;   ⑥ 写入是"读-改-写并**原样保留**不认识的段落与手写注释"（`## 快捷` 就是给下一期预留的）。
+;
+; 文件格式（runbox_memory.md，UTF-8 带 BOM，记事本可直接编辑）：
+;   # 标题 / <!-- meta: ... --> / 空行 / 注释
+;   ## 别名      → 每行：- 我的说法 => 目标      （目标是配置项名，或 item:/url:/run:/self:/paste:/hotkey: 动作行）
+;   ## 偏好      → 每行：- 一句自然语言
+;   ## 正例      → 每行：- 需求：X → item: Y    （→ 也可写成 -> / =>）
+;   ## 反例      → 每行：- 需求：X → 不要选 Z
+;   ## 快捷      → 本期不实现；解析时原样保留（写入时不得丢失）
+; ============================================================================
 
-    ; ---------- 白名单：只承认"配置里已有的动作"（圆盘菜单 + 四块小键盘）----------
-    ; allowedAct ："类型|归一化内容" → 配置里的原始写法（执行时用配置的写法，保证执行的就是配置里的动作）
-    ; allowedName：归一化名称 → 配置里的名称（item: 用）
+; ---- 记忆文件的绝对路径（相对脚本目录）----
+RunBoxMemoryPath() {
+    global runboxMemoryFile
+    f := Trim(runboxMemoryFile)
+    if (f = "")
+        return ""
+    if RegExMatch(f, "^[A-Za-z]:[\\/]") || SubStr(f, 1, 2) = "\\"
+        return f                                  ; 已经是绝对路径
+    return A_ScriptDir . "\" . f
+}
+
+; ---- 分节显示名 ↔ 规范化段名 ----
+RunBoxMemorySectionKey(name) {
+    n := Trim(name)
+    if (n = "别名")
+        return "alias"
+    if (n = "偏好")
+        return "pref"
+    if (n = "正例")
+        return "pos"
+    if (n = "反例")
+        return "neg"
+    if (n = "快捷")
+        return "shortcut"
+    return ""                                     ; 不认识的小节 → 整块原样保留
+}
+
+RunBoxMemorySectionName(key) {
+    if (key = "alias")
+        return "别名"
+    if (key = "pref")
+        return "偏好"
+    if (key = "pos")
+        return "正例"
+    if (key = "neg")
+        return "反例"
+    return "快捷"
+}
+
+RunBoxMemoryNewModel() {
+    m := {loaded: false, path: "", mtime: "", head: [], order: [], secs: Map(), aliasIdx: Map(), dupSkipped: 0}
+    for k in ["alias", "pref", "pos", "neg", "shortcut"] {
+        m.secs[k] := []
+        m.order.Push(k)
+    }
+    return m
+}
+
+; ---- 解析一行条目 ----
+; canonical：写回文件时的规范写法（"- 说法 => 目标" / "- 需求：X → item: Y"）
+; sortKey  ：排序 / 去重用的规范键
+RunBoxMemoryParseItem(raw, secKey) {
+    line := Trim(raw)
+    if (SubStr(line, 1, 1) = "-")
+        line := Trim(SubStr(line, 2))
+    if (line = "")
+        return 0
+    if (secKey = "alias") {
+        if !RegExMatch(line, "^(.*?)\s*=>\s*(.*)$", &m)
+            return {left: line, right: "", text: line, canonical: "", sortKey: "", count: 0}   ; 非法：原样保留
+        l := Trim(m[1]), r := Trim(m[2])
+        canon := (r = "") ? "" : "- " . l . " => " . r
+        return {left: l, right: r, text: line, canonical: canon, sortKey: l . "\n" . r, count: 0}
+    }
+    ; 正例 / 反例：需求：X → Y（箭头容忍 -> / => / →）
+    if (secKey = "pos" || secKey = "neg") {
+        if !RegExMatch(line, "^(.*?)\s*(?:→|->|=>)\s*(.*)$", &m)
+            return {left: line, right: "", text: line, canonical: "", sortKey: "", count: 0}
+        l := Trim(m[1]), r := Trim(m[2])
+        l := RegExReplace(l, "^(需求|例子)\s*[:：]\s*", "")
+        canon := (r = "") ? "" : "- 需求：" . l . " → " . r
+        return {left: l, right: r, text: line, canonical: canon, sortKey: l . "\n" . r, count: 0}
+    }
+    ; 偏好（以及原样保留段的条目）：整行就是内容
+    return {left: line, right: "", text: line, canonical: "- " . line, sortKey: line, count: 0}
+}
+
+; ---- 读文本文件（记忆 / 备份都要用）：**必须显式指定编码** ----
+; 血泪教训（2026-09-19 实测）：`FileRead(path)` 不带编码参数时按 **ANSI** 读，
+; 而我们的记忆文件是 UTF-8（用户也可能用记事本另存成 UTF-16）。
+; 按 ANSI 读会把"别名"读成"鍒悕"，于是所有中文小节名都对不上、记忆整块失效
+; ——而且**不报任何错**，只表现为"记忆好像没生效"。
+; 这里按顺序尝试 UTF-8（含 BOM 自动识别）→ UTF-16 → 系统 ANSI，取第一个非空结果。
+RunBoxReadTextFile(path) {
+    for enc in ["UTF-8", "UTF-16"] {
+        try {
+            t := FileRead(path, enc)
+            if (t != "")
+                return t
+        } catch {
+        }
+    }
+    try {
+        return FileRead(path)
+    } catch {
+        return ""
+    }
+}
+
+; ---- 加载记忆文件 ----
+; force = false 时按 mtime 判断是否需要重读（用户手改文件后无需重启即可生效）
+RunBoxMemoryLoad(force := true) {
+    global runboxMemory, runboxMemoryDirty
+    m := RunBoxMemoryNewModel()
+    path := RunBoxMemoryPath()
+    m.path := path
+    if (path = "" || !FileExist(path)) {
+        runboxMemory := m
+        if (path != "")
+            DebugLog("[runbox] 记忆文件不存在（" . path . "）→ 以空记忆运行（功能降级为原行为）")
+        return false
+    }
+    t := RunBoxReadTextFile(path)
+    if (t = "") {
+        DebugLog("[runbox] 记忆文件读取失败或为空：" . path . " → 以空记忆运行")
+        runboxMemory := m
+        return false
+    }
+    RunBoxMemoryParse(t, &m)
+    m.loaded := true
+    m.path := path                       ; 解析会新建模型：这几个字段必须在解析**之后**补
+    m.mtime := RunBoxFileTimeStr(path)
+    runboxMemory := m
+    runboxMemoryDirty := false
+    DebugLog("[runbox] 记忆已加载：" . path . "（别名 " . m.secs["alias"].Length . " 条，偏好 "
+        . m.secs["pref"].Length . " 条，正例 " . m.secs["pos"].Length . " 条，反例 "
+        . m.secs["neg"].Length . " 条，保留段 " . m.secs["shortcut"].Length . " 行）")
+    return true
+}
+
+; ---- 解析记忆文本 → 记忆模型（纯函数，便于无头单测）----
+; 注意：本函数会**新建**一个模型对象覆盖 out —— 所以调用方在调用前设到模型上的
+; path / mtime 之类字段会被冲掉。RunBoxMemoryLoad 因此在解析之后才补 path，
+; 这里是同一个坑的第二次踩（2026-09-19：path 被冲成空串，表现为"保存被跳过、返回 false"）。
+RunBoxMemoryParse(t, &out) {
+    m := RunBoxMemoryNewModel()
+    m.loaded := true
+    cur := ""                                ; 当前段（"" = 文件头 / 段外）
+    started := false
+    Loop parse, t, "`n", "`r" {
+        line := A_LoopField
+        trimmed := Trim(line)
+        if (!started && trimmed = "")        ; 文件最前面若干空行归文件头
+            continue
+        if RegExMatch(trimmed, "^##\s*(.+?)\s*$", &hm) {
+            started := true
+            cur := RunBoxMemorySectionKey(hm[1])
+            if (cur = "") {                  ; 不认识的小节：原样保留全部行
+                if (!m.secs.Has("raw"))
+                    m.secs["raw"] := [], m.order.Push("raw")
+                m.secs["raw"].Push(line)
+            }
+            continue
+        }
+        if (!started) {                      ; 还没进任何小节 → 文件头（标题 / meta / 说明注释）
+            m.head.Push(line)
+            continue
+        }
+        if (cur = "") {                      ; 大小节之间的散行：并进文件头，保证写回不丢
+            m.head.Push(line)
+            continue
+        }
+        if (trimmed = "" || SubStr(trimmed, 1, 1) = ";")
+            continue                         ; 段内空行 / 注释：丢弃（写回时不再保留）
+        it := RunBoxMemoryParseItem(line, cur)
+        if (it = 0)
+            continue
+        m.secs[cur].Push(it)
+    }
+    out := m
+}
+
+; ---- 渲染记忆文件全文（原子的"读-改-写"：不认识的段落原样写回）----
+RunBoxMemoryRender(m) {
+    global runboxMemoryMaxChars
+    lines := []
+    if (m.head.Length = 0)
+        lines.Push("# 运行框记忆（由程序自动维护，也可手动编辑）"), lines.Push("")
+    else
+        for h in m.head
+            lines.Push(h)
+    ; meta 行：条目数与更新时间（不参与解析，只是给人看）。
+    ; 写之前把**历史 meta 行**从文件头里剔掉 —— 否则每存一次就多一行，
+    ; 用久了文件头会堆满过期的 meta（2026-09-19 自测时就堆了五行）。
+    lines := RunBoxDropMetaLines(lines)
+    lines.Push("<!-- meta: updated=" . RunBoxNowStamp() . " entries=" . RunBoxMemoryCount(m)
+        . " max_chars=" . runboxMemoryMaxChars . " -->")
+    for k in m.order {
+        if (k = "raw") {
+            for r in m.secs["raw"]
+                lines.Push(r)
+            continue
+        }
+        if (k = "shortcut") {
+            lines.Push(""), lines.Push("## 快捷")
+            lines.Push("; 本期未实现（格式已预留）：一行 = 一句话 => 动作1 / 动作2 / …；")
+            lines.Push("; 当前版本**不会**使用本段，也不会删除你写在这里的内容。")
+            for it in m.secs["shortcut"]
+                lines.Push((it.canonical != "" ? it.canonical : "- " . it.text))
+            continue
+        }
+        lines.Push(""), lines.Push("## " . RunBoxMemorySectionName(k))
+        for it in m.secs[k]
+            lines.Push((it.canonical != "" ? it.canonical : "- " . it.text))
+    }
+    return RunBoxJoinLines(lines)
+}
+
+RunBoxDropMetaLines(lines) {
+    out := []
+    for l in lines
+        if !RegExMatch(Trim(l), "^<!--\s*meta\s*:")
+            out.Push(l)
+    return out
+}
+
+RunBoxMemoryCount(m) {
+    n := 0
+    for k, arr in m.secs
+        n += (k = "raw" || k = "shortcut") ? 0 : arr.Length
+    return n
+}
+
+RunBoxJoinLines(lines) {
+    out := ""
+    for l in lines
+        out .= l . "`n"
+    return out
+}
+
+RunBoxNowStamp() {
+    return FormatTime(A_Now, "yyyy-MM-dd HH:mm")
+}
+
+RunBoxStampForFile() {
+    return FormatTime(A_Now, "yyyyMMdd-HHmmss")
+}
+
+; ---- 保存记忆（备份 → 原子写 → 重载）----
+RunBoxMemorySave(m, what := "") {
+    global runboxMemoryDirty
+    path := m.path
+    if (path = "") {
+        DebugLog("[runbox] 记忆保存被跳过：memory_file 为空（功能已关闭）")
+        return false
+    }
+    if FileExist(path) {
+        bak := RunBoxMemoryBackupPath(path)
+        try FileCopy(path, bak, 1)
+        RunBoxMemoryPruneBackups(path)
+    }
+    txt := RunBoxMemoryRender(m)
+    tmp := path . ".tmp"
+    ok := false
+    try {
+        FileDelete(tmp)
+    } catch {
+    }
+    try {
+        f := FileOpen(tmp, "w", "UTF-8-RAW")
+        f.Write(Chr(0xFEFF))                  ; 带 BOM：记事本 / 编辑器打开不乱码
+        f.Write(txt)
+        f.Close()
+        FileMove(tmp, path, 1)
+        ok := true
+    } catch Error as e {
+        DebugLog("[runbox] 记忆写入失败：" . e.Message)
+        try FileDelete(tmp)
+    }
+    if (ok) {
+        m.mtime := RunBoxFileTimeStr(path)
+        runboxMemoryDirty := false
+        DebugLog("[runbox] 记忆已保存（" . what . "）：" . path . "，共 " . RunBoxMemoryCount(m) . " 条")
+    }
+    return ok
+}
+
+RunBoxFileTimeStr(path) {
+    t := ""
+    try t := FileGetTime(path, "M")
+    return (t = "") ? "" : FormatTime(t, "yyyyMMddHHmmss")
+}
+
+; 备份文件名：<原名>.<时间戳>.bak<扩展名>，例如 runbox_memory.20260919-072335.bak.md
+; 血泪教训（2026-09-19）：AHK v2 的 SplitPath 出参顺序是
+;     SplitPath(路径, &文件名, &目录, &扩展名, &无扩展名的文件名)
+; **扩展名在第 4 位、无扩展名在第 5 位**（v1 习惯相反）。
+; 写反了不会报错，只会拼出 "md.20260919-072350.bak.runbox_memory" 这种怪文件名。
+RunBoxMemoryBackupPath(path) {
+    SplitPath(path, &fname, &dir, &ext, &nameNoExt)
+    ts := RunBoxStampForFile()
+    p := dir . "\" . nameNoExt . "." . ts . ".bak" . (ext = "" ? "" : "." . ext)
+    i := 1
+    while (FileExist(p)) {                    ; 同一秒内多次写也不覆盖
+        p := dir . "\" . nameNoExt . "." . ts . "-" . i . ".bak" . (ext = "" ? "" : "." . ext)
+        i++
+        if (i > 99)
+            break
+    }
+    return p
+}
+
+; 只保留最近 5 份备份（正则里的数字要写成 \d，AHK 没有 \D）
+RunBoxMemoryPruneBackups(path) {
+    SplitPath(path, &fname, &dir, &ext, &nameNoExt)
+    if (dir = "")
+        return
+    extPat := (ext = "" ? "" : "." . ext)
+    list := []
+    Loop files, dir . "\" . nameNoExt . ".*.bak" . extPat . "*" {
+        nm := A_LoopFileName
+        if RegExMatch(nm, "\.(\d{8}-\d{6}(?:-\d+)?)\.bak", &mm)
+            list.Push({name: nm, key: mm[1]})
+    }
+    if (list.Length <= 5)
+        return
+    ; 按时间戳排序（格式固定，字典序 = 时间序），删掉最旧的几份。
+    ; 注意用 StrCompare：时间戳形如 20260919-072007，用 > 会被当数字比而抛异常。
+    Loop list.Length - 1 {
+        i := A_Index
+        Loop list.Length - i {
+            j := A_Index
+            if (StrCompare(list[j].key, list[j + 1].key) > 0) {
+                tmp := list[j], list[j] := list[j + 1], list[j + 1] := tmp
+            }
+        }
+    }
+    Loop list.Length - 5 {
+        try FileDelete(dir . "\" . list[A_Index].name)
+    }
+}
+
+; 找最近一份备份（撤销用）
+RunBoxMemoryLatestBackup(path) {
+    SplitPath(path, &fname, &dir, &ext, &nameNoExt)
+    if (dir = "")
+        return ""
+    extPat := (ext = "" ? "" : "." . ext)
+    best := "", bestKey := ""
+    Loop files, dir . "\" . nameNoExt . ".*.bak" . extPat . "*" {
+        nm := A_LoopFileName
+        if RegExMatch(nm, "\.(\d{8}-\d{6}(?:-\d+)?)\.bak", &mm) {
+            ; bestKey 初值是空串必须守卫；而且必须用 **StrCompare** 做字符串比较 ——
+            ; 时间戳是"20260919-071929"这种形式，用 > 会被 AHK 当数字比而抛
+            ; Expected a Number（2026-09-19 连续踩两次）。
+            if (bestKey = "" || StrCompare(mm[1], bestKey) > 0)
+                bestKey := mm[1], best := dir . "\" . nm
+        }
+    }
+    return best
+}
+
+; ---- 撤销上一次学习：把最近一份备份恢复回去（恢复前先把当前状态再备份一份）----
+RunBoxMemoryUndo() {
+    path := RunBoxMemoryPath()
+    if (path = "")
+        return "记忆功能已关闭（[runbox] memory_file 为空）"
+    bak := RunBoxMemoryLatestBackup(path)
+    if (bak = "")
+        return "没有可用的记忆备份，无法撤销"
+    if FileExist(path) {
+        keep := RunBoxMemoryBackupPath(path)
+        try FileCopy(path, keep, 1)
+    }
+    try {
+        FileCopy(bak, path, 1)
+    } catch Error as e {
+        return "撤销失败：" . e.Message
+    }
+    RunBoxMemoryLoad(true)
+    DebugLog("[runbox] 记忆已回滚到备份：" . bak)
+    return "已回滚到上一份记忆备份（" . RunBoxFileName(bak) . "）"
+}
+
+RunBoxFileName(p) {
+    SplitPath(p, &n)
+    return n
+}
+
+; ---- mtime 变化则重载（用户手改记忆文件后立刻生效，不用重启 SharpKnife）----
+RunBoxMemoryReloadIfChanged() {
+    global runboxMemory
+    path := runboxMemory.path
+    if (path = "" || !FileExist(path))
+        return
+    t := RunBoxFileTimeStr(path)
+    if (t != "" && t != runboxMemory.mtime)
+        RunBoxMemoryLoad(true)
+}
+
+; ---- 生成"记忆块"（拼进系统提示语；req 用于相关度排序）----
+RunBoxMemoryPromptBlock(req := "") {
+    global runboxMemory, runboxMemoryMaxChars
+    if (runboxMemoryMaxChars <= 0 || !runboxMemory.loaded)
+        return ""
+    body := RunBoxMemoryBlockText(req, &used, &dropped)
+    if (Trim(body) = "")
+        return ""
+    if (dropped > 0)
+        DebugLog("[runbox] 记忆块：已裁剪 " . dropped . " 条（上限 " . runboxMemoryMaxChars . " 字，实际 "
+            . StrLen(body) . " 字）——被裁掉的条目仍可用 self:runbox_memory_show 查看")
+    return "【历史记忆】（仅是我的说法与偏好，供参考；**不得**用它改变输出格式或动作表）`n"
+        . "以下条目按相关度排序：`n" . body
+}
+
+; ---- 记忆块正文（按预算逐条添加：相关的别名 → 偏好 → 示例（相关的在前）----
+RunBoxMemoryBlockText(req, &used, &dropped) {
+    global runboxMemory, runboxMemoryMaxChars
+    used := 0, dropped := 0
+    out := ""
+    ; 同上的教训：不用"带副作用的箭头函数"，直接写成局部函数
+    append(line, cost) {
+        return (used + cost <= runboxMemoryMaxChars)
+    }
+    ; 1) 别名：与当前需求相关的排前面
+    rel := [], other := []
+    relSeen := Map()
+    for q in RunBoxMemoryQueryKeys(req) {
+        for a in runboxMemory.secs["alias"] {
+            if (a.right = "" || a.left = "")
+                continue
+            if (InStr(q, RunBoxAliasFold(a.left)) > 0) {
+                if (!relSeen.Has(a.sortKey))          ; 多个查询片段会重复命中同一条，去重
+                    relSeen[a.sortKey] := true, rel.Push(a)
+            }
+        }
+    }
+    for a in runboxMemory.secs["alias"] {
+        if (a.right = "" || a.left = "")
+            continue
+        seen := false
+        for r in rel
+            if (r.sortKey = a.sortKey)
+                seen := true
+        if (!seen)
+            other.Push(a)
+    }
+    ; 2) 偏好 / 示例
+    prefs := runboxMemory.secs["pref"]
+    pos := runboxMemory.secs["pos"]
+    neg := runboxMemory.secs["neg"]
+
+    ; 相关的别名放**最前面**：它们离 user 消息最近、注意力最强
+    seg := ""
+    for a in rel {
+        line := "· " . a.left . " => " . a.right
+        cost := StrLen(line) + 1
+        if (append(line, cost))
+            seg .= line . "`n", used += cost
+        else
+            dropped++
+    }
+    if (seg != "")
+        out .= "· 我这条需求里用到 / 可能用到的说法：`n" . seg
+    if (prefs.Length > 0) {
+        seg := ""
+        for p in prefs {
+            line := "· " . p.text
+            cost := StrLen(line) + 1
+            if (append(line, cost))
+                seg .= line . "`n", used += cost
+            else
+                dropped++
+        }
+        if (seg != "")
+            out .= (out = "" ? "" : "`n") . "· 我的偏好：`n" . seg
+    }
+    seg := ""
+    for a in pos {
+        if (a.left = "" || a.right = "")
+            continue
+        line := "· " . a.left . " → " . a.right
+        cost := StrLen(line) + 1
+        if (append(line, cost))
+            seg .= line . "`n", used += cost
+        else
+            dropped++
+    }
+    if (seg != "")
+        out .= (out = "" ? "" : "`n") . "· 以前这样理解过（正例）：`n" . seg
+    seg := ""
+    for a in neg {
+        if (a.left = "" || a.right = "")
+            continue
+        line := "· " . a.left . " → " . a.right
+        cost := StrLen(line) + 1
+        if (append(line, cost))
+            seg .= line . "`n", used += cost
+        else
+            dropped++
+    }
+    if (seg != "")
+        out .= (out = "" ? "" : "`n") . "· 以前明确否掉过（反例）：`n" . seg
+    seg := ""
+    for a in other {
+        line := "· " . a.left . " => " . a.right
+        cost := StrLen(line) + 1
+        if (append(line, cost))
+            seg .= line . "`n", used += cost
+        else
+            dropped++
+    }
+    if (seg != "")
+        out .= (out = "" ? "" : "`n") . "· 我其它说法的固定含义（说法 => 配置项名）：`n" . seg
+    return RTrim(out, "`r`n")
+}
+
+; ---- 需求拆成若干个"查询片段"（整句 + 标点/空白切出的片段），供别名相关度匹配 ----
+RunBoxMemoryQueryKeys(req) {
+    keys := []
+    r := Trim(req)
+    if (r = "")
+        return keys
+    ; 整句 + 按标点/空白切出的每个片段，都折叠成小写后放进候选。
+    ; 注意：这里**不要**用 `push := (s) => (...)` 这种"带副作用的箭头函数"——
+    ; AHK v2 里箭头函数体 `(表达式)` 的语义容易被读成"返回值"而不是"执行"，
+    ; 实测（2026-09-19）push(...) 调用后 keys 一直是空数组，表现为"记忆的相关度排序永远不生效"。
+    ; 老老实实写 if + 显式 Push，反而更稳。
+    q := RunBoxAliasFold(r)
+    if (StrLen(q) >= 2)
+        keys.Push(q)
+    ; 分隔符里含双引号，故用单引号字符串拼接（AHK 源码里写 " 必须转义）
+    seps := " `t`r`n,，。.、;；:：!！?？()（）[]【】<>《》" . Chr(34) . Chr(39)
+    for frag in StrSplit(r, seps) {
+        f := RunBoxAliasFold(frag)
+        if (StrLen(f) >= 2 && !RunBoxInArray(keys, f))
+            keys.Push(f)
+    }
+    return keys
+}
+
+RunBoxInArray(arr, v) {
+    for x in arr
+        if (x = v)
+            return true
+    return false
+}
+
+; ---- 别名折叠：只用于"用户的说法"与用户输入的比较，绝不用于目标值 ----
+RunBoxAliasFold(s) {
+    return StrLower(Trim(s))
+}
+
+; ---- 别名反查：目标（配置项名或动作行）→ 说法列表（"查看记忆"用）----
+RunBoxMemoryAliasFor(target) {
+    global runboxMemory
+    out := []
+    if (!runboxMemory.loaded)
+        return out
+    for a in runboxMemory.secs["alias"]
+        if (a.right == target)
+            out.Push(a.left)
+    return out
+}
+
+; ============================================================================
+; 别名快路径（先于模型）
+; ----------------------------------------------------------------------------
+; 命中规则（[runbox] alias_match）：
+;   contain（默认）：完全相等，或"需求中包含该说法"且**说法 ≥ 2 字**；
+;   exact          ：只认完全相等。
+; 大小写折叠只作用于"用户的说法"与用户输入，**目标值一律原样**（延续 §6.5 的教训：
+; 用 = 比较会把 item: A 命中成配置里先出现的 a，所以目标校验走 OverlayLookupItem 的 ==）。
+; 目标解析：写法以 item:/url:/run:/self:/paste:/hotkey: 开头 → 当动作行；否则当配置项名。
+; —— url: 是**为将来**预留的写法（本期不新增该动作类型）：命中后仍会走白名单校验，
+;    因此现在写进记忆也不会凭空造出动作能力。
+; ============================================================================
+RunBoxAliasResolve(req, &hitWords, &reasons) {
+    global runboxMemory, runboxAliasMatch
+    hitWords := [], reasons := []
+    if (!runboxMemory.loaded || runboxMemory.secs["alias"].Length = 0)
+        return []
+    RunBoxAllowedMaps(&allowedAct, &allowedName)
+    q := RunBoxAliasFold(req)
+    plan := []
+    seen := Map()
+    for a in runboxMemory.secs["alias"] {
+        w := RunBoxAliasFold(a.left)
+        if (w = "" || a.right = "")
+            continue
+        matched := false
+        if (runboxAliasMatch = "exact")
+            matched := (q = w)
+        else
+            matched := (q = w) || (StrLen(w) >= 2 && InStr(q, w) > 0)
+        if (!matched)
+            continue
+        ; 同一个说法只认第一条（重复定义以文件里靠前的为准，并在日志里说明）
+        if (seen.Has(a.left)) {
+            DebugLog("[runbox] 别名词条重复：「" . a.left . "」→" . a.right . " 被忽略（前面已有一条）")
+            continue
+        }
+        seen[a.left] := true
+        acts := RunBoxAliasResolveTarget(a.right, allowedAct, allowedName, &why)
+        if (acts.Length = 0) {
+            DebugLog("[runbox] 别名「" . a.left . "」的目标当前不可用：" . why . " →" . a.right)
+            continue
+        }
+        hitWords.Push(a.left)
+        for x in acts
+            plan.Push(x)
+        reasons.Push("「" . a.left . "」→ " . a.right)
+    }
+    DebugLog("[runbox] 别名快路径：" . (plan.Length > 0 ? "命中 " . reasons.Length . " 条说法（" . RunBoxJoinList(reasons, "；") . "）" : "未命中"))
+    return plan
+}
+
+; 把别名目标解析成动作（全部必须过白名单）；why 带回不可用的原因
+RunBoxAliasResolveTarget(target, allowedAct, allowedName, &why) {
+    out := []
+    why := ""
+    t := Trim(target)
+    if (t = "") {
+        why := "目标为空（写法应是：说法 => 配置项名 或 说法 => 动作行）"
+        return out
+    }
+    if RegExMatch(t, "i)^(item|url|run|self|paste|send|hotkey)\s*:") {
+        act := OverlayActionParse(t)
+        if (act.type = "none") {
+            why := "不是合法的动作写法"
+            return out
+        }
+        k := act.type . "|" . act.value
+        if (!allowedAct.Has(k)) {
+            why := "动作不在「已配置动作表」里（记忆不能凭空造动作）"
+            return out
+        }
+        out.Push(OverlayActionParse(allowedAct[k]))     ; 用配置里的原始写法执行
+        return out
+    }
+    ; 没有前缀 → 当配置项名（精确、区分大小写，走与 item: 完全相同的查表）
+    it := OverlayLookupItem(t)
+    if (it = 0) {
+        why := "配置里没有名为「" . t . "」的项（大小写必须一致）"
+        return out
+    }
+    out.Push({type: "item", value: t})
+    return out
+}
+
+RunBoxJoinList(arr, sep) {
+    out := ""
+    for i, x in arr
+        out .= (i = 1 ? "" : sep) . x
+    return out
+}
+
+; ---- 命中计数 +1（顺手落盘，让"常用说法"能被看见；失败不影响本次执行）----
+RunBoxAliasBump(words) {
+    global runboxMemory, runboxMemoryDirty
+    if (!runboxMemory.loaded || runboxMemoryFileIsOff())
+        return
+    dirty := false
+    for a in runboxMemory.secs["alias"] {
+        for w in words {
+            if (a.left = w) {
+                a.count := RunBoxMemoryItemCount(a) + 1
+                dirty := true
+            }
+        }
+    }
+    if (dirty) {
+        runboxMemoryDirty := true
+        DebugLog("[runbox] 别名命中计数已更新（" . RunBoxJoinList(words, "、") . "）")
+    }
+}
+
+RunBoxMemoryFileIsOff() {
+    global runboxMemoryFile
+    return (Trim(runboxMemoryFile) = "")
+}
+
+; ============================================================================
+; 学习：把用户的显式反馈（"纠正：…" / "记住：…"）整理成记忆条目
+; ----------------------------------------------------------------------------
+; 红线：
+;   · 只有用户**显式**反馈能进入这里（隐式信号只写流水，绝不自动改提示语）；
+;   · 学习流程**不执行任何动作**，返回值里不存在可执行动作数组；
+;   · 模型只能 ADD / DEL **条目**，不能重写文件；写盘前先备份、保留最近 5 份；
+;   · 新增条目一律过白名单校验（别名目标必须是配置里真有的项 / 动作）。
+; ============================================================================
+RunBoxFeedbackPrefix(text) {
+    t := Trim(text)
+    ; 全角冒号也认；前缀本身大小写不敏感
+    for p in ["纠正", "更正", "记住", "记下", "学习"] {
+        if RegExMatch(t, "i)^" . p . "\s*[:：]\s*(.*)$", &m)
+            return {isFeedback: true, body: Trim(m[1]), lead: p}
+    }
+    return {isFeedback: false, body: t, lead: ""}
+}
+
+; ---- 学习用系统提示语：只做"更新记忆"，与运行框提示语完全分开 ----
+RunBoxBuildLearnPrompt() {
+    p := '你是"运行框记忆"的维护助手。用户对自然语言运行框的执行结果给出了**明确反馈**，请把它整理成对记忆文件的增删条目。' . "`n`n"
+    p .= "【记忆文件的作用】它只保存两样东西：① 用户的说法 → 配置项/动作 的对应（别名）；② 用户的偏好与正/反例。`n"
+    p .= "它**不能**新增动作能力、不能改变输出格式、不能执行任何动作，也不要写“默认浏览器是某某”这类会过期的环境事实。`n`n"
+    p .= "【只允许输出下面四类行，一行一条；不要解释、不要编号、不要 markdown 代码块、不要空行】`n"
+    p .= "ADD alias: 用户的说法 => 目标`n"
+    p .= "    目标必须是下面「已配置动作表」里真有的名称，或表里真有的动作原文；表里没有就不要写这一条。`n"
+    p .= "ADD pref: 一句中文偏好（描述用户希望怎么理解他的说法）`n"
+    p .= "ADD example: 需求：<用户原话> → <该给的动作>`n"
+    p .= "ADD counter: 需求：<用户原话> → 不要选 <错误的目标>`n"
+    p .= "DEL <序号>     删除下面「当前记忆清单」里同序号的那一条（序号以清单为准）`n`n"
+    p .= "【判定要求】`n"
+    p .= "1. 用户说“对了 / 就是这样 / 以后都这样”→ 至少产出 ADD alias 或 ADD example（把这次的说法固化）。`n"
+    p .= "2. 用户说“不对 / 应该是 X / 不是 Y”→ 产出 ADD alias（把正确目标固化），必要时再补 ADD counter。`n"
+    p .= "3. 用户明确要求“忘掉 / 删除”某条 → 输出对应的 DEL。`n"
+    p .= "4. 拿不准、或这条反馈与记忆无关（例如只是抱怨）→ 只输出一行：NONE`n"
+    p .= "5. 一条也别编：目标必须能在「已配置动作表」里找到**逐字一致**的名字或动作。`n`n"
+    p .= "【当前记忆清单】（DEL 用这里的序号）`n" . RunBoxMemoryListing() . "`n`n"
+    p .= "【已配置动作表】`n" . RunBoxCatalogText() . "`n"
+    return p
+}
+
+; ---- 记忆清单（带序号，供 DEL 引用与用户对照）----
+RunBoxMemoryListing() {
+    global runboxMemory
+    out := ""
+    n := 0
+    for k in ["alias", "pref", "pos", "neg"] {
+        arr := runboxMemory.secs[k]
+        if (arr.Length = 0)
+            continue
+        out .= "[" . RunBoxMemorySectionName(k) . "]`n"
+        for it in arr {
+            n++
+            out .= n . ". " . (it.canonical != "" ? it.canonical : "- " . it.text) . "`n"
+        }
+    }
+    if (out = "")
+        out := "（记忆为空）`n"
+    return RTrim(out, "`r`n")
+}
+
+; 记忆条目 → 全局序号映射（DEL 用；与 RunBoxMemoryListing 的顺序必须完全一致）
+RunBoxMemoryIndexMap() {
+    global runboxMemory
+    idx := Map()
+    n := 0
+    for k in ["alias", "pref", "pos", "neg"] {
+        for it in runboxMemory.secs[k]
+            n++, idx[String(n)] := {sec: k, item: it}
+    }
+    return idx
+}
+
+; ---- 解析学习回复：只认 ADD / DEL / NONE，其余一律丢弃 ----
+RunBoxParseLearnReply(reply) {
+    res := {adds: [], dels: [], none: false, dropped: []}
+    fence := Chr(96) . Chr(96) . Chr(96)
+    txt := StrReplace(reply, fence, "")
+    for rawLine in StrSplit(txt, "`n", "`r") {
+        s := rawLine
+        if (Trim(s) = "")
+            continue
+        s := Trim(RegExReplace(s, "^\s*(?:\d+\s*[\.\)、]|[-*+])\s*", ""))
+        if (s = "")
+            continue
+        if RegExMatch(s, "i)^NONE\s*$") {
+            res.none := true
+            continue
+        }
+        if RegExMatch(s, "i)^DEL\s*[:：]?\s*(\d+)\s*$", &dm) {
+            res.dels.Push(Integer(dm[1]))
+            continue
+        }
+        if RegExMatch(s, "i)^ADD\s+(alias|pref|example|counter)\s*[:：]\s*(.*)$", &am) {
+            kind := StrLower(am[1])
+            body := Trim(am[2])
+            if (body = "") {
+                res.dropped.Push(s . "   ← 内容为空")
+                continue
+            }
+            if (kind = "alias") {
+                if !RegExMatch(body, "^(.*?)\s*=>\s*(.*)$", &am2) {
+                    res.dropped.Push(s . "   ← 别名必须写成：说法 => 目标")
+                    continue
+                }
+                l := Trim(am2[1]), r := Trim(am2[2])
+                if (StrLen(l) < 1 || r = "") {
+                    res.dropped.Push(s . "   ← 说法或目标为空")
+                    continue
+                }
+                res.adds.Push({kind: "alias", left: l, right: r})
+                continue
+            }
+            if (kind = "pref") {
+                res.adds.Push({kind: "pref", left: body, right: ""})
+                continue
+            }
+            ; example / counter：需求：X → Y
+            if !RegExMatch(body, "^(.*?)\s*(?:→|->|=>)\s*(.*)$", &am3) {
+                res.dropped.Push(s . "   ← 示例必须写成：需求：X → Y")
+                continue
+            }
+            l := Trim(RegExReplace(Trim(am3[1]), "^(需求|例子)\s*[:：]\s*", ""))
+            r := Trim(am3[2])
+            if (l = "" || r = "") {
+                res.dropped.Push(s . "   ← 需求或结果为空")
+                continue
+            }
+            res.adds.Push({kind: (kind = "counter" ? "counter" : "example"), left: l, right: r})
+            continue
+        }
+        res.dropped.Push(s . "   ← 不是 ADD / DEL / NONE 行，已忽略")
+    }
+    return res
+}
+
+; ---- 校验并生成"记忆变更计划"（纯预览，不落盘）----
+; 返回 {addSec, adds: [{sec, text, canonical, sortKey, note}], delSec, dels: [{sec, item, text, n}],
+;        rejected: [文字], listSeq: Map}
+RunBoxMemoryPlan(parsed) {
+    global runboxMemory
+    plan := {adds: [], dels: [], rejected: [], dup: 0}
+    ; 白名单：别名目标 / 示例结果都必须能在配置里找到（记忆不能凭空造动作）
+    RunBoxAllowedMaps(&allowedAct, &allowedName)
+    ; 先算"现有条目"的键，用来去重（别名看 说法+目标，示例看 需求+结果）
+    existing := Map()
+    for k in ["alias", "pref", "pos", "neg"]
+        for it in runboxMemory.secs[k]
+            existing[k . "|" . it.sortKey] := true
+    ; 序号映射（DEL 引用）
+    idxMap := RunBoxMemoryIndexMap()
+
+    for a in parsed.adds {
+        if (a.kind = "alias") {
+            why := ""
+            acts := RunBoxAliasResolveTarget(a.right, allowedAct, allowedName, &why)
+            if (acts.Length = 0) {
+                plan.rejected.Push("别名「" . a.left . " => " . a.right . "」被拒绝：" . why)
+                continue
+            }
+            it := RunBoxMemoryParseItem("- " . a.left . " => " . a.right, "alias")
+            if (existing.Has("alias|" . it.sortKey)) {
+                plan.dup++
+                continue
+            }
+            plan.adds.Push({sec: "alias", canonical: it.canonical, sortKey: it.sortKey, text: "- " . it.text})
+            continue
+        }
+        if (a.kind = "pref") {
+            it := RunBoxMemoryParseItem("- " . a.left, "pref")
+            if (existing.Has("pref|" . it.sortKey)) {
+                plan.dup++
+                continue
+            }
+            ; 偏好是自由文本，只做最基本的护栏：不许按键语法、不许过长
+            if (RegExMatch(a.left, "[``\r\n]") || StrLen(a.left) > 200) {
+                plan.rejected.Push("偏好条目被拒绝（含非法字符或过长）：" . SubStr(a.left, 1, 40))
+                continue
+            }
+            plan.adds.Push({sec: "pref", canonical: it.canonical, sortKey: it.sortKey, text: "- " . it.text})
+            continue
+        }
+        ; example / counter
+        sec := (a.kind = "counter") ? "neg" : "pos"
+        it := RunBoxMemoryParseItem("- 需求：" . a.left . " → " . a.right, sec)
+        if (existing.Has(sec . "|" . it.sortKey)) {
+            plan.dup++
+            continue
+        }
+        ; 结果必须"可解释"：要么是配置里的名称，要么是动作行，要么是"不要选 X / 不要用 X"
+        if RegExMatch(a.right, "^(不要|别|勿)") {
+            ; 反例：允许，但把被否掉的目标也校验一下（校验失败只提示，不拦整条）
+            bad := RegExReplace(a.right, "^(不要选|不要用|不要|别选|别|勿)\s*", "")
+            bad := Trim(RegExReplace(bad, "[（(].*?[）)]", ""))
+            if (bad != "") {
+                w2 := ""
+                if (RunBoxAliasResolveTarget(bad, allowedAct, allowedName, &w2).Length = 0)
+                    plan.rejected.Push("反例里的目标「" . bad . "」当前不在动作表里（条目仍会记下，但请核对：" . w2 . "）")
+            }
+            plan.adds.Push({sec: sec, canonical: it.canonical, sortKey: it.sortKey, text: "- " . it.text})
+            continue
+        }
+        if (RegExMatch(a.right, "i)^(item|url|run|self|paste|send|hotkey)\s*:")) {
+            w2 := ""
+            if (RunBoxAliasResolveTarget(a.right, allowedAct, allowedName, &w2).Length = 0) {
+                plan.rejected.Push("示例「" . a.left . " → " . a.right . "」被拒绝：" . w2)
+                continue
+            }
+        } else if (OverlayLookupItem(a.right) = 0) {
+            ; 纯文本输出（要网址 / 要一段话）也算合法结果：只在"含按键语法"时才拒绝
+            if RegExMatch(a.right, "[\^!+#{}]") {
+                plan.rejected.Push("示例「" . a.left . " → " . a.right . "」被拒绝：结果含按键语法，且不在动作表里")
+                continue
+            }
+        }
+        plan.adds.Push({sec: sec, canonical: it.canonical, sortKey: it.sortKey, text: "- " . it.text})
+    }
+
+    for n in parsed.dels {
+        e := idxMap.Has(String(n)) ? idxMap[String(n)] : 0
+        if (e = 0) {
+            plan.rejected.Push("DEL " . n . " 被拒绝：当前记忆清单里没有这个序号")
+            continue
+        }
+        plan.dels.Push({sec: e.sec, sortKey: e.item.sortKey, n: n, text: e.item.canonical})
+    }
+    return plan
+}
+
+; ---- 读"命中计数"（Object 没有 .Has()，属性缺失直接读会抛异常，IsSet 也不吃属性）----
+; AHK v2 里判断 Object 有没有某个属性，只能用 .HasOwnProp()；这里统一走它，别图省事直读。
+RunBoxMemoryItemCount(it) {
+    c := 0
+    try {
+        if (it.HasOwnProp("count"))
+            c := (it.count = "" ? 0 : it.count)
+    } catch {
+        c := 0
+    }
+    return c
+}
+
+; ---- 安全复制一条记忆条目 ----
+RunBoxMemoryItemCopy(it) {
+    return {left: it.left, right: it.right, text: it.text, canonical: it.canonical
+        , sortKey: it.sortKey, count: RunBoxMemoryItemCount(it)}
+}
+
+; ---- 生成变更后的一份**完整记忆模型**（不落盘、不改全局；纯函数，便于单测）----
+RunBoxMemoryApplyPlan(plan) {
+    global runboxMemory
+    m := RunBoxMemoryNewModel()
+    m.loaded := true
+    m.path := runboxMemory.path
+    m.head := []
+    for h in runboxMemory.head
+        m.head.Push(h)
+    for k, arr in runboxMemory.secs {
+        if (k = "raw") {
+            for r in arr
+                m.secs["raw"].Push(r)
+            continue
+        }
+        for it in arr
+            m.secs[k].Push(RunBoxMemoryItemCopy(it))
+    }
+    ; 先删（按 sortKey 精确删除，一次删一条）。
+    ; **必须用"整条对象引用"来删**：RunBoxMemoryIndexMap 取到的就是数组里那个对象本身，
+    ; 直接 RemoveAt 它的下标即可；用 sortKey 二次匹配反而会在"同段内有两条相同的
+    ; 需求文本"时删错第一条（示例段是允许重复说法的）。
+    for d in plan.dels {
+        arr := m.secs[d.sec]
+        Loop arr.Length {
+            it := arr[A_Index]
+            if (it.sortKey = d.sortKey) {
+                arr.RemoveAt(A_Index)
+                break
+            }
+        }
+    }
+    ; 再增（同段里已有完全相同的一条就跳过；计数写成 m.dupSkipped，避免改 plan 造成重复计数）
+    m.dupSkipped := 0
+    for a in plan.adds {
+        dup := false
+        for it in m.secs[a.sec]
+            if (it.sortKey = a.sortKey)
+                dup := true
+        if (dup) {
+            m.dupSkipped++
+            continue
+        }
+        it := RunBoxMemoryParseItem(a.canonical, a.sec)
+        m.secs[a.sec].Push(it)
+    }
+    return m
+}
+
+; ---- 变更清单（给人看的一行行文字，也写进"执行过程"）----
+RunBoxMemoryPlanDiff(plan) {
+    out := []
+    for a in plan.adds
+        out.Push("  + [" . RunBoxMemorySectionName(a.sec) . "] " . a.text)
+    for d in plan.dels
+        out.Push("  - [" . RunBoxMemorySectionName(d.sec) . "] " . d.text)
+    for r in plan.rejected
+        out.Push("  ✗ " . r)
+    if (plan.dup > 0)
+        out.Push("  （" . plan.dup . " 条重复条目已自动跳过）")
+    return out
+}
+
+; ============================================================================
+; 运行流水（runbox_learn.log）：只追加、不参与提示语
+; ----------------------------------------------------------------------------
+; 本期**只写不读** —— 先把真实数据攒起来，自动整理（隐式学习）留给下一期。
+; 制表符分隔；字段里的制表符 / 换行转义成 \t / \n，保证一行一条记录。
+; 字段：时间 / 需求原文 / 结果（动作序列或结局）/ 丢弃行数 / ERROR / 别名命中 / 结局说明 /
+;       本次用到的记忆（"别名N条/记忆块M字" 或 "无"）
+; ============================================================================
+RunBoxJournalAppend(fields) {
+    global runboxLearnJournal
+    f := Trim(runboxLearnJournal)
+    if (f = "")
+        return
+    path := (RegExMatch(f, "^[A-Za-z]:[\\/]") || SubStr(f, 1, 2) = "\\") ? f : A_ScriptDir . "\" . f
+    row := RunBoxNowStampFull()
+    for v in fields
+        row .= "`t" . RunBoxJournalEscape(v)
+    try FileAppend(row . "`n", path, "UTF-8")
+}
+
+RunBoxNowStampFull() {
+    return FormatTime(A_Now, "yyyy-MM-dd HH:mm:ss")
+}
+
+RunBoxJournalEscape(s) {
+    t := StrReplace(String(s), "`t", "\t")
+    t := StrReplace(t, "`r", "")
+    t := StrReplace(t, "`n", "\n")
+    return t
+}
+
+; 把本次需求的结局写进流水（每次需求只写一次；收尾时若还没写就补写）
+RunBoxJournalFlush(finalMsg) {
+    global runboxLastJournaled, runboxLastReq, runboxLastActions, runboxLastDropped
+    global runboxLastAliasHit, runboxLastErrText
+    if (runboxLastJournaled || runboxLastReq = "")
+        return
+    res := []
+    for a in runboxLastActions
+        res.Push(RunBoxActionLine(a))
+    if (res.Length = 0)
+        res.Push((finalMsg != "") ? finalMsg : "（没有动作）")
+    RunBoxJournalAppend([runboxLastReq, RunBoxJoinList(res, " / "), runboxLastDropped.Length
+        , runboxLastErrText, (runboxLastAliasHit != "" ? runboxLastAliasHit : "-"), finalMsg
+        , runboxLastMemoryNote])
+    runboxLastJournaled := true
+}
+
+; ============================================================================
+; 执行：学习流程（反馈 → 模型整理条目 → 校验 → 用户确认 → 原子落盘）
+; ============================================================================
+RunBoxLearningStart(feedback) {
+    global runboxState, runboxBusy, runboxLearnBusy, runboxLog
+    global runboxLastReq, runboxLastActions, runboxLastResult, runboxLearnArmed
+    global runboxPrevWin, runboxTimeout
+    if (runboxLearnBusy || runboxBusy)
+        return
+    runboxLearnArmed := false
+    runboxLog := []
+    RunBoxLogAdd("[反馈] " . feedback)
+    runboxLearnBusy := true
+    runboxState := "learning"
+    RunBoxInputVisible(false)
+    RunBoxSetStatus("正在把你的反馈整理成记忆条目…（最长 " . Round(runboxTimeout / 1000) . " 秒）")
+    ; 反馈请求期间把焦点还给原窗口，不占着用户的编辑器
+    if (runboxPrevWin)
+        RadialActivateFocusWin(runboxPrevWin)
+
+    lastActs := []
+    for a in runboxLastActions
+        lastActs.Push(RunBoxActionLine(a))
+    up := "用户对运行框的反馈：" . feedback . "`n"
+    up .= "（上一次需求：" . (runboxLastReq = "" ? "（本次会话没有记录）" : runboxLastReq) . "）`n"
+    up .= "（上一次程序理解成的动作：" . (lastActs.Length = 0 ? "（无）" : RunBoxJoinList(lastActs, " / ")) . "）`n"
+    up .= "（上一次的结局：" . (runboxLastResult = "" ? "（无记录）" : runboxLastResult) . "）`n"
+    up .= "请按格式输出记忆条目。"
+
+    result := "", reasoning := "", errMsg := ""
+    sysPrompt := RunBoxBuildLearnPrompt()
+    ok := RunBoxAskModel(up, sysPrompt, &result, &reasoning, &errMsg, true)   ; true = 本请求用 learn_model
+    runboxLearnBusy := false
+    if (!ok) {
+        DebugLog("[runbox] 学习请求失败：" . errMsg)
+        RunBoxBackToInput("整理记忆失败：" . errMsg, "", false)
+        return
+    }
+    RunBoxLogModelReply("记忆整理", result, reasoning)
+    parsed := RunBoxParseLearnReply(result)
+    for d in parsed.dropped
+        RunBoxLogAdd("[忽略] " . d)
+    if (parsed.none || (parsed.adds.Length = 0 && parsed.dels.Length = 0)) {
+        DebugLog("[runbox] 学习：模型认为这条反馈与记忆无关")
+        RunBoxBackToInput("这条反馈没有产生可用的记忆变更（详见执行过程）", "", false)
+        return
+    }
+    plan := RunBoxMemoryPlan(parsed)
+    RunBoxLearnShowDiff(plan)
+}
+
+; ---- 展示"将新增/删除哪些条目"；learn_confirm = true 时等用户回车确认 ----
+RunBoxLearnShowDiff(plan) {
+    global runboxState, runboxLearnConfirm, runboxLearnPlan
+    diff := RunBoxMemoryPlanDiff(plan)
+    RunBoxLogAdd("[记忆变更] 将新增 " . plan.adds.Length . " 条 / 删除 " . plan.dels.Length . " 条：")
+    for line in diff
+        RunBoxLogAdd("      " . line)
+    if (plan.adds.Length = 0 && plan.dels.Length = 0) {
+        DebugLog("[runbox] 学习：没有任何可用变更")
+        RunBoxBackToInput("这条反馈没有产生可用的记忆变更"
+            . (plan.rejected.Length > 0 ? "（" . plan.rejected.Length . " 条被拒绝，详见执行过程）" : "")
+            , "", false)
+        return
+    }
+    if (!runboxLearnConfirm) {
+        RunBoxLearnApply(plan)
+        return
+    }
+    runboxLearnPlan := plan
+    runboxState := "learnconfirm"
+    RunBoxSetStatus("将新增 " . plan.adds.Length . " 条、删除 " . plan.dels.Length . " 条记忆"
+        . (plan.rejected.Length > 0 ? "（" . plan.rejected.Length . " 条被拒绝）" : "")
+        . "：回车写入，Esc 取消；点下方把手看明细")
+    RunBoxInputVisible(true)
+    RunBoxFocusInput()
+}
+
+; ---- 落盘（确认后 / learn_confirm = false 时直接走这里）----
+RunBoxLearnApply(plan) {
+    global runboxState, runboxLearnPlan, runboxLastJournaled
+    m := RunBoxMemoryApplyPlan(plan)
+    okSave := RunBoxMemorySave(m, "学习")
+    RunBoxInputVisible(true)
+    if (!okSave) {
+        runboxState := "input"
+        RunBoxSetStatus("记忆写入失败（详见 debug.log）；原文件未改动")
+        return
+    }
+    RunBoxMemoryLoad(true)                    ; 让新记忆立刻生效（含别名索引）
+    runboxState := "input"
+    runboxLastJournaled := true                ; 反馈本身不写运行流水
+    RunBoxSetStatus("记忆已更新：新增 " . plan.adds.Length . " 条、删除 " . plan.dels.Length
+        . " 条（已自动备份，可用 self:runbox_memory_undo 回滚）")
+    runboxLearnPlan := 0
+    DebugLog("[runbox] 学习完成：新增 " . plan.adds.Length . " 条 / 删 " . plan.dels.Length . " 条")
+}
+
+; ---- 回车在"待确认记忆变更"态 = 写入 ----
+RunBoxLearnConfirmGo() {
+    global runboxLearnPlan, runboxState
+    if (runboxState != "learnconfirm" || !runboxLearnPlan)
+        return
+    RunBoxLearnApply(runboxLearnPlan)
+}
+
+; ---- 取消待确认的记忆变更 ----
+RunBoxLearnCancel() {
+    global runboxLearnPlan, runboxState
+    runboxLearnPlan := 0
+    runboxState := "input"
+    RunBoxSetStatus("已取消，记忆未改动")
+}
+
+; ---- 学习态下 Esc：取消学习，不关闭运行框 ----
+RunBoxLearnAbort() {
+    global runboxLearnBusy, runboxLearnArmed, runboxState
+    runboxLearnBusy := false
+    runboxLearnArmed := false
+    runboxState := "input"
+    RunBoxInputVisible(true)
+    RunBoxSetStatus("已取消")
+}
+
+; ---- 键帽【纠正】(self:runbox_learn)：下一次输入按反馈处理 ----
+RunBoxLearnArm() {
+    global runboxLearnArmed, runboxState, runboxBusy, runboxLearnBusy
+    if (!RunBoxHwnd())
+        return
+    ; 正在解析 / 执行 / 整理记忆时不要"武装"反馈：否则这次请求的结果会被
+    ; 下一次输入当成反馈内容处理，用户会看到"我说的话怎么变成改记忆了"。
+    ; 与 RunBoxSubmit / RunBoxLearningStart 的守卫保持一致。
+    if (runboxBusy || runboxLearnBusy) {
+        DebugLog("[runbox] 反馈模式被忽略：当前正忙（state=" . runboxState . "）")
+        RunBoxSetStatus("正在忙（解析 / 执行 / 整理记忆中），稍后再按【纠正】")
+        return
+    }
+    runboxLearnArmed := true
+    if (runboxState = "" || runboxState = "done")
+        runboxState := "input"
+    RunBoxFocusInput()
+    RunBoxSetStatus("反馈模式：说一下哪里不对 / 该怎么做（例如“以后我说录屏就是 Captura”），回车提交；Esc 取消")
+    DebugLog("[runbox] 已进入反馈模式（self:runbox_learn）")
+}
+
+; ---- 运行框自身的 self: 命令（由 OverlayRunSelf 分发过来）----
+RunBoxSelfCommand(c) {
+    if (c = "runbox_learn") {
+        RunBoxLearnArm()
+        return true
+    }
+    if (c = "runbox_memory_reload") {
+        RunBoxMemoryLoad(true)
+        RunBoxSetStatus("记忆已重新加载：" . RunBoxMemoryPath())
+        DebugLog("[runbox] self:runbox_memory_reload")
+        return true
+    }
+    if (c = "runbox_memory_undo") {
+        msg := RunBoxMemoryUndo()
+        RunBoxSetStatus(msg)
+        DebugLog("[runbox] self:runbox_memory_undo → " . msg)
+        return true
+    }
+    if (c = "runbox_memory_show") {
+        RunBoxShowMemory()
+        return true
+    }
+    return false
+}
+
+; ---- 把当前记忆塞进"执行过程"面板（self:runbox_memory_show）----
+RunBoxShowMemory() {
+    global runboxMemory, runboxExpanded
+    if (!RunBoxHwnd()) {
+        DebugLog("[runbox] self:runbox_memory_show：运行框未打开，忽略")
+        return
+    }
+    RunBoxLogAdd("[记忆] " . RunBoxMemoryPath())
+    RunBoxLogAdd("[记忆] 共 " . RunBoxMemoryCount(runboxMemory) . " 条（别名 "
+        . runboxMemory.secs["alias"].Length . " / 偏好 " . runboxMemory.secs["pref"].Length
+        . " / 正例 " . runboxMemory.secs["pos"].Length . " / 反例 " . runboxMemory.secs["neg"].Length . "）")
+    for line in StrSplit(RunBoxMemoryListing(), "`n")
+        RunBoxLogAdd("      " . line)
+    if (!runboxExpanded) {
+        runboxExpanded := true
+        RunBoxApplyHeight()
+    }
+    RunBoxRenderLog()
+    RunBoxSetStatus("记忆清单已写入执行过程（" . RunBoxMemoryCount(runboxMemory) . " 条）")
+}
+
+; ============================================================================
+; 诊断：把"模型会收到的提示语"写到文件（--dump-runbox-prompt）
+; ============================================================================
+RunBoxDumpPrompt(req := "") {
+    out := A_ScriptDir . "\runbox_prompt_dump.txt"
+    p := RunBoxBuildPrompt(req)
+    memBody := RunBoxMemoryBlockText(req, &used, &dropped)
+    txt := "===== 需求 =====`n" . (req = "" ? "(未提供)" : req) . "`n`n"
+    txt .= "===== 记忆块（" . StrLen(memBody) . " 字，裁剪 " . dropped . " 条）=====`n" . memBody . "`n`n"
+    txt .= "===== 系统提示语（" . StrLen(p) . " 字）=====`n" . p . "`n"
+    try {
+        f := FileOpen(out, "w", "UTF-8-RAW")
+        f.Write(Chr(0xFEFF))
+        f.Write(txt)
+        f.Close()
+    } catch Error as e {
+        try FileAppend("dump 失败：" . e.Message . "`n", out, "UTF-8")
+    }
+    DebugLog("[runbox] 提示语已写入 " . out)
+    return out
+}
+
+
+; ---- 白名单表：已配置动作（圆盘菜单 + 四块小键盘）→ 两张查表 ----
+;   allowedAct ："动作类型|动作内容" → 配置里的原始写法（执行时用配置的写法，保证执行的就是配置里的动作）
+;   allowedName：配置项名 → 它自己（名称精确区分大小写）
+; 供 RunBoxParseReply（解析模型回复）与 RunBoxAliasResolve（别名快路径）共用：
+; **两处必须是同一套白名单**，否则"记忆里能命中、执行时却被丢弃"这种错法会很难查。
+RunBoxAllowedMaps(&allowedAct, &allowedName) {
     allowedAct := Map()
     allowedName := Map()
     for it in OverlayConfiguredItems() {
@@ -3780,6 +5124,23 @@ RunBoxParseReply(reply) {
         if (nm != "")
             allowedName[nm] := nm          ; 名字也精确区分大小写
     }
+}
+
+; ---- 解析模型回复：纯文本放行 + 动作严格白名单 ----
+; 需求分两种情况：① 要输出文字（显式 send: / paste:）→ 直接执行、照原样输出，不需要先配置；
+;                 ② 要执行动作（按键 / 热键 / 键盘操作 / 程序 / 自身功能）→ 必须命中"配置里已有的动作"。
+; 返回 {actions: [...], dropped: [...], error: ""}；error 非空表示模型明确说做不到
+RunBoxParseReply(reply) {
+    global runboxMaxActions
+    actions := []
+    dropped := []
+    errText := ""
+    contIdx := 0                     ; > 0 表示"上一行是输出文字"，随后的裸行按续行处理（见 ②-2）
+
+    ; ---------- 白名单：只承认"配置里已有的动作"（圆盘菜单 + 四块小键盘）----------
+    ; 构建逻辑抽到 RunBoxAllowedMaps()：**别名快路径与运行框解析共用同一套白名单**，
+    ; 避免两处各写一份而慢慢走样（记忆同样不得凭空造动作）。
+    RunBoxAllowedMaps(&allowedAct, &allowedName)
 
     fence := Chr(96) . Chr(96) . Chr(96)     ; markdown 代码块围栏（三个反引号）
     txt := StrReplace(reply, fence, "")      ; 容忍模型套代码块
@@ -4274,6 +5635,8 @@ RunBoxShow() {
     }
     runboxState := "input"
     runboxBusy := false
+    runboxLearnArmed := false
+    RunBoxMemoryReloadIfChanged()                ; 用户手改记忆文件后立刻生效
 
     L := RunBoxComputeLayout()                   ; 布局：面板 / 输入框 / 状态 / 把手 / 日志的矩形
     vb := RadialVirtualBounds()
@@ -4662,6 +6025,7 @@ RunBoxClose() {
     global runboxGui, runboxTextGui, runboxInputGui, runboxEdit, runboxLogGui, runboxLogEdit
     global runboxState, runboxBusy, runboxPrevWin, runboxLayout
     global runboxExpanded, runboxDragActive, runboxTextTimerOn
+    global runboxLearnArmed, runboxLearnBusy, runboxLearnPlan
     ; 顺序很重要：**先停表、先清空全局引用，最后才销毁窗口**。
     ; 否则定时器（每 400ms / 拖动 20ms）可能在 Destroy() 与清空之间插进来读 runboxGui.Hwnd，
     ; 抛 "Gui has no window"（2026-09-15 用户实测踩到）。
@@ -4678,6 +6042,9 @@ RunBoxClose() {
     RunKeysHide()                                 ; 键帽排随运行框一起收掉
     runboxBusy := false
     runboxState := ""
+    runboxLearnArmed := false
+    runboxLearnBusy := false
+    runboxLearnPlan := 0
     gPanel := runboxGui
     gText := runboxTextGui
     gInput := runboxInputGui
@@ -4712,6 +6079,8 @@ RunBoxDefault() {
         RunBoxSubmit()
     else if (runboxState = "confirm")
         RunBoxExecute()
+    else if (runboxState = "learnconfirm")
+        RunBoxLearnConfirmGo()          ; 待确认的记忆变更：回车才落盘（learn_confirm = true）
 }
 
 ; ---- Esc = 对**当前窗口**（运行框自己）的取消 → 关闭运行框 ----
@@ -4719,18 +6088,30 @@ RunBoxDefault() {
 ; 输入 / 确认 / 结果态 → 直接关闭；执行态（busy）交给全局 Esc 热键 RunBoxEscHandler 中止。
 ; 注意：与正下方键帽排的【取消】键语义不同 —— 那个是把 Esc 发给"目标窗口"，不关运行框。
 RunBoxEsc() {
-    global runboxBusy
-    if (runboxBusy)
+    global runboxBusy, runboxLearnBusy, runboxState
+    if (runboxBusy || runboxLearnBusy)
         return
+    ; 学习相关态：Esc 只取消"学习"，**不关闭运行框**（把输入框留给用户改一改再说）
+    if (runboxState = "learnconfirm") {
+        RunBoxLearnCancel()
+        return
+    }
+    if (runboxState = "learning") {
+        RunBoxLearnAbort()
+        return
+    }
     RunBoxClose()
 }
 
 ; ---- 发一次模型请求（临时套用 [runbox] 的 model / timeout 覆盖，结束后恢复）----
-RunBoxAskModel(userPrompt, sysPrompt, &result, &reasoning, &errMsg) {
-    global ai_model, ai_timeout, runboxModel, runboxTimeout
+; learn = true 时改用 [runbox] learn_model（留空则仍用 [runbox] model / [ai] model）
+RunBoxAskModel(userPrompt, sysPrompt, &result, &reasoning, &errMsg, learn := false) {
+    global ai_model, ai_timeout, runboxModel, runboxTimeout, runboxLearnModel
     savedModel := ai_model
     savedTimeout := ai_timeout
-    if (runboxModel != "")
+    if (learn && runboxLearnModel != "")
+        ai_model := runboxLearnModel
+    else if (runboxModel != "")
         ai_model := runboxModel
     if (runboxTimeout > 0)
         ai_timeout := runboxTimeout
@@ -4784,17 +6165,58 @@ RunBoxFallbackPick(acts) {
 
 ; ---- 提交需求 → 请求模型 → 解析 → 确认清单 ----
 RunBoxSubmit() {
-    global runboxGui, runboxEdit, runboxState, runboxBusy
+    global runboxGui, runboxEdit, runboxState, runboxBusy, runboxLearnArmed
     global runboxPrevWin, runboxPrevTitle, runboxActions, runboxDropped, runboxConfirm
     global runboxModel, runboxTimeout, runboxLog
+    global runboxLastReq, runboxLastActions, runboxLastDropped, runboxLastResult
+    global runboxLastAliasHit, runboxLastJournaled, runboxLastErrText, runboxLastMemoryNote
     if (runboxState != "input" || runboxBusy || !runboxGui)
         return
     req := Trim(runboxEdit.Value)
     if (req = "")
         return
+
+    ; ---------- 反馈入口（显式是唯一会自动改记忆的途径）----------
+    ; 两种进入方式：① 输入以「纠正：/记住：/记下：」开头；② 先按了键帽【纠正】(self:runbox_learn)。
+    fb := RunBoxFeedbackPrefix(req)
+    if (runboxLearnArmed || fb.isFeedback) {
+        if (fb.body = "") {
+            RunBoxSetStatus("反馈内容为空：请写成“纠正：以后我说X就是Y”这样的一句话")
+            return
+        }
+        try runboxEdit.Value := ""
+        RunBoxLearningStart(fb.body)
+        return
+    }
+
     DebugLog("[runbox] 需求：" . req)
     runboxLog := []                              ; 每次新需求都重开一份过程日志
     RunBoxLogAdd("[需求] " . req)
+    runboxLastReq := req                         ; 反馈学习要用"上一次需求"当上下文
+    runboxLastAliasHit := ""
+    runboxLastErrText := ""
+    runboxLastJournaled := false
+    RunBoxMemoryReloadIfChanged()                ; 用户手改记忆文件后立刻生效（不必重启）
+
+    ; ---------- 别名快路径：命中就不调模型（0 延迟、0 token、0 幻觉）----------
+    hitWords := [], why := []
+    aliasActs := RunBoxAliasResolve(req, &hitWords, &why)
+    if (aliasActs.Length > 0) {
+        runboxActions := aliasActs
+        runboxDropped := []
+        runboxLastActions := aliasActs
+        runboxLastDropped := []
+        runboxLastAliasHit := RunBoxJoinList(hitWords, "、")
+        runboxLastMemoryNote := "别名" . hitWords.Length . "条（未调模型）"
+        RunBoxLogAdd("[记忆] 别名命中：" . RunBoxJoinList(why, "；") . "（本次未调用模型）")
+        RunBoxAliasBump(hitWords)
+        RunBoxSetStatus("别名命中：" . RunBoxJoinList(hitWords, "、") . " → 共 "
+            . aliasActs.Length . " 条动作")
+        DebugLog("[runbox] 别名快路径命中，跳过模型调用")
+        RunBoxShowConfirm()
+        return
+    }
+
     runboxBusy := true
     runboxState := "loading"
     RunBoxInputVisible(false)
@@ -4803,7 +6225,9 @@ RunBoxSubmit() {
     if (runboxPrevWin)
         RadialActivateFocusWin(runboxPrevWin)
 
-    sysPrompt := RunBoxBuildPrompt()
+    sysPrompt := RunBoxBuildPrompt(req)          ; 带上需求：记忆块按相关度排序
+    memBody := RunBoxMemoryBlockText(req, &memUsed, &memDropped)
+    runboxLastMemoryNote := (Trim(memBody) = "") ? "无" : ("记忆块" . StrLen(memBody) . "字/裁" . memDropped . "条")
     userPrompt := "当前前台窗口：" . (runboxPrevTitle != "" ? runboxPrevTitle : "（未知）") . "`n操作需求：" . req
     hintText := "如果你要的是文字 / 信息，可改说“请输出…”"
 
@@ -4811,6 +6235,8 @@ RunBoxSubmit() {
     result := "", reasoning := "", errMsg := ""
     if (!RunBoxAskModel(userPrompt, sysPrompt, &result, &reasoning, &errMsg)) {
         DebugLog("[runbox] 解析失败：" . errMsg)
+        runboxLastActions := [], runboxLastDropped := []
+        runboxLastResult := "解析失败：" . errMsg
         RunBoxBackToInput("解析失败：" . errMsg)
         return
     }
@@ -4818,6 +6244,9 @@ RunBoxSubmit() {
     parsed := RunBoxParseReply(result)
     runboxActions := parsed.actions
     runboxDropped := parsed.dropped
+    runboxLastActions := runboxActions
+    runboxLastDropped := runboxDropped
+    runboxLastErrText := parsed.error
     DebugLog("[runbox] 第一阶段：解析出 " . runboxActions.Length . " 条动作，丢弃 " . runboxDropped.Length . " 行"
         . (parsed.error != "" ? "，ERROR：" . parsed.error : ""))
 
@@ -4850,6 +6279,8 @@ RunBoxSubmit() {
         if (reason != "") {
             if (reason != "没有对应的操作")
                 reason := "模型认为无法完成：" . reason
+            runboxLastActions := [], runboxLastDropped := []
+            runboxLastResult := reason
             RunBoxBackToInput(reason, hintText)
             return
         }
@@ -4862,10 +6293,15 @@ RunBoxSubmit() {
 
 ; ---- 解析失败 / 无动作：回到输入态并把提示写在状态栏 ----
 ; hint：可选的第二句出路提示（例如"如果你要的是文字 / 信息，可改说…"）
-RunBoxBackToInput(msg, hint := "") {
-    global runboxEdit, runboxState, runboxBusy
+; journalIt = false 用于"学习流程"的失败路径：那次并没有跑需求，不该往运行流水里写一行
+; （否则流水里会出现"上一条需求 + 整理记忆失败"这种对不上的记录，事后复盘会误导）。
+RunBoxBackToInput(msg, hint := "", journalIt := true) {
+    global runboxEdit, runboxState, runboxBusy, runboxLastResult
     runboxBusy := false
     runboxState := "input"
+    runboxLastResult := msg                       ; 反馈学习要参考"上一次的结局"
+    if (journalIt)
+        RunBoxJournalFlush(msg)                   ; 没有可用动作 / 解析失败：也如实写进流水
     RunBoxInputVisible(true)
     RunBoxApplyHeight()
     RunBoxSetStatus(msg . (hint != "" ? "；" . hint : "") . "（可修改需求后重试）")
@@ -4875,8 +6311,12 @@ RunBoxBackToInput(msg, hint := "") {
 ; ---- 显示"将执行"清单；confirm = false 时直接执行 ----
 RunBoxShowConfirm() {
     global runboxActions, runboxDropped, runboxState, runboxBusy, runboxConfirm
+    global runboxLastActions, runboxLastDropped, runboxLastResult
     runboxBusy := false
     runboxState := "confirm"
+    runboxLastActions := runboxActions
+    runboxLastDropped := runboxDropped
+    runboxLastResult := "已交给执行器（" . runboxActions.Length . " 条动作）"
     ; 界面只有"输入框 + 可展开的执行过程"两块：清单与丢弃明细记在过程面板里，
     ; 这里只在状态行给一行摘要（想看明细就点底部把手展开）
     RunBoxSetStatus("将执行 " . runboxActions.Length . " 条动作（丢弃 " . runboxDropped.Length
@@ -4942,9 +6382,11 @@ RunBoxStep() {
 ; 收尾：回到可编辑状态；focusTarget = true（正常执行完）时把焦点还给"最近一次活动的窗口"
 RunBoxFinish(msg, focusTarget := true) {
     global runboxBusy, runboxState, runboxGui, runboxEdit, runboxStartTick
-    global runboxPrevWin, runboxPrevTitle, runboxExecBaseWin
+    global runboxPrevWin, runboxPrevTitle, runboxExecBaseWin, runboxLastResult
     SetTimer(RunBoxStep, 0)
     runboxBusy := false
+    runboxLastResult := msg                     ; 反馈学习要参考"上一次的结局"
+    RunBoxJournalFlush(msg)                     ; 运行流水：每次需求的结局只写一次
     RunBoxEscOff()
     DebugLog("[runbox] " . msg)
     RunBoxLogAdd("[结果] " . msg . "（本次共 " . (A_TickCount - runboxStartTick) . "ms）")
