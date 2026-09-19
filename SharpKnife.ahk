@@ -3473,7 +3473,20 @@ OverlayPrepareInject(owner, fallbackWin, what) {
         DebugLog("[overlay] 已取消：" . what . " —— 目标窗口未能重新获得前台（" . owner . "）")
         return false
     }
-    if (!RadialWaitModifiersReleased()) {
+    ; ---- 修饰键闸门：**运行框执行序列例外**（2026-09-19 用户定稿）----
+    ; 这道等待是为了"浮层被 Ctrl+Shift+M 之类的真实组合键唤起时，用户手指可能还按在键上"，
+    ; 若此时注入按键会被系统拼成组合键（想发 {Up} 却发出 Ctrl+Up）。
+    ; 但自然语言运行框的**多步序列**里，"按住修饰键"本身就是合法写法：
+    ;     序列 ^{Space} / {Ctrl down} / {Up} / {Up} / {Ctrl up}
+    ; 前一步 {Ctrl down} 注入后修饰键就处于按下状态，若每步都等它"先松开"，
+    ; 后面每一步都会 400ms 超时被取消（用户实测：第 1 条 16ms 成功、其余全部 406ms 未执行）。
+    ; 因此在运行框（owner = "runbox"）下**跳过**这道等待，让"按住修饰键的多步序列"能跑通；
+    ; 浮层（radial / arrow / numpad / symbol / letter）行为**完全不变**，仍旧逐个等待。
+    ; 代价（已与用户确认）：运行框执行期间若用户自己正按着修饰键，注入的键会与其拼成组合键。
+    ; run: 动作走 OverlayRunCommand，那条路径**不接收 owner**，因此保持原样继续等待（选法 A）。
+    if (owner = "runbox") {
+        DebugLog("[overlay] 运行框序列：跳过修饰键等待（" . what . "）")
+    } else if (!RadialWaitModifiersReleased()) {
         DebugLog("[overlay] 已取消：" . what . " —— 检测到物理修饰键仍按下（" . owner . "）")
         return false
     }
@@ -6378,6 +6391,27 @@ RunBoxStep() {
     SetTimer(RunBoxStep, -Max(delay, 10))
 }
 
+; ---- 兜底：抬起"被序列按下、却没等到松开"的修饰键 ----
+; 为什么需要它（2026-09-19 与"运行框跳过修饰键闸门"一起加）：
+;   序列允许 {Ctrl down} … {Ctrl up} 这种跨步写法后，一旦序列在中途被 Esc 中止、
+;   或负责松开的最后一条因故没执行，修饰键就会**卡在按下状态**（用户表现为"Ctrl 好像粘住了"）。
+;   这里在执行结束（正常跑完 / 被中止）时统一抬起，保证不留悬挂状态。
+; 只对**逻辑上处于按下**的键发 up：没按下的键不发，避免凭空产生一次按键事件。
+; 注意：它清不掉"用户故意跨需求保持修饰键"的用法（例如这次只说"按下 Ctrl"）——
+;   那是这类写法的固有性质，不做超时自动松开（避免把机制搞复杂）。
+RunBoxReleaseModifiers() {
+    stuck := []
+    for k in ["Ctrl", "Shift", "Alt", "LWin", "RWin"]
+        if GetKeyState(k, "P")
+            stuck.Push(k)
+    if (stuck.Length = 0)
+        return
+    for k in stuck {
+        try SendEvent("{" . k . " up}")
+    }
+    DebugLog("[runbox] 已抬起执行后仍按下的修饰键：" . RunBoxJoinList(stuck, "、"))
+}
+
 ; ---- 收尾：停掉定时器、交还 Esc、显示结果 ----
 ; 收尾：回到可编辑状态；focusTarget = true（正常执行完）时把焦点还给"最近一次活动的窗口"
 RunBoxFinish(msg, focusTarget := true) {
@@ -6385,6 +6419,7 @@ RunBoxFinish(msg, focusTarget := true) {
     global runboxPrevWin, runboxPrevTitle, runboxExecBaseWin, runboxLastResult
     SetTimer(RunBoxStep, 0)
     runboxBusy := false
+    RunBoxReleaseModifiers()                    ; 兜底：抬起序列可能留下的悬挂修饰键
     runboxLastResult := msg                     ; 反馈学习要参考"上一次的结局"
     RunBoxJournalFlush(msg)                     ; 运行流水：每次需求的结局只写一次
     RunBoxEscOff()

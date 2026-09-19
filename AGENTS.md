@@ -575,6 +575,10 @@ case = true
   · **改名/删除配置项后**记忆里的别名会指向失效目标：运行时会**跳过该条并写日志**，但**不删盘上的条目**（配置可能只是临时改名）——这是有意为之。
   · 记忆的四个文件全是运行时产物，已进 `.gitignore`：`runbox_memory.md`、`runbox_memory.*.bak.md`、`runbox_learn.log`、`runbox_prompt_dump.txt`。
 - **`--dump-runbox-prompt[=需求]` 与 `--selftest` 的分流位置很讲究**：必须放在 **auto-execute 开头、任何配置加载与热键注册之前**（`A_Args` 要到 auto-execute 才可用，所以这是最早的位置）。理由见 §5.1：加载期弹框会阻塞脚本、那时一行代码都没执行，开关放得越晚越可能在半路卡死。`test/runbox_eval/runbox_eval.py` 就是靠这个开关拿到**与线上完全一致**的提示语。
+- **运行框执行序列"跳过修饰键闸门"（2026-09-19 用户实测反馈后定稿，别改回去）**：`OverlayPrepareInject` 里那道 `RadialWaitModifiersReleased()`（等 400ms 让 Ctrl/Shift/Alt/Win 抬起）是为**浮层**设计的——浮层被 `Ctrl+Shift+M` 之类的真实组合键唤起时，用户手指可能还按着，不等就会把注入的按键拼成组合键。但自然语言运行框的**多步序列**里"按住修饰键"本身是合法写法（`{Ctrl down}` … `{Up}` … `{Ctrl up}`），前一步注入后修饰键就处于按下状态，于是后面**每一步都 400ms 超时被取消**——用户实测就是"第 1 条 16ms 成功、其余全部 406ms 未执行"，而且第 7 条 `{Ctrl up}` 永远发不出去（闸门要求"先松开才准发松开"）。
+  现在的做法：`OverlayPrepareInject` 里按 owner 分流，**`owner = "runbox"` 跳过等待**，其余（`radial` / `arrow` / `numpad` / `symbol` / `letter` / `runkeys`）**行为一字不变**。`run:` 走 `OverlayRunCommand`，那条路径不接 owner，**保持原样继续等待**（用户选法 A）。
+  配套：`RunBoxReleaseModifiers()` 在 `RunBoxFinish`（正常结束与 Esc 中止的唯一收尾点）里抬起悬挂的修饰键，防止序列中途被打断而"Ctrl 粘住"。它**只对逻辑上按下的键发 up**，且**清不掉"跨需求故意保持"**的用法（不做超时自动松开）。
+  改这里之前想清楚：**不要**为了方便把闸门在浮层那边也去掉（会破坏组合键唤起后的注入），也**不要**把 `run:` 一起放开（用户明确选了 A）。
 - **触发键默认 F6（2026-09-18 起）**：单键触发比三键组合省事，且 F6 在常用软件里裸按冲突最小（老的 `^+i` 会顶掉浏览器 DevTools 的 `Ctrl+Shift+I`）。换默认键时必须按 §2.3 的表把源码默认值 + 注释、`config.ini.example`、`README.md`、`Requirements.md`、本文件与 `articles/` 文章一次同步干净（2026-09-18 就是这么从 `^+i` 换成 `F6` 的）。另注意笔记本顶排可能是媒体键（Fn-Lock），单键能否生效要用户桌面手测。
 - 等待**不让模型输出**：动作间 `step_delay_ms`、`run:` 后 `run_wait_ms` 由程序插；`wait:` 动作只留给配置层用（面板/菜单做宏）。
 - `AIRequest` 第 5 个参数 `systemPrompt` 为空时沿用 `[ai] system_prompt`，非空时覆盖 —— 运行框靠它换提示语，其它调用点不受影响。
