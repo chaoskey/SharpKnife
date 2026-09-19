@@ -575,6 +575,12 @@ case = true
   · **改名/删除配置项后**记忆里的别名会指向失效目标：运行时会**跳过该条并写日志**，但**不删盘上的条目**（配置可能只是临时改名）——这是有意为之。
   · 记忆的四个文件全是运行时产物，已进 `.gitignore`：`runbox_memory.md`、`runbox_memory.*.bak.md`、`runbox_learn.log`、`runbox_prompt_dump.txt`。
 - **`--dump-runbox-prompt[=需求]` 与 `--selftest` 的分流位置很讲究**：必须放在 **auto-execute 开头、任何配置加载与热键注册之前**（`A_Args` 要到 auto-execute 才可用，所以这是最早的位置）。理由见 §5.1：加载期弹框会阻塞脚本、那时一行代码都没执行，开关放得越晚越可能在半路卡死。`test/runbox_eval/runbox_eval.py` 就是靠这个开关拿到**与线上完全一致**的提示语。
+- **允许"用已有动作组合达成目标" + 危险动作不得被组合（2026-09-19 用户定稿）**：用户要的是**目标**，目标不必在表里；约束只落在**动作**层——最终序列里**每个动作**都必须在表里。提示语因此把原来的"表里没有 → 立刻 ERROR: NOACTION"改成"先想能不能用已有动作**组合**出来，实在不行才 NOACTION"，并加了两个组合示例（含用户实测那条"向上选三个文件"→ `item: 按下Shift` / `{Up}` / `{Up}` / `item: 松开Shift`）。
+  两个配套要点，改之前必须知道：
+  ① **危险类必须在程序里硬拦，不能只写提示语**：`RunBoxDangerWords()` / `RunBoxIsDangerous()` 按**配置项名 + 动作文本**的关键词识别删除 / 永久删除 / 剪切 / 关闭 / 重命名等；`RunBoxParseReply` 在**序列多于 1 条**时丢弃其中的危险动作。实测（2026-09-19）：提示语里已标 ⚠危险，模型**仍然**把危险动作编进组合（"清空文件夹"→ [全选/删除/回车]，"剪切并粘到上一级"→ [剪切/上/粘贴]），**所以软约束不够**。
+  ② **"单条不拦、多条才拦"是用户确认的边界**：序列只有 1 条时那是用户在明确要求这件事（"删除这个文件"必须照常能用），多条时才算"被编进组合"。改这个判断前先想清楚，别把用户的正常删除需求一起拦掉。
+  ③ `RunBoxCatalogTextMarked()` 是喂给模型的那份动作表（带 ⚠危险 标记），`RunBoxCatalogText()` 保持无标记、供其它地方用。
+  ④ 踩过的坑：判危险时取配置项要用 `OverlayLookupItem()` 返回的 `{name, action, source}`，**不要**把 `{name, action, source}` 丢给 `OverlayActionText()`——那个函数吃的是圆盘菜单项对象（`actionType` / `actionValue`），字段不同，会抛 "has no property named actionType"。
 - **运行框执行序列"跳过修饰键闸门"（2026-09-19 用户实测反馈后定稿，别改回去）**：`OverlayPrepareInject` 里那道 `RadialWaitModifiersReleased()`（等 400ms 让 Ctrl/Shift/Alt/Win 抬起）是为**浮层**设计的——浮层被 `Ctrl+Shift+M` 之类的真实组合键唤起时，用户手指可能还按着，不等就会把注入的按键拼成组合键。但自然语言运行框的**多步序列**里"按住修饰键"本身是合法写法（`{Ctrl down}` … `{Up}` … `{Ctrl up}`），前一步注入后修饰键就处于按下状态，于是后面**每一步都 400ms 超时被取消**——用户实测就是"第 1 条 16ms 成功、其余全部 406ms 未执行"，而且第 7 条 `{Ctrl up}` 永远发不出去（闸门要求"先松开才准发松开"）。
   现在的做法：`OverlayPrepareInject` 里按 owner 分流，**`owner = "runbox"` 跳过等待**，其余（`radial` / `arrow` / `numpad` / `symbol` / `letter` / `runkeys`）**行为一字不变**。`run:` 走 `OverlayRunCommand`，那条路径不接 owner，**保持原样继续等待**（用户选法 A）。
   配套：`RunBoxReleaseModifiers()` 在 `RunBoxFinish`（正常结束与 Esc 中止的唯一收尾点）里抬起悬挂的修饰键，防止序列中途被打断而"Ctrl 粘住"。它**只对逻辑上按下的键发 up**，且**清不掉"跨需求故意保持"**的用法（不做超时自动松开）。
